@@ -14,12 +14,20 @@ export const arabicRatio = (str) => {
   return l ? a / l : 0;
 };
 
+/** Rapikan tautan tempelan: buang spasi/tanda kutip, tambahkan https:// bila hanya berupa \"shamela.ws/book/1/2\", ubah http:// menjadi https://. */
+export function normalisasiUrl(raw) {
+  let t = String(raw || '').trim().replace(/^[\s"'<(]+|[\s"'>).,;]+$/g, '').split(/\s+/)[0] || '';
+  if (/^http:\/\//i.test(t)) t = 'https://' + t.slice(7);
+  else if (!/^[a-z][a-z0-9+.-]*:/i.test(t) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(t)) t = 'https://' + t;
+  return t;
+}
+
 export const hostAllowed = (host, allowed) => allowed.some((h) => host === h || host.endsWith('.' + h));
 
 /** Validasi tautan: https, tanpa kredensial, port standar, domain di daftar izin. */
 export function parseKitabUrl(raw, allowed) {
   let u;
-  try { u = new URL(String(raw || '').trim()); } catch { throw new ApiError(422, 'URL_INVALID', 'Tautan tidak valid. Tempel alamat lengkap yang diawali https://'); }
+  try { u = new URL(normalisasiUrl(raw)); } catch { throw new ApiError(422, 'URL_INVALID', 'Tautan tidak valid. Tempel alamat lengkap yang diawali https://'); }
   if (u.protocol !== 'https:') throw new ApiError(422, 'URL_INVALID', 'Hanya tautan https:// yang diterima.');
   if (u.username || u.password || (u.port && u.port !== '443')) throw new ApiError(422, 'URL_INVALID', 'Tautan tidak valid.');
   if (!hostAllowed(u.hostname.toLowerCase(), allowed)) {
@@ -183,17 +191,32 @@ async function readCapped(res, maxBytes) {
   return buf;
 }
 
-export async function fetchKitab(rawUrl, { allowedHosts = DEFAULT_HOSTS, fetchImpl = fetch, maxBytes = 2_000_000, timeoutMs = 10_000 } = {}) {
+/* Cache singkat per instance: guru sering membuka halaman yang sama berulang; mengurangi beban ke situs sumber dan risiko diblokir. */
+const CACHE = new Map(); const CACHE_TTL = 5 * 60_000; const CACHE_MAX = 40;
+export const __kosongkanCache = () => CACHE.clear();
+const tidur = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function fetchKitab(rawUrl, { allowedHosts = DEFAULT_HOSTS, fetchImpl = fetch, maxBytes = 2_000_000, timeoutMs = 10_000, retryDelayMs = 400 } = {}) {
   let url = parseKitabUrl(rawUrl, allowedHosts);
+  const kunciCache = url.href;
+  const hit = CACHE.get(kunciCache);
+  if (hit && Date.now() - hit.t < CACHE_TTL) return { ...hit.v, dariCache: true };
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     let res;
     for (let hop = 0; ; hop++) {
-      res = await fetchImpl(url.href, {
+      const opsi = {
         redirect: 'manual', signal: ctl.signal,
         headers: { 'User-Agent': 'BankSoalMadrasah/1.0 (alat bantu guru; satu halaman per permintaan)', Accept: 'text/html,text/plain;q=0.9', 'Accept-Language': 'ar,id;q=0.8' },
-      });
+      };
+      try {
+        res = await fetchImpl(url.href, opsi);
+        if (res.status >= 500 && !ctl.signal.aborted) { await tidur(retryDelayMs); res = await fetchImpl(url.href, opsi); } // satu kali coba ulang untuk galat sementara
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        await tidur(retryDelayMs); res = await fetchImpl(url.href, opsi);
+      }
       if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
         if (hop >= 3) throw new ApiError(502, 'SUMBER_ERROR', 'Situs sumber terlalu banyak mengalihkan.');
         url = parseKitabUrl(new URL(res.headers.get('location'), url).href, allowedHosts); // domain tujuan diperiksa ulang
@@ -202,7 +225,7 @@ export async function fetchKitab(rawUrl, { allowedHosts = DEFAULT_HOSTS, fetchIm
       break;
     }
     if (res.status === 404) throw new ApiError(404, 'SUMBER_NOT_FOUND', 'Halaman tidak ditemukan di situs sumber. Periksa tautannya.');
-    if (res.status === 429 || res.status === 403) throw new ApiError(502, 'SUMBER_BLOCKED', 'Situs sumber menolak permintaan otomatis. Salin teksnya manual lalu tempel di kolom teks.');
+    if (res.status === 429 || res.status === 403) throw new ApiError(502, 'SUMBER_BLOCKED', 'Situs sumber menolak permintaan otomatis dari server. Buka halamannya di tab baru, salin teksnya, lalu tempel di kolom Teks Kitab.');
     if (res.status !== 200) throw new ApiError(502, 'SUMBER_ERROR', `Situs sumber membalas dengan kode ${res.status}.`);
 
     const type = String(res.headers.get('content-type') || '').toLowerCase();
@@ -218,10 +241,20 @@ export async function fetchKitab(rawUrl, { allowedHosts = DEFAULT_HOSTS, fetchIm
       throw new ApiError(422, 'TEKS_TIDAK_DITEMUKAN', 'Tidak ada teks Arab yang bisa diambil dari halaman ini. Salin teksnya manual lalu tempel di kolom teks.');
     }
     const cut = cutAtBoundary(teks, MAX_TEKS);
-    return { url: url.href, host: url.hostname, judul: title.slice(0, 200), ...parseTitle(title), teks: cut.teks, terpotong: cut.terpotong };
+    const hasil = { url: url.href, host: url.hostname, judul: title.slice(0, 200), ...parseTitle(title), teks: cut.teks, terpotong: cut.terpotong };
+    if (CACHE.size >= CACHE_MAX) CACHE.delete(CACHE.keys().next().value);
+    CACHE.set(kunciCache, { t: Date.now(), v: hasil });
+    return hasil;
   } catch (e) {
     if (e instanceof ApiError) throw e;
     if (e && e.name === 'AbortError') throw new ApiError(504, 'SUMBER_TIMEOUT', 'Situs sumber terlalu lama merespons. Coba lagi.');
     throw new ApiError(502, 'SUMBER_ERROR', 'Tidak dapat menjangkau situs sumber. Coba lagi nanti.');
   } finally { clearTimeout(timer); }
+}
+
+/** Susun tautan halaman dari tautan kitab (mis. https://shamela.ws/book/823) dan nomor halaman. Null bila format tidak dikenali. */
+export function bangunUrlHalaman(tautan, halaman) {
+  const m = /^(https:\/\/[^?#]*\/book\/\d+)(?:\/\d+)?\/?$/.exec(normalisasiUrl(tautan));
+  const n = Number(halaman);
+  return m && Number.isInteger(n) && n >= 1 ? `${m[1]}/${n}` : null;
 }

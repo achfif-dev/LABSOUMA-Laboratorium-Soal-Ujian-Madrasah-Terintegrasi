@@ -160,7 +160,8 @@ Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model d
 
 ## Fitur teks kitab dan bantuan AI
 
-- **Ambil teks dari tautan:** shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org (teks). Satu halaman per permintaan; nama kitab dan nomor halaman terisi dari judul halaman bila terbaca. Tautan sumber disimpan bersama soal. Struktur halaman situs bisa berubah; bila gagal, salin manual.
+- **Tautan per kitab:** di menu Konfigurasi, isi kolom *Tautan kitab* (mis. `https://shamela.ws/book/823`). Saat kitab itu dipilih di penyusunan soal, muncul tombol **Buka di situs** dan **Ambil halaman N**. Kolom **Tempel banyak kitab** menerima kolom ke-4 berisi tautan. Nomor di akhir alamat shamela.ws adalah urutan halaman situs, bukan selalu nomor halaman cetak.
+- **Ambil teks dari tautan:** (tautan boleh ditempel tanpa `https://`; hasil di-cache 5 menit dan server mencoba ulang sekali bila situs sumber galat sementara) shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org (teks). Satu halaman per permintaan; nama kitab dan nomor halaman terisi dari judul halaman bila terbaca. Tautan sumber disimpan bersama soal. Struktur halaman situs bisa berubah; bila gagal, salin manual.
 - **Maktabah Syamilah desktop:** berjalan offline di Windows dan tidak bisa diakses dari web. Salin teks atau ekspor ke .txt, tempel atau **Impor file .txt**, lalu **Bersihkan teks**.
 - **Terjemahkan**, **Analisis teks** (ide soal per level, calon pengecoh), dan **Telaah & Perbaiki** (editor punya **Telaah AI** di tab Review). Semuanya berdasar teks Arab yang diberikan, dengan konteks Ahlussunnah wal Jamaah yang moderat. Hasil AI perlu ditelaah manusia.
 - Pastikan pemakaian teks sesuai ketentuan situs sumber dan hak cipta edisi kitabnya.

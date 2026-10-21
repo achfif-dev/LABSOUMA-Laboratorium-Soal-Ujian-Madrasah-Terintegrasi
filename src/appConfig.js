@@ -6,6 +6,7 @@
 // dan soal lama menyimpan nama itu. Yang bisa diatur admin: label tampilan, daftar kelas, dan tingkat mana yang aktif.
 import { ApiError, cleanLine } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
+import { DEFAULT_HOSTS, hostAllowed, normalisasiUrl } from './kitabFetch.js';
 
 export const TINGKAT_NAMA = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
 const DOC = 'config/app';
@@ -130,13 +131,19 @@ export function sanitizeAppConfig(input) {
   const kdilihat = new Set();
   const kitabIn = arr(input.kitab);
   if (kitabIn.length > BATAS.kitab) throw bad(`Katalog kitab maksimal ${BATAS.kitab}.`);
+  /** Tautan kitab opsional: hanya https di situs kitab yang diizinkan; selain itu dikosongkan. */
+  const tautanAman = (raw) => {
+    const t = normalisasiUrl(cleanLine(raw, 300));
+    if (!t) return '';
+    try { const u = new URL(t); return u.protocol === 'https:' && !u.username && !u.password && !u.port && hostAllowed(u.hostname.toLowerCase(), DEFAULT_HOSTS) ? u.origin + u.pathname.replace(/\/$/, '') : ''; } catch { return ''; }
+  };
   const kitab = kitabIn.map((k) => {
     const nama = cleanLine(k && k.nama, 120);
     if (!nama) throw bad('Ada kitab tanpa nama.');
     if (kdilihat.has(nama.toLowerCase())) throw bad(`Kitab "${nama}" tercatat dua kali.`);
     kdilihat.add(nama.toLowerCase());
     const tk = subsetTingkat(k.tingkat);
-    return { nama, pengarang: cleanLine(k.pengarang, 100), mapel: cleanLine(k.mapel, BATAS.mapel), tingkat: tk.length ? tk : [...TINGKAT_NAMA], aktif: k.aktif !== false };
+    return { nama, pengarang: cleanLine(k.pengarang, 100), mapel: cleanLine(k.mapel, BATAS.mapel), tautan: tautanAman(k.tautan), tingkat: tk.length ? tk : [...TINGKAT_NAMA], aktif: k.aktif !== false };
   });
 
   return { versi: 1, tingkat, mapel, kitab };

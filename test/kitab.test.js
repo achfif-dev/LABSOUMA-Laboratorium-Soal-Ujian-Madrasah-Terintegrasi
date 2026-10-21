@@ -16,7 +16,7 @@ const resp = (body, { status = 200, type = 'text/html; charset=utf-8', location 
 test('parseKitabUrl: izinkan domain terdaftar, tolak yang lain', () => {
   assert.equal(parseKitabUrl('https://shamela.ws/book/1/3#x', DEFAULT_HOSTS).href, 'https://shamela.ws/book/1/3');
   assert.equal(parseKitabUrl('https://www.shamela.ws/book/1/3', DEFAULT_HOSTS).hostname, 'www.shamela.ws');
-  for (const bad of ['http://shamela.ws/x', 'https://evil.com/shamela.ws', 'https://shamela.ws.evil.com/x', 'https://user:pw@shamela.ws/x', 'https://shamela.ws:8443/x', 'https://127.0.0.1/x', 'bukan url', 'file:///etc/passwd']) {
+  for (const bad of ['https://evil.com/shamela.ws', 'https://shamela.ws.evil.com/x', 'https://user:pw@shamela.ws/x', 'https://shamela.ws:8443/x', 'https://127.0.0.1/x', 'bukan url', 'file:///etc/passwd']) {
     assert.throws(() => parseKitabUrl(bad, DEFAULT_HOSTS), (e) => ['URL_INVALID', 'URL_NOT_ALLOWED'].includes(e.code), bad);
   }
 });
@@ -92,3 +92,39 @@ test('htmlToArabicText: HTML jahat 2 MB selesai cepat (waktu linear, bukan kuadr
     assert.ok(Date.now() - t < 5000, `terlalu lambat: ${html.slice(0, 25)}`); // sebelum perbaikan: puluhan detik sampai menit
   }
 });
+
+import { normalisasiUrl, bangunUrlHalaman, __kosongkanCache } from '../src/kitabFetch.js';
+
+test('normalisasiUrl: tambah https, rapikan tanda baca dan spasi', () => {
+  assert.equal(normalisasiUrl('shamela.ws/book/823/5'), 'https://shamela.ws/book/823/5');
+  assert.equal(normalisasiUrl('  "https://shamela.ws/book/823/5".  '), 'https://shamela.ws/book/823/5');
+  assert.equal(normalisasiUrl('http://shamela.ws/book/1'), 'https://shamela.ws/book/1');
+  assert.equal(parseKitabUrl('al-maktaba.org/book/1/2', DEFAULT_HOSTS).hostname, 'al-maktaba.org');
+  assert.throws(() => parseKitabUrl('javascript:alert(1)', DEFAULT_HOSTS), (e) => e.code === 'URL_INVALID' || e.code === 'URL_NOT_ALLOWED');
+  assert.throws(() => parseKitabUrl('evil.com/book/1/2', DEFAULT_HOSTS), (e) => e.code === 'URL_NOT_ALLOWED');
+});
+
+test('bangunUrlHalaman: tautan kitab + nomor halaman', () => {
+  assert.equal(bangunUrlHalaman('https://shamela.ws/book/823', 5), 'https://shamela.ws/book/823/5');
+  assert.equal(bangunUrlHalaman('shamela.ws/book/823/9/', '12'), 'https://shamela.ws/book/823/12');
+  assert.equal(bangunUrlHalaman('https://shamela.ws/book/823', 0), null);
+  assert.equal(bangunUrlHalaman('https://shamela.ws/lain', 3), null);
+});
+
+test('fetchKitab: coba ulang sekali pada galat 5xx dan memakai cache untuk halaman yang sama', async () => {
+  __kosongkanCache();
+  let n = 0;
+  const impl = async () => { n++; return n === 1 ? resp('', { status: 503 }) : resp(PAGE); };
+  const a = await fetchKitab('shamela.ws/book/9/1', { fetchImpl: impl, retryDelayMs: 1 });
+  assert.ok(a.teks.includes(ISI)); assert.equal(n, 2);
+  const b = await fetchKitab('https://shamela.ws/book/9/1', { fetchImpl: impl, retryDelayMs: 1 });
+  assert.equal(b.dariCache, true); assert.equal(n, 2);
+});
+
+test('fetchKitab: 403 memberi petunjuk salin manual', async () => {
+  __kosongkanCache();
+  await assert.rejects(fetchKitab('https://shamela.ws/book/9/2', { fetchImpl: async () => resp('', { status: 403 }) }), (e) => e.code === 'SUMBER_BLOCKED' && /tab baru/.test(e.message));
+});
+
+import { beforeEach } from 'node:test';
+beforeEach(() => __kosongkanCache()); // cache antar tes tidak boleh saling memengaruhi

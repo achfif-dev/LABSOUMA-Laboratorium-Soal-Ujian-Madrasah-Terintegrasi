@@ -99,3 +99,15 @@ test('/api/app-config: semua peran aktif boleh baca; hanya admin boleh simpan da
   res = mk(); await appConfigHandler(rq('adm', { aksi: 'hapus' }), res); assert.equal(res.code, 400);
   res = mk(); await appConfigHandler(rq('adm', { aksi: 'reset' }), res); assert.equal(res.code, 200); assert.equal(res.body.kustom, false);
 });
+
+import { sanitizeAppConfig as sanitasiTautan, DEFAULT_APP_CONFIG as CFG_TAUTAN } from '../src/appConfig.js';
+
+test('katalog kitab: tautan hanya https di situs kitab yang diizinkan', () => {
+  const ke = (tautan) => sanitasiTautan({ ...CFG_TAUTAN, kitab: [{ nama: 'X', tautan }] }).kitab[0].tautan;
+  assert.equal(ke('https://shamela.ws/book/823/'), 'https://shamela.ws/book/823');
+  assert.equal(ke('shamela.ws/book/823?x=1'), 'https://shamela.ws/book/823');
+  assert.equal(ke('https://evil.com/book/1'), '');
+  assert.equal(ke('javascript:alert(1)'), '');
+  assert.equal(ke('https://shamela.ws.evil.com/book/1'), '');
+  assert.equal(ke(undefined), '');
+});
