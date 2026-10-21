@@ -6,7 +6,7 @@ import {
   resolveAi, validateConfigInput, statusAi, simpanAi, loadAiConfig, invalidateAiConfig, ujiAi,
 } from '../src/aiConfig.js';
 import { __setFirebaseForTest, authenticateAdmin } from '../src/platform.js';
-import { setRuntimeAi, getModel, provider, getClient } from '../src/soalService.js';
+import { setRuntimeAi, getModel, provider, getClient, MODEL_PRESETS } from '../src/soalService.js';
 import aiConfigHandler from '../api/ai-config.js';
 
 const KEY32 = randomBytes(32);
@@ -188,3 +188,25 @@ test('authenticateAdmin dan /api/ai-config: hanya admin', () => withEnv({}, asyn
   res = mk(); await aiConfigHandler(rq('adm', { aksi: 'simpan', keys: { gemini: 'x' } }), res); assert.equal(res.code, 422);
   res = mk(); await aiConfigHandler(rq('adm', { aksi: 'hapus-semua' }), res); assert.equal(res.code, 400);
 }));
+
+test('model Claude Haiku: ada di pilihan, lolos validasi, dan menjadi model aktif', () => {
+  assert.ok(MODEL_PRESETS.anthropic.some((m) => m.id === 'claude-haiku-5-5'));
+  assert.ok(MODEL_PRESETS.anthropic.some((m) => m.id === 'claude-sonnet-5-5'));
+  const v = validateConfigInput({ provider: 'anthropic', models: { anthropic: 'claude-haiku-5-5' } });
+  assert.equal(v.models.anthropic, 'claude-haiku-5-5');
+  const r = resolveAi({ provider: 'anthropic', models: { anthropic: 'claude-haiku-5-5' } }, {}, null);
+  assert.deepEqual([r.provider, r.model], ['anthropic', 'claude-haiku-5-5']);
+});
+
+test('model Gemini lain: semua pilihan lolos validasi nama dan bisa dijadikan model aktif', () => {
+  const ids = MODEL_PRESETS.gemini.map((m) => m.id);
+  for (const id of ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview']) assert.ok(ids.includes(id), id);
+  for (const prov of ['gemini', 'anthropic']) {
+    for (const m of MODEL_PRESETS[prov]) {
+      assert.equal(validateConfigInput({ models: { [prov]: m.id } }).models[prov], m.id);
+      assert.ok(m.label && m.catatan, m.id);
+    }
+  }
+  const r = resolveAi({ provider: 'gemini', models: { gemini: 'gemini-3.5-flash-lite' } }, {}, null);
+  assert.deepEqual([r.provider, r.model], ['gemini', 'gemini-3.5-flash-lite']);
+});
