@@ -102,7 +102,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 const L = new Proxy(window.LucideReact || {}, { get: (t, k) => t[k] || (() => null) });
 const { BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy,
         Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw,
-        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload } = L;
+        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu } = L;
 
 /* ---------- Data & constants ---------- */
 const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
@@ -1793,6 +1793,16 @@ function App({ user, profile }) {
   const canReview = profile.role === 'editor' || isAdmin;
 
   const [tab, setTab] = useState('compose');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const pilihTab = (id) => { setTab(id); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const klikLuar = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const tekanEsc = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', klikLuar); document.addEventListener('touchstart', klikLuar); document.addEventListener('keydown', tekanEsc);
+    return () => { document.removeEventListener('mousedown', klikLuar); document.removeEventListener('touchstart', klikLuar); document.removeEventListener('keydown', tekanEsc); };
+  }, [menuOpen]);
   const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
   const [cfgInfo, setCfgInfo] = useState({ kustom: false });
   const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom }); };
@@ -1861,6 +1871,8 @@ function App({ user, profile }) {
     ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export';
+  const aktif = TABS.find((t) => t.id === tab);
+  const pendingBadge = canReview ? pending.length : 0;
 
   return (
     <div className="font-sans">
@@ -1880,15 +1892,28 @@ function App({ user, profile }) {
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
           <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="shrink-0 rounded-lg"><AppLogo size={36} /></button>
-          <nav aria-label="Navigasi utama" className="tabs flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
-            {TABS.map((t) => (
-              <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition ${tab === t.id ? 'bg-surface text-soft-ink' : 'text-head-ink hover:bg-white/10'}`}>
-                <t.icon size={16} />{t.label}
-                {t.n > 0 && <span className={`rounded-full px-2 py-px text-xs ${tab === t.id ? 'bg-soft' : 'bg-white/15'}`}>{t.n}</span>}
-              </button>
-            ))}
-          </nav>
+          <div ref={menuRef} className="relative min-w-0 flex-1">
+            <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
+              className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+              <span className="sr-only">Menu navigasi</span>
+              <span className="flex min-w-0 items-center gap-2 rounded-md bg-white/10 px-2.5 py-1">
+                {aktif && <aktif.icon size={15} className="shrink-0" />}<span className="truncate">{aktif ? aktif.label : 'Menu'}</span>
+                {pendingBadge > 0 && !menuOpen && <span aria-label={pendingBadge + ' soal menunggu review'} className="h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
+              </span>
+            </button>
+            {menuOpen && (
+              <nav id="menu-tab" aria-label="Navigasi utama" className="fade-in absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink shadow-xl">
+                {TABS.map((t) => (
+                  <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${tab === t.id ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+                    <t.icon size={17} className="shrink-0" /><span className="flex-1">{t.label}</span>
+                    {t.n > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{t.n}</span>}
+                  </button>
+                ))}
+              </nav>
+            )}
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
             <div className="hidden text-right text-xs md:block"><p className="font-semibold">{displayName}</p><p className="opacity-75">{ROLE_LABEL[profile.role]}</p></div>
