@@ -105,7 +105,10 @@ service cloud.firestore {
         ||
         // 3) Admin boleh mengubah isi dan status, tetapi tidak identitas penyusun.
         ( isAdmin()
-          && d().keys().hasOnly(createKeys().concat(['reviewerUid', 'reviewerName', 'reviewedAt']))
+          && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
+                              'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan',
+                              'authorUid', 'authorName', 'createdAt', 'updatedAt',
+                              'reviewerUid', 'reviewerName', 'reviewedAt'])
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']
