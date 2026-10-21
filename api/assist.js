@@ -1,5 +1,5 @@
 // POST /api/assist: terjemah teks, analisis teks, telaah dan perbaikan soal.
-import { route, authenticateStaff, enforceRate, aiLimits } from '../src/platform.js';
+import { route, authenticateStaff, enforceRate, withRefund, aiLimits } from '../src/platform.js';
 import { loadAiConfig } from '../src/aiConfig.js';
 import { ApiError, validateInput, getModel } from '../src/soalService.js';
 import { terjemahTeks, analisisTeks, telaahSoal, validateTeks } from '../src/assistService.js';
@@ -16,7 +16,7 @@ export default route(async (req) => {
   if (aksi === 'telaah') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
   await enforceRate(u.uid, aiLimits());
-  const hasil = await run(req.body);
+  const hasil = await withRefund(u.uid, () => run(req.body)); // gagal di sisi server/AI: kuota dikembalikan
   if (aksi === 'telaah') {
     // Gratis, tanpa AI: periksa kutipan pada naskah asli dan pada perbaikan dari AI.
     hasil.verifikasi_naskah = periksaKutipan(bidangDariSoal(req.body.soal), teks);
