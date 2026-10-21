@@ -86,7 +86,9 @@ environment variable seperti sebelumnya.
 ## Mengganti penyedia AI lewat environment variable
 
 - Gemini (bawaan): `AI_PROVIDER=gemini`, `GEMINI_API_KEY=...`, model bawaan `gemini-3.8-flash`.
+- Pilihan model Gemini di tab Pengaturan AI: `gemini-3.8-flash` (bawaan), `gemini-3.5-flash-lite` (lebih hemat, uji mutu dulu), dan `gemini-3.1-pro-preview` (paling cermat; preview, berbayar sejak panggilan pertama). Model lama seperti `gemini-2.5-flash-lite` sudah dijadwalkan pensiun, jangan dipakai.
 - Claude: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, model bawaan `claude-sonnet-5-5`. Memerlukan kredit API Anthropic.
+- Claude Haiku (lebih hemat): `AI_PROVIDER=anthropic`, `AI_MODEL=claude-haiku-5-5`, atau pilih tombol **Claude Haiku 5.5** di tab Pengaturan AI. Uji dulu mutu soal dan terjemahan Arab sebelum dipakai luas.
 - Ubah model kapan saja dengan `AI_MODEL`.
 
 ## Keamanan
