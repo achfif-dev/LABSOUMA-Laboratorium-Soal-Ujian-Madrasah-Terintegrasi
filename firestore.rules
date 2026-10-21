@@ -105,6 +105,12 @@ service cloud.firestore {
       );
     }
 
+    // config/ai menyimpan kunci API terenkripsi: TIDAK boleh dibaca atau ditulis klien, siapa pun perannya.
+    // Hanya server (Admin SDK) lewat /api/ai-config. Penolakan ini sengaja ditulis eksplisit.
+    match /config/{doc} {
+      allow read, write: if false;
+    }
+
     // rate/{uid} dan koleksi lain: hanya Cloud Functions (Admin SDK). Klien ditolak.
   }
 }

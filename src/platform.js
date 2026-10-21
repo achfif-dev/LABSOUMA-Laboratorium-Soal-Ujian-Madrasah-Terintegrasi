@@ -31,6 +31,9 @@ async function firebase() {
   return fb;
 }
 
+/** Akses Firebase Admin untuk modul lain (mis. src/aiConfig.js). */
+export const firestoreAdmin = () => firebase();
+
 /* ------------------------------------------------------------- Autentikasi */
 const AUTH_MSG = 'Sesi berakhir. Masuk lagi dengan akun Google Anda.';
 
@@ -52,6 +55,17 @@ export async function authenticateStaff(req) {
   const snap = await db.doc(`users/${u.uid}`).get();
   if (!snap.exists || !STAFF.includes(snap.data().role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Akun Anda belum disetujui admin untuk memakai fitur ini.');
+  }
+  return u;
+}
+
+/** Login valid DAN peran admin. */
+export async function authenticateAdmin(req) {
+  const u = await authenticate(req);
+  const { db } = await firebase();
+  const snap = await db.doc(`users/${u.uid}`).get();
+  if (!snap.exists || snap.data().role !== 'admin') {
+    throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk admin.');
   }
   return u;
 }

@@ -1010,6 +1010,94 @@ function Export({ all, toast }) {
   );
 }
 
+/* ---------- Pengaturan AI (admin): penyedia, model, kunci API ---------- */
+const AI_PROV = { gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
+function AiConfig({ toast }) {
+  const [st, setSt] = useState(null);
+  const [err, setErr] = useState(null);
+  const [prov, setProv] = useState('gemini');
+  const [models, setModels] = useState({ gemini: '', anthropic: '' });
+  const [keys, setKeys] = useState({ gemini: '', anthropic: '' });
+  const [busy, setBusy] = useState('');
+  const [uji, setUji] = useState(null);
+
+  const terapkan = (d) => { setSt(d); setProv(d.aktif.provider); setModels({ ...d.models }); setKeys({ gemini: '', anthropic: '' }); };
+  const muat = async () => { try { terapkan(await callApi('/api/ai-config', { aksi: 'status' })); setErr(null); } catch (e) { setErr(apiErr(e)); } };
+  useEffect(() => { muat(); }, []);
+
+  const simpan = async () => {
+    setBusy('simpan'); setErr(null); setUji(null);
+    try {
+      const kirim = {};
+      for (const k of Object.keys(AI_PROV)) if (keys[k].trim()) kirim[k] = keys[k].trim();
+      terapkan(await callApi('/api/ai-config', { aksi: 'simpan', provider: prov, models, keys: kirim }));
+      toast('Pengaturan AI disimpan.');
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const hapusKunci = async (k) => {
+    if (!window.confirm(`Hapus kunci ${AI_PROV[k]} yang tersimpan? Aplikasi akan memakai kunci dari environment variable bila ada.`)) return;
+    setBusy('hapus'); setErr(null);
+    try { terapkan(await callApi('/api/ai-config', { aksi: 'simpan', hapus: [k] })); toast('Kunci dihapus.'); }
+    catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const ujiAi = async () => {
+    setBusy('uji'); setErr(null); setUji(null);
+    try { setUji(await callApi('/api/ai-config', { aksi: 'uji' })); } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+
+  if (!st) return err ? <ErrorBox e={err} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>;
+  const dirty = Object.values(keys).some((v) => v.trim()) || prov !== st.aktif.provider || ['gemini', 'anthropic'].some((k) => (models[k] || '') !== (st.models[k] || ''));
+  return (
+    <div className="fade-in space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-mute">
+        Aktif sekarang: <b className="text-ink">{AI_PROV[st.aktif.provider]}</b>, model <b className="text-ink">{st.aktif.model}</b>,
+        kunci dari <b className="text-ink">{st.aktif.sumberKunci === 'konfigurasi' ? 'menu ini' : st.aktif.sumberKunci === 'environment' ? 'environment variable' : 'belum ada'}</b>.
+        {st.aktif.peringatan && <p className="mt-2 font-semibold text-warn">{st.aktif.peringatan}</p>}
+        <p className="mt-2">Kunci disimpan terenkripsi di server dan <b className="text-ink">tidak pernah ditampilkan lagi</b>; hanya 4 karakter terakhir yang terlihat. Perubahan berlaku dalam sekitar satu menit.</p>
+      </div>
+
+      <fieldset className="rounded-2xl border border-line bg-surface p-4">
+        <legend className="px-1 text-xs font-bold uppercase tracking-wide text-mute">Penyedia AI yang dipakai</legend>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {Object.entries(AI_PROV).map(([k, v]) => (
+            <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${prov === k ? 'border-brand bg-soft text-soft-ink' : 'border-line'}`}>
+              <input type="radio" name="aiprov" checked={prov === k} onChange={() => setProv(k)} />{v}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {Object.entries(AI_PROV).map(([k, nama]) => {
+        const kk = st.kunci[k];
+        return (
+          <div key={k} className="space-y-3 rounded-2xl border border-line bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold">{nama}{prov === k && <span className="ml-2 rounded-full bg-ok-bg px-2 py-px text-xs text-ok">dipakai</span>}</h3>
+              <span className="text-xs text-mute">
+                {kk.tersimpan ? `Tersimpan ••••${kk.last4}${kk.diubahOleh ? ` · oleh ${kk.diubahOleh}` : ''}` : kk.envAda ? 'Memakai environment variable' : 'Belum ada kunci'}
+              </span>
+            </div>
+            <div><Label htmlFor={'key-' + k} hint={kk.tersimpan ? '(kosongkan bila tidak diganti)' : ''}>Kunci API</Label>
+              <input id={'key-' + k} type="password" autoComplete="off" spellCheck={false} className="field" placeholder={kk.tersimpan ? `••••${kk.last4}` : 'Tempel kunci di sini'}
+                value={keys[k]} onChange={(e) => setKeys((x) => ({ ...x, [k]: e.target.value }))} /></div>
+            <div><Label htmlFor={'model-' + k} hint="(kosongkan untuk bawaan)">Model</Label>
+              <input id={'model-' + k} className="field" placeholder={st.modelBawaan[k]} value={models[k] || ''} onChange={(e) => setModels((x) => ({ ...x, [k]: e.target.value }))} /></div>
+            {kk.tersimpan && <Btn kind="danger" onClick={() => hapusKunci(k)} disabled={!!busy}><Trash2 size={14} />Hapus kunci tersimpan</Btn>}
+          </div>
+        );
+      })}
+
+      {err && <ErrorBox e={err} />}
+      {uji && <div className="rounded-lg bg-ok-bg px-3 py-2 text-sm text-ok">Berhasil: {AI_PROV[uji.provider]}, model {uji.model}, respons {uji.ms} ms.</div>}
+      <div className="flex flex-wrap gap-2">
+        <Btn kind="primary" onClick={simpan} disabled={!!busy || !dirty}>{busy === 'simpan' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan</Btn>
+        <Btn kind="soft" onClick={ujiAi} disabled={!!busy || dirty} title={dirty ? 'Simpan dulu, lalu uji' : ''}>{busy === 'uji' ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}Uji koneksi AI</Btn>
+      </div>
+      <p className="text-xs text-mute">Uji koneksi memakai satu permintaan dari kuota AI Anda. Kuota gratis Gemini berlaku per proyek Google, bukan per kunci: kunci kedua dari proyek yang sama tidak menambah kuota.</p>
+    </div>
+  );
+}
+
 /* ---------- Pengguna (admin) ---------- */
 function UserAdmin({ me, toast }) {
   const [rows, setRows] = useState(null);
@@ -1117,7 +1205,7 @@ function App({ user, profile }) {
     { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
-    ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }] : []),
+    ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export';
 
@@ -1160,6 +1248,7 @@ function App({ user, profile }) {
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
+        {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
       </main>
       <Toast t={msg} />
     </div>

@@ -70,7 +70,20 @@ Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: la
 - **Vercel Hobby:** ketentuan wajarnya membatasi pemakaian ke personal non-komersial. Pastikan penggunaan Anda sesuai.
 - Batas per pengguna di aplikasi (5 per menit, 60 per hari untuk AI) disimpan di Firestore dan bisa diubah lewat `LIMIT_*`.
 
-## Mengganti penyedia AI
+## Pengaturan AI dari aplikasi (admin)
+
+Admin bisa mengganti penyedia (Gemini atau Claude), model, dan kunci API lewat tab **Pengaturan AI** tanpa mengubah
+environment variable atau redeploy. Pengaturan ini menimpa environment variable; bila kosong, aplikasi memakai
+environment variable seperti sebelumnya.
+
+- Kunci disimpan terenkripsi (AES-256-GCM) di Firestore `config/ai`. Aturan Firestore menolak semua akses klien ke koleksi
+  ini; hanya server (`/api/ai-config`, khusus admin) yang membaca dan menulisnya. Browser hanya menerima 4 karakter terakhir.
+- Kunci enkripsi diturunkan dari `FIREBASE_SERVICE_ACCOUNT`. Atau isi `CONFIG_ENCRYPTION_KEY` (32 byte base64) sendiri.
+  Bila kunci akun layanan diganti, kunci AI tersimpan tidak bisa dibuka lagi: masukkan ulang di tab Pengaturan AI.
+- Perubahan berlaku paling lama sekitar satu menit di semua instance (cache 60 detik).
+- Admin tetap bisa melihat semua soal draf yang dikirim ke AI lewat penyedia yang ia pilih. Beri peran admin hanya ke orang tepercaya.
+
+## Mengganti penyedia AI lewat environment variable
 
 - Gemini (bawaan): `AI_PROVIDER=gemini`, `GEMINI_API_KEY=...`, model bawaan `gemini-3.8-flash`.
 - Claude: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, model bawaan `claude-sonnet-5-5`. Memerlukan kredit API Anthropic.
@@ -94,12 +107,15 @@ Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: la
 
 ```
 public/index.html        frontend React (satu file)
-api/                     fungsi Vercel: config, session, generate, assist, kitab
+api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config
 src/gemini.js            adapter Gemini (tanpa dependensi)
 src/soalService.js       validasi, system prompt, pemilihan penyedia AI
 src/assistService.js     terjemah, analisis, telaah soal
 src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
 src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
+src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi)
+src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
+src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
 src/access.js            logika murni: peran, domain, batas
 firestore.rules          aturan keamanan data
 test/                    npm test (tanpa kunci, tanpa internet)

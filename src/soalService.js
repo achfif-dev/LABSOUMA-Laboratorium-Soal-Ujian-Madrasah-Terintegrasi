@@ -1,5 +1,5 @@
-// Inti logika: validasi input, system prompt, panggilan Claude, normalisasi hasil.
-// Dipakai bersama oleh Express (server.js) dan Next.js (next/app/api/generate/route.js).
+// Inti logika: validasi input, system prompt, panggilan AI (Gemini atau Claude), normalisasi hasil.
+// Dipakai oleh fungsi Vercel di api/ (generate.js, assist.js).
 
 export class ApiError extends Error {
   constructor(status, code, message, { retryAfter } = {}) {
@@ -10,9 +10,14 @@ export class ApiError extends Error {
   }
 }
 
-export const provider = () => String(process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
+// Pengaturan AI yang diubah admin lewat aplikasi (src/aiConfig.js) menimpa environment variable.
+// null = pakai environment variable saja (perilaku lama).
+let runtime = null;
+export const setRuntimeAi = (r) => { runtime = r || null; };
+
+export const provider = () => String((runtime && runtime.provider) || process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
 export const DEFAULT_MODELS = { gemini: 'gemini-3.8-flash', anthropic: 'claude-sonnet-5-5' };
-export const getModel = () => process.env.AI_MODEL || DEFAULT_MODELS[provider()] || DEFAULT_MODELS.gemini;
+export const getModel = () => (runtime && runtime.model) || process.env.AI_MODEL || DEFAULT_MODELS[provider()] || DEFAULT_MODELS.gemini;
 
 /* ---------------------------------------------------------------- Validasi */
 
@@ -179,21 +184,28 @@ export function normalizeSoal(raw, level) {
 /* --------------------------------------------------------------- Klien */
 
 let sharedClient;
-/** Klien AI sesuai AI_PROVIDER: "gemini" (bawaan, ada tier gratis) atau "anthropic" (Claude). Keduanya berbentuk client.messages.create(). */
+let sharedSig = '';
+/** Klien AI sesuai penyedia aktif: "gemini" (bawaan, ada tier gratis) atau "anthropic" (Claude). Keduanya berbentuk client.messages.create(). */
 export async function getClient() {
-  if (sharedClient) return sharedClient;
   const p = provider();
-  if (p === 'gemini') {
-    if (!process.env.GEMINI_API_KEY) throw new ApiError(500, 'SERVER_NOT_CONFIGURED', 'Server belum dikonfigurasi: GEMINI_API_KEY belum diisi.');
-    const { createGeminiClient } = await import('./gemini.js');
-    sharedClient = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY });
-  } else if (p === 'anthropic') {
-    if (!process.env.ANTHROPIC_API_KEY) throw new ApiError(500, 'SERVER_NOT_CONFIGURED', 'Server belum dikonfigurasi: ANTHROPIC_API_KEY belum diisi.');
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    sharedClient = new Anthropic({ timeout: 60_000, maxRetries: 1 });
-  } else {
-    throw new ApiError(500, 'SERVER_NOT_CONFIGURED', 'AI_PROVIDER harus "gemini" atau "anthropic".');
+  const envKey = p === 'gemini' ? process.env.GEMINI_API_KEY : p === 'anthropic' ? process.env.ANTHROPIC_API_KEY : '';
+  const key = (runtime && runtime.apiKey) || envKey || '';
+  if (p !== 'gemini' && p !== 'anthropic') throw new ApiError(500, 'SERVER_NOT_CONFIGURED', 'AI_PROVIDER harus "gemini" atau "anthropic".');
+  if (!key) {
+    throw new ApiError(500, 'SERVER_NOT_CONFIGURED', p === 'gemini'
+      ? 'Server belum dikonfigurasi: kunci Gemini belum diisi (GEMINI_API_KEY atau menu Pengaturan AI).'
+      : 'Server belum dikonfigurasi: kunci Anthropic belum diisi (ANTHROPIC_API_KEY atau menu Pengaturan AI).');
   }
+  const sig = `${p}:${key}`; // klien dibuat ulang bila penyedia atau kunci berganti
+  if (sharedClient && sharedSig === sig) return sharedClient;
+  if (p === 'gemini') {
+    const { createGeminiClient } = await import('./gemini.js');
+    sharedClient = createGeminiClient({ apiKey: key });
+  } else {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    sharedClient = new Anthropic({ apiKey: key, timeout: 60_000, maxRetries: 1 });
+  }
+  sharedSig = sig;
   return sharedClient;
 }
 
