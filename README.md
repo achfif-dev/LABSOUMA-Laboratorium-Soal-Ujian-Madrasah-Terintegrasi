@@ -94,6 +94,10 @@ environment variable seperti sebelumnya.
 - Browser tidak pernah memegang kunci AI maupun kunci server. Setiap panggilan `/api/*` membawa token login Firebase, diverifikasi server, lalu peran diperiksa di Firestore.
 - `firestore.rules` memaksa: hanya peran aktif yang bisa membaca soal; penyusun hanya mengubah soalnya sendiri saat Draft atau Perlu Revisi; hanya editor atau admin yang bisa menyetujui; peran hanya diubah admin. Profil pengguna hanya dibuat server.
 - Server hanya mengambil teks kitab dari https di domain yang diizinkan (`KITAB_ALLOWED_HOSTS`), memeriksa ulang pengalihan, dan membatasi ukuran dan waktu.
+- **Kuota AI:** bila panggilan AI gagal karena masalah server atau penyedia (kode 5xx, timeout, batas permintaan penyedia), jatah harian dan per menit pengguna dikembalikan. Penolakan karena isi teks tetap dihitung.
+- **`ADMIN_EMAILS`:** hanya mengangkat akun baru, atau akun yang masih `pending`. Admin yang diturunkan atau dinonaktifkan lewat aplikasi tidak diangkat lagi saat login.
+- **Enkripsi kunci AI:** isi `CONFIG_ENCRYPTION_KEY` (`openssl rand -base64 32`) agar kunci enkripsi tidak diturunkan dari kunci akun layanan. Setelah itu masukkan ulang kunci AI di Pengaturan AI.
+- **CSP:** `vercel.json` memasang `Content-Security-Policy-Report-Only` (tidak memblokir apa pun). Buka situs, login, dan coba semua fitur dengan konsol browser terbuka. Bila tidak ada pesan "[Report Only]" yang mengganggu, ubah nama header menjadi `Content-Security-Policy` agar ditegakkan. Bila `authDomain` Firebase Anda memakai domain kustom, tambahkan ke `frame-src` dan `connect-src`. `frame-ancestors` sudah ditegakkan lewat header terpisah.
 - Jika kunci pernah bocor: Gemini, hapus dan buat ulang di AI Studio. Firebase, hapus kunci akun layanan di Google Cloud Console > IAM > Service Accounts > Keys dan buat baru, lalu perbarui env di Vercel dan Redeploy.
 
 ## Fitur teks kitab dan bantuan AI

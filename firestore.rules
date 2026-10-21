@@ -41,9 +41,20 @@ service cloud.firestore {
           && d().pembahasan is string && d().pembahasan.size() <= 4000
           && d().indikator is string && d().indikator.size() <= 1000
           && d().sumberUrl is string && d().sumberUrl.size() <= 500
-          && d().opsi is map
+          && validOpsi()
           && d().kunci in ['', 'A', 'B', 'C', 'D', 'E']
           && d().catatan is string && d().catatan.size() <= 1000;
+      }
+
+      // Opsi: hanya kunci A-E, tiap nilai string <= 1000 karakter (mencegah dokumen membengkak).
+      function validOpsi() {
+        return d().opsi is map
+          && d().opsi.keys().hasOnly(['A', 'B', 'C', 'D', 'E'])
+          && d().opsi.get('A', '') is string && d().opsi.get('A', '').size() <= 1000
+          && d().opsi.get('B', '') is string && d().opsi.get('B', '').size() <= 1000
+          && d().opsi.get('C', '') is string && d().opsi.get('C', '').size() <= 1000
+          && d().opsi.get('D', '') is string && d().opsi.get('D', '').size() <= 1000
+          && d().opsi.get('E', '') is string && d().opsi.get('E', '').size() <= 1000;
       }
 
       function createKeys() {
@@ -89,10 +100,12 @@ service cloud.firestore {
           && changed().hasOnly(reviewKeys())
           && d().reviewerUid == request.auth.uid
           && d().reviewedAt == request.time
-          && (d().status == 'approved' || (d().catatan is string && d().catatan.size() > 0 && d().catatan.size() <= 1000)) )
+          && d().catatan is string && d().catatan.size() <= 1000
+          && (d().status == 'approved' || d().catatan.size() > 0) )
         ||
         // 3) Admin boleh mengubah isi dan status, tetapi tidak identitas penyusun.
         ( isAdmin()
+          && d().keys().hasOnly(createKeys().concat(['reviewerUid', 'reviewerName', 'reviewedAt']))
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']
