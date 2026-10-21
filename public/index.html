@@ -98,7 +98,7 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.Draft = D;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
@@ -164,7 +164,10 @@ const emptyForm = () => ({
 // Isian yang belum disimpan ke server dititipkan di localStorage per akun, supaya selamat dari muat ulang halaman.
 // Rahasia (kunci API) tidak pernah dititipkan.
 const DRAFT_NOOP = { read: () => null, save() {}, saveNow: () => false, remove() {}, clearAll() {}, flush: () => true, setUser() {}, onStatus: () => () => {}, tersedia: false };
-const Draft = new Proxy({}, { get: (_, k) => (window.Draft || DRAFT_NOOP)[k] });
+// PENTING: modul disimpan di window.LabDraft, BUKAN window.Draft. Babel-standalone mengubah const di tingkat atas menjadi var global,
+// jadi `const Draft` di sini menjadi window.Draft dan menimpa modul. Bila Proxy ini membaca window.Draft, ia membaca dirinya sendiri
+// tanpa henti (RangeError: Maximum call stack size exceeded) dan seluruh halaman blank.
+const Draft = new Proxy({}, { get: (_, k) => (window.LabDraft || DRAFT_NOOP)[k] });
 // Titipkan `nilai` sebagai draf `nama`; bila `bersih`, hapus drafnya. `nilai` harus stabil antar render (useMemo) agar tidak menulis berulang.
 function useDraftSync(nama, nilai, bersih) {
   useEffect(() => { if (bersih) Draft.remove(nama); else Draft.save(nama, nilai); }, [nama, nilai, bersih]);
@@ -2501,6 +2504,37 @@ function SetupError() {
   );
 }
 
+/* ---------- Penangkap galat tampilan ---------- */
+// Tanpa ini, satu galat saat render membuat seluruh halaman blank tanpa pesan. Draf di localStorage tidak ikut hilang.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { try { Draft.flush(); } catch (e) { /* abaikan */ } try { console.error(err); } catch (e) { /* abaikan */ } }
+  buangDraf = () => {
+    // Jalan keluar bila draf yang rusak membuat halaman gagal tampil berulang kali.
+    if (!window.confirm('Semua draf isian di perangkat ini akan dihapus. Lanjutkan?')) return;
+    try {
+      const hapus = [];
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('labsouma:v1:')) hapus.push(k); }
+      hapus.forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* abaikan */ }
+    window.location.reload();
+  };
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <Centered>
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bad-bg text-bad"><AlertTriangle size={28} /></div>
+        <h1 className="text-xl font-extrabold">Halaman gagal ditampilkan</h1>
+        <p className="text-sm leading-relaxed text-mute">Terjadi galat tak terduga. Isian yang belum disimpan tetap aman sebagai draf di perangkat ini. Muat ulang halaman untuk memulihkannya.</p>
+        <p className="break-words text-xs text-mute" dir="ltr">{String((this.state.err && this.state.err.message) || this.state.err)}</p>
+        <Btn kind="primary" onClick={() => window.location.reload()}><RotateCcw size={16} />Muat ulang</Btn>
+        <button type="button" className="text-xs text-mute underline" onClick={this.buangDraf}>Masih gagal? Hapus draf di perangkat ini</button>
+      </Centered>
+    );
+  }
+}
+
 (async function boot() {
   const root = ReactDOM.createRoot(document.getElementById('root'));
   try {
@@ -2510,7 +2544,7 @@ function SetupError() {
     // Simpan salinan data di browser agar muat ulang halaman tidak menghabiskan kuota baca Firestore gratis.
     try { await firebase.firestore().enablePersistence({ synchronizeTabs: true }); } catch (e) { /* tidak didukung: lanjut tanpa cache */ }
   } catch (e) { root.render(<SetupError />); return; }
-  root.render(<Root />);
+  root.render(<ErrorBoundary><Root /></ErrorBoundary>);
 })();
 </script>
 </body>
