@@ -67,6 +67,7 @@ export async function statusAi() {
   return {
     provider: aktif.provider, models: { gemini: (doc.models && doc.models.gemini) || '', anthropic: (doc.models && doc.models.anthropic) || '' },
     modelBawaan: DEFAULT_MODELS, kunci,
+    enkripsi: { sumber: String(process.env.CONFIG_ENCRYPTION_KEY || '').trim() ? 'env' : 'turunan' },
     aktif: { provider: aktif.provider, model: aktif.model, sumberKunci: aktif.sumberKunci, peringatan: aktif.peringatan },
   };
 }

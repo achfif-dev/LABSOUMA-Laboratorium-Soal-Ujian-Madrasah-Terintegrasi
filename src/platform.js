@@ -1,7 +1,7 @@
 // Penghubung server: Firebase Admin (login + Firestore), pembungkus rute, batas pemakaian.
 // firebase-admin dimuat saat dibutuhkan agar modul ini tetap bisa diuji tanpa paketnya.
 import { ApiError, toApiError } from './soalService.js';
-import { STAFF, parseList, initialRole, domainAllowed, rateDecision } from './access.js';
+import { STAFF, parseList, initialRole, domainAllowed, rateDecision, shouldPromote, refundable, refundState } from './access.js';
 
 export const num = (name, def) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
 export const aiLimits = () => ({ perMinute: num('LIMIT_PER_MINUTE', 5), perDay: num('LIMIT_PER_DAY', 60) });
@@ -84,7 +84,7 @@ export async function ensureProfile(u) {
     const snap = await tx.get(ref);
     const profile = { email: u.email, name: u.name || u.email, photoURL: u.picture || '', lastLoginAt: FieldValue.serverTimestamp() };
     if (!snap.exists) tx.set(ref, { ...profile, role: wanted, createdAt: FieldValue.serverTimestamp() });
-    else tx.update(ref, wanted === 'admin' && snap.data().role !== 'admin' ? { ...profile, role: 'admin' } : profile);
+    else tx.update(ref, shouldPromote(snap.data().role, wanted) ? { ...profile, role: 'admin' } : profile);
   });
 }
 
@@ -103,6 +103,26 @@ export async function enforceRate(docId, limits) {
     }
     tx.set(ref, d.state);
   });
+}
+
+/** Mengembalikan satu hitungan kuota (dipakai saat AI gagal di sisi server). Tidak pernah melempar galat. */
+export async function refundRate(docId) {
+  try {
+    const { db } = await firebase();
+    const ref = db.doc(`rate/${docId}`);
+    await db.runTransaction(async (tx) => {
+      const next = refundState((await tx.get(ref)).data(), Date.now());
+      if (next) tx.set(ref, next);
+    });
+  } catch (e) { console.error('[rate] gagal mengembalikan kuota:', e?.code ?? e?.message); }
+}
+
+/** Jalankan `fn`; bila gagal karena masalah server/AI, kuota `docId` dikembalikan lalu galat dilempar ulang. */
+export async function withRefund(docId, fn) {
+  try { return await fn(); } catch (e) {
+    if (refundable(e)) await refundRate(docId);
+    throw e;
+  }
 }
 
 /* ------------------------------------------------------------------ Rute */

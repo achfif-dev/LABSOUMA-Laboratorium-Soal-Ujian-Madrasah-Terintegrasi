@@ -9,6 +9,12 @@ export const parseList = (s) =>
 export const initialRole = (email, verified, admins) =>
   verified && admins.includes(String(email || '').toLowerCase()) ? 'admin' : 'pending';
 
+/**
+ * Pengguna yang sudah punya profil hanya diangkat dari ADMIN_EMAILS bila perannya masih 'pending'.
+ * Admin yang sengaja diturunkan atau dinonaktifkan lewat aplikasi tidak diangkat lagi saat login.
+ */
+export const shouldPromote = (currentRole, wantedRole) => wantedRole === 'admin' && currentRole === 'pending';
+
 /** Jika ALLOWED_EMAIL_DOMAIN diisi (mis. "madrasahku.sch.id"), hanya email domain itu yang boleh masuk. */
 export const domainAllowed = (email, domain) => {
   const d = String(domain || '').trim().toLowerCase().replace(/^@/, '');
@@ -38,4 +44,20 @@ export function rateDecision(state, now, { perMinute, perDay }) {
   s.minCount += 1;
   s.dayCount += 1;
   return { ok: true, state: s };
+}
+
+/**
+ * Kegagalan di sisi server/AI (>= 500, atau batas permintaan dari penyedia AI) tidak menghabiskan kuota pengguna.
+ * Penolakan karena isi teks (mis. TEKS_TIDAK_MEMADAI, 422) tetap dihitung karena AI sudah dipakai.
+ */
+export const refundable = (err) => !!err && (Number(err.status) >= 500 || err.code === 'RATE_LIMIT');
+
+/** Kembalikan satu hitungan kuota pada dokumen rate/{uid}. Mengembalikan state baru, atau null bila tak ada yang perlu diubah. */
+export function refundState(state, now) {
+  if (!state) return null;
+  const s = { ...state };
+  const dayKey = new Date(now + WIB).toISOString().slice(0, 10);
+  if (s.dayKey === dayKey && s.dayCount > 0) s.dayCount -= 1;
+  if (now - s.minStart < 60_000 && s.minCount > 0) s.minCount -= 1;
+  return s;
 }

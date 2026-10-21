@@ -75,16 +75,70 @@ const blocksToText = (html) => decode(
     .replace(/<[^>]+>/g, ''),
 ).split('\n').map((l) => l.replace(/[ \t ]+/g, ' ').trim()).filter(Boolean);
 
+/* ------------------------------------------------- Pembersih HTML (waktu linear)
+ * Halaman sumber bisa memuat HTML jahat (mis. unggahan pengguna di archive.org). Regex lazy yang dijalankan
+ * berulang pada tag tak tertutup membuat waktu proses kuadratik dan bisa menghabiskan batas waktu fungsi.
+ * Tiga langkah di bawah dijamin linear terhadap ukuran halaman. */
+
+/** Buang komentar HTML. Komentar yang tak ditutup berlaku sampai akhir dokumen (sama seperti browser). */
+export function stripComments(html) {
+  let out = ''; let i = 0;
+  for (;;) {
+    const s = html.indexOf('<!--', i);
+    if (s < 0) return out + html.slice(i);
+    out += html.slice(i, s);
+    const e = html.indexOf('-->', s + 4);
+    if (e < 0) return out;
+    i = e + 3;
+  }
+}
+
+/** Ubah "<" yang tidak punya ">" sebelum "<" berikutnya menjadi teks biasa, sehingga setiap tag selesai dalam satu pindai pendek. */
+export const neutralizeStrayLt = (html) => html.replace(/<(?=[^<>]*(?:<|$))/g, '&lt;');
+
+const DROP_TAGS = ['script', 'style', 'noscript', 'svg', 'template', 'iframe', 'select', 'button', 'nav', 'header', 'footer', 'aside', 'form'];
+
+/** Buang elemen DROP_TAGS beserta isinya. Elemen tanpa penutup dibiarkan; pencarian penutup tidak diulang bila sudah pasti tak ada. */
+export function stripElements(html) {
+  const open = new RegExp(`<(${DROP_TAGS.join('|')})\\b`, 'gi');
+  const close = Object.fromEntries(DROP_TAGS.map((t) => [t, new RegExp(`</${t}\\s*>`, 'gi')]));
+  const noClose = new Set();
+  let out = ''; let i = 0; let m;
+  while ((m = open.exec(html))) {
+    const tag = m[1].toLowerCase();
+    out += html.slice(i, m.index);
+    let end = -1; let endLen = 0;
+    if (!noClose.has(tag)) {
+      close[tag].lastIndex = open.lastIndex;
+      const c = close[tag].exec(html);
+      if (c) { end = c.index; endLen = c[0].length; } else noClose.add(tag);
+    }
+    if (end < 0) { out += m[0]; i = open.lastIndex; continue; }
+    i = end + endLen;
+    open.lastIndex = i;
+  }
+  return out + html.slice(i);
+}
+
+function extractTitle(html) {
+  const s = html.search(/<title\b/i);
+  if (s < 0) return '';
+  const g = html.indexOf('>', s);
+  if (g < 0) return '';
+  const re = /<\/title\s*>/gi; re.lastIndex = g + 1;
+  const c = re.exec(html);
+  return c ? decode(html.slice(g + 1, c.index)).replace(/\s+/g, ' ').trim() : '';
+}
+
 export function htmlToArabicText(html, { plain = false } = {}) {
   if (plain) {
     const lines = html.split(/\r?\n/).map((l) => l.replace(/[ \t ]+/g, ' ').trim()).filter((l) => l && arabicRatio(l) >= 0.5);
     return { title: '', teks: lines.join('\n') };
   }
-  const tm = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  const title = tm ? decode(tm[1]).replace(/\s+/g, ' ').trim() : '';
+  const safe = neutralizeStrayLt(stripComments(html));
+  const title = extractTitle(safe);
 
-  let body = html.replace(/<!--[\s\S]*?-->/g, '');
-  body = body.replace(/<(script|style|noscript|svg|template|iframe|select|button|nav|header|footer|aside|form)\b[\s\S]*?<\/\1>/gi, '');
+  let body = stripElements(safe);
   body = removeByClass(body, 'hamesh'); // catatan kaki penerbit/muhaqqiq
 
   const nass = findByClass(body, 'nass'); // isi kitab pada shamela.ws dan al-maktaba.org
