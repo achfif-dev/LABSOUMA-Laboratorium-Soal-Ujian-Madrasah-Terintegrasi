@@ -95,14 +95,14 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; window.Kutipan = K; window.Sikap = S;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
 const L = new Proxy(window.LucideReact || {}, { get: (t, k) => t[k] || (() => null) });
 const { BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy,
         Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw,
-        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn } = L;
+        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload } = L;
 
 /* ---------- Data & constants ---------- */
 const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
@@ -197,7 +197,32 @@ const buildDocx = async (qs, mode) => {
   const border = { style: BorderStyle.SINGLE, size: 6, color: '0F6B4F' };
   const borders = { top: border, bottom: border, left: border, right: border };
 
-  if (mode === 'daftar') {
+  if (mode === 'pegon') {
+    // Teks soal dialihaksarakan dengan mesin Pegon (aksara Arab di dalam teks tidak diubah). Kata yang diragukan mesin disorot kuning.
+    const un = (h) => h.replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const runs = (text, o = {}) => {
+      const { html } = window.Pegon.convertText(String(text || '').replace(/\n/g, ' '));
+      const out = []; const re = /<span class="flag"[^>]*>(.*?)<\/span>/g; let last = 0, m;
+      const push = (t, flag) => { if (t) out.push(new TextRun({ text: un(t), font: 'Traditional Arabic', size: 32, rightToLeft: true, ...(flag ? { highlight: 'yellow' } : {}), ...o })); };
+      while ((m = re.exec(html))) { push(html.slice(last, m.index)); push(m[1], true); last = re.lastIndex; }
+      push(html.slice(last));
+      return out;
+    };
+    const RP = (children, o = {}) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children, ...o });
+    const HURUF = { A: 'أ', B: 'ب', C: 'ج', D: 'د', E: 'ه' };
+    kids.length = 0;
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T('NASKAH SOAL (PEGON)', { bold: true, size: 32 })] }));
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`Bank Soal Madrasah · ${qs.length} soal · ${date} · kata bersorot kuning perlu diperiksa`, { size: 20, color: '555555' })] }));
+    qs.forEach((q, i) => {
+      kids.push(RP([new TextRun({ text: `${i + 1}. `, font: 'Traditional Arabic', size: 32, bold: true, rightToLeft: true }), ...runs(fullQ(q))], { keepNext: true }));
+      optsOf(q).forEach((k) => kids.push(RP([new TextRun({ text: `${HURUF[k]}. `, font: 'Traditional Arabic', size: 32, rightToLeft: true }), ...runs(q.opsi[k])], { indent: { start: 400 } })));
+      kids.push(P(T('')));
+    });
+    kids.push(new Paragraph({ pageBreakBefore: true, bidirectional: true, spacing: { after: 160 }, children: runs('Kunci jawaban & pembahasan', { bold: true }) }));
+    qs.forEach((q, i) => {
+      kids.push(RP([new TextRun({ text: `${i + 1}. ${HURUF[q.kunci] || q.kunci}  `, font: 'Traditional Arabic', size: 32, bold: true, rightToLeft: true }), ...runs(q.pembahasan)]));
+    });
+  } else if (mode === 'daftar') {
     qs.forEach((q, i) => {
       kids.push(P([T(`${i + 1}. `, { bold: true }), T(fullQ(q))], { keepNext: true }));
       optsOf(q).forEach((k) => kids.push(P(T(`${k}. ${q.opsi[k]}`), { indent: { left: 400 } })));
@@ -237,6 +262,7 @@ const buildDocx = async (qs, mode) => {
 };
 
 const FORMATS = [
+  { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
   { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
   { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
   { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
@@ -387,6 +413,7 @@ const ERR_TITLES = {
   URL_INVALID: 'Tautan tidak valid', URL_NOT_ALLOWED: 'Situs belum didukung', SUMBER_NOT_FOUND: 'Halaman tidak ditemukan', SUMBER_BLOCKED: 'Situs menolak permintaan otomatis',
   SUMBER_ERROR: 'Situs sumber bermasalah', SUMBER_TIMEOUT: 'Situs sumber lambat', SUMBER_TOO_LARGE: 'Halaman terlalu besar', SUMBER_BUKAN_TEKS: 'Bukan halaman teks',
   TEKS_TIDAK_DITEMUKAN: 'Teks Arab tidak ditemukan', FILE: 'File tidak bisa dipakai',
+  TEKS_KOSONG: 'Teks belum ada', GAMBAR_TIDAK_DIDUKUNG: 'Format foto tidak didukung', GAMBAR_TIDAK_VALID: 'Foto tidak valid', GAMBAR_TERLALU_BESAR: 'Foto terlalu besar',
   AI_KEY_MISSING: 'Kunci API belum ada', AI_TEST_KEY: 'Kunci API ditolak', AI_MODEL_NOT_FOUND: 'Model tidak ditemukan', AI_TEST_REJECTED: 'Permintaan uji ditolak',
   AI_UNREACHABLE: 'Layanan AI tidak terjangkau', AI_REQUEST_REJECTED: 'Permintaan ke AI ditolak', SERVER_AUTH: 'Kunci API server ditolak',
   SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', CONFIG_READ_FAILED: 'Pengaturan tidak bisa dibaca', CONFIG_INVALID: 'Isian tidak valid',
@@ -1052,6 +1079,7 @@ function Export({ all, toast }) {
     cur.has(id) ? cur.delete(id) : cur.add(id);
     setPicked(cur);
   };
+  const pv = (t) => (fmt === 'pegon' && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
   const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
 
   const copy = async () => {
@@ -1062,7 +1090,7 @@ function Export({ all, toast }) {
     if (!chosen.length) return;
     setBusy(true);
     try {
-      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : 'daftar');
+      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : 'daftar');
       saveFile(fname, data);
       toast('File diunduh.');
     } catch (e) {
@@ -1126,8 +1154,8 @@ function Export({ all, toast }) {
                 <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl bg-bg p-4">
                   {chosen.map((q, i) => (
                     <div key={q.id} className="text-sm">
-                      <p className="font-semibold">{i + 1}. {fullQ(q)}</p>
-                      <ul className="ml-4 mt-1">{optsOf(q).map((k) => <li key={k}>{k}. {q.opsi[k]}</li>)}</ul>
+                      <p className={`font-semibold ${fmt === 'pegon' ? 'ar-sm' : ''}`} dir={fmt === 'pegon' ? 'rtl' : undefined}>{i + 1}. {pv(fullQ(q))}</p>
+                      <ul className="ml-4 mt-1" dir={fmt === 'pegon' ? 'rtl' : undefined}>{optsOf(q).map((k) => <li key={k} className={fmt === 'pegon' ? 'ar-sm' : ''}>{k}. {pv(q.opsi[k])}</li>)}</ul>
                       {fmt === 'kartu' && <>
                         <p className="mt-1 text-soft-ink">Kunci: <b>{q.kunci}</b></p>
                         {q.teks && <p dir="rtl" lang="ar" className="ar ar-sm">{q.teks}</p>}
@@ -1455,6 +1483,306 @@ function UserAdmin({ me, toast }) {
 }
 
 /* ---------- App ---------- */
+/* ---------- Pegonizer: alih aksara Latin ke Pegon (standar al-Qolam '24), mesin aturan di browser + bantuan AI lewat server ---------- */
+const loadScript = (src) => new Promise((res, rej) => {
+  if (document.querySelector(`script[data-lazy="${src}"]`)) return res();
+  const s = document.createElement('script');
+  s.src = src; s.async = true; s.dataset.lazy = src; s.onload = () => res(); s.onerror = () => rej(new Error('Pustaka gagal dimuat. Periksa koneksi internet.'));
+  document.head.appendChild(s);
+});
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const MAMMOTH = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.12.2/mammoth.browser.min.js';
+
+async function bacaFile(file) {
+  const nama = file.name.toLowerCase();
+  if (nama.endsWith('.docx')) {
+    await loadScript(MAMMOTH);
+    return { teks: (await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, arab: false };
+  }
+  if (file.type === 'application/pdf' || nama.endsWith('.pdf')) {
+    await loadScript(PDFJS);
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const halaman = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const content = await (await doc.getPage(i)).getTextContent();
+      let out = '', lastY = null, lastH = 12;
+      for (const it of content.items) {
+        const y = it.transform[5], h = Math.abs(it.transform[3]) || 12;
+        if (lastY !== null && Math.abs(y - lastY) > 2) out += Math.abs(y - lastY) > lastH * 1.7 ? '\n\n' : ' ';
+        out += it.str; lastY = y; lastH = h;
+      }
+      halaman.push(out.replace(/ {2,}/g, ' ').trim());
+    }
+    const teks = halaman.join('\n\n');
+    return { teks, arab: /[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/.test(teks) };
+  }
+  throw { code: 'FILE', message: 'Format file tidak didukung. Gunakan .docx atau .pdf.' };
+}
+
+// Foto diperkecil di browser (maks. 1600 px, JPEG) agar muat dalam batas isi permintaan server.
+const siapkanFoto = (file) => new Promise((res, rej) => {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    res({ mime: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] });
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); rej({ code: 'FILE', message: 'Foto tidak bisa dibaca. Coba foto lain.' }); };
+  img.src = url;
+});
+
+const simpanBerkas = (nama, blob) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nama;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+};
+
+const pegonDocx = (teks) => {
+  const D = window.docx;
+  if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+  const paras = String(teks || '').split(/\n+/).filter((p) => p.trim()).map((p) => new D.Paragraph({
+    bidirectional: true, spacing: { after: 160 },
+    children: [new D.TextRun({ text: p, font: 'Traditional Arabic', size: 36, rightToLeft: true })],
+  }));
+  return D.Packer.toBlob(new D.Document({ sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: paras }] }));
+};
+
+function PegonKamus({ onChange }) {
+  const P = window.Pegon;
+  const [, setTick] = useState(0);
+  const [cari, setCari] = useState('');
+  const [f, setF] = useState({ lat: '', ar: '', e: '', tipe: 'keras', suf: '' });
+  const [pesan, setPesan] = useState('');
+  const sync = () => { setTick((n) => n + 1); onChange && onChange(); };
+  const act = (r) => { setPesan(r && r.ok === false ? r.pesan : ''); if (!r || r.ok !== false) sync(); return !r || r.ok !== false; };
+  const bawaan = useMemo(() => Object.entries(P.kamus.bawaan().arab).sort((a, b) => a[0].localeCompare(b[0])), []);
+  const k = P.kamus.kustom();
+  const q = cari.trim().toLowerCase();
+  const hit = q ? bawaan.filter(([l, a]) => l.includes(q) || a.includes(q)) : [];
+  const Chip2 = ({ children, onDel }) => (
+    <span className="inline-flex items-center gap-2 rounded-lg border border-line bg-bg px-2.5 py-1 text-sm">{children}
+      {onDel && <button type="button" aria-label="Hapus" onClick={onDel} className="text-mute hover:text-bad"><X size={14} /></button>}
+    </span>
+  );
+  const impor = async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    try { const r = P.kamus.impor(await file.text()); setPesan(`Kamus digabung: ${r.masuk} entri masuk${r.lewat ? `, ${r.lewat} dilewati karena tidak valid` : ''}.`); sync(); }
+    catch (err) { setPesan('Gagal membaca berkas kamus (harus .json hasil ekspor aplikasi ini).'); }
+  };
+  return (
+    <div className="space-y-5 text-sm">
+      <p className="text-mute">Tambahan tersimpan di browser perangkat ini saja. Gunakan ekspor dan impor untuk memindahkannya ke perangkat atau rekan lain.</p>
+      <div className="flex flex-wrap gap-2">
+        <Btn onClick={() => { if (P.kamus.kosong()) return setPesan('Belum ada tambahan untuk diekspor.'); simpanBerkas('kamus-pegon.json', new Blob([P.kamus.ekspor()], { type: 'application/json' })); }}>Ekspor kamus</Btn>
+        <label className="inline-flex cursor-pointer items-center rounded-lg border border-line px-4 py-2 text-sm font-semibold hover:bg-soft">Impor kamus<input type="file" accept="application/json,.json" className="hidden" onChange={impor} /></label>
+      </div>
+      {pesan && <p role="status" className="rounded-lg bg-warn-bg px-3 py-2 text-warn">{pesan}</p>}
+
+      <div>
+        <Label>Kata serapan Arab</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <input className="field" placeholder="Kata Latin, mis. tawakal" value={f.lat} onChange={(e) => setF({ ...f, lat: e.target.value })} />
+          <input className="field ar-sm" dir="rtl" lang="ar" placeholder="Ejaan Arab, mis. توكل" value={f.ar} onChange={(e) => setF({ ...f, ar: e.target.value })} />
+          <Btn onClick={() => act(P.kamus.tambahArab(f.lat, f.ar)) && setF({ ...f, lat: '', ar: '' })}>Tambah</Btn>
+        </div>
+        <input className="field mt-3" placeholder={`Cari di ${bawaan.length} kata bawaan (mis. hisab, wajib, dalil)`} value={cari} onChange={(e) => setCari(e.target.value)} />
+        {q && <div className="mt-2 flex flex-wrap gap-2">{hit.length ? hit.slice(0, 60).map(([l, a]) => <Chip2 key={l}><span className="ar-sm" dir="rtl">{a}</span><span className="text-mute">{l}</span></Chip2>) : <span className="text-mute">Tidak ada yang cocok.</span>}{hit.length > 60 && <span className="text-mute">…dan {hit.length - 60} lainnya.</span>}</div>}
+        <div className="mt-3 flex flex-wrap gap-2">{Object.entries(k.arab).length ? Object.entries(k.arab).map(([l, a]) => <Chip2 key={l} onDel={() => { P.kamus.hapusArab(l); sync(); }}><span className="ar-sm" dir="rtl">{a}</span><span className="text-mute">{l}</span></Chip2>) : <span className="text-mute">Belum ada tambahan Anda.</span>}</div>
+      </div>
+
+      <div>
+        <Label>Kata dengan bunyi "e"</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <input className="field" placeholder="Kata, mis. reken" value={f.e} onChange={(e) => setF({ ...f, e: e.target.value })} />
+          <Select value={f.tipe} onChange={(v) => setF({ ...f, tipe: v })}><option value="keras">e keras (ي)</option><option value="pepet">e pepet (tidak ditulis)</option></Select>
+          <Btn onClick={() => act(P.kamus.tambahE(f.e, f.tipe)) && setF({ ...f, e: '' })}>Tambah</Btn>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">{[...k.keras.map((w) => [w, 'e keras']), ...k.pepet.map((w) => [w, 'e pepet'])].map(([w, t]) => <Chip2 key={w} onDel={() => { P.kamus.hapusE(w); sync(); }}>{w}<span className="text-mute">{t}</span></Chip2>)}</div>
+      </div>
+
+      <div>
+        <Label hint="(kata berakhiran kan/kah/lah yang bukan akhiran, mis. seolah)">Akar pengecualian</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input className="field" placeholder="Kata, mis. seolah" value={f.suf} onChange={(e) => setF({ ...f, suf: e.target.value })} />
+          <Btn onClick={() => act(P.kamus.tambahSuffixExc(f.suf)) && setF({ ...f, suf: '' })}>Tambah</Btn>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">{k.suffixExc.map((w) => <Chip2 key={w} onDel={() => { P.kamus.hapusSuffixExc(w); sync(); }}>{w}</Chip2>)}</div>
+      </div>
+    </div>
+  );
+}
+
+function PegonTab({ toast }) {
+  const P = window.Pegon;
+  const [mode, setMode] = useState('teks'); // teks | file | foto
+  const [latin, setLatin] = useState('');
+  const [fileInfo, setFileInfo] = useState(null); // { nama, arab }
+  const [foto, setFoto] = useState(null);         // File
+  const [hasil, setHasil] = useState(null);       // { id, html, details, tag, latin }
+  const [warns, setWarns] = useState([]);
+  const [rincian, setRincian] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState(null);
+  const [mic, setMic] = useState({ on: false, hint: '' });
+  const box = useRef(null);
+  const rec = useRef(null);
+  const base = useRef('');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const teksHasil = () => (box.current ? box.current.innerText : '');
+  const tampil = (html, details, tag, asal) => { setHasil({ id: Date.now(), html, details, tag, latin: asal }); setWarns([]); setRincian(false); };
+
+  const konversi = async () => {
+    setErr(null);
+    if (mode === 'foto') return konversiFoto();
+    if (!latin.trim()) return toast('Isi teks terlebih dahulu (atau unggah file / foto).');
+    const r = P.convertText(latin);
+    tampil(r.html, r.details, 'mesin aturan', latin);
+  };
+  const konversiFoto = async () => {
+    if (!foto) return toast('Pilih foto terlebih dahulu.');
+    setBusy('Membaca & mengonversi foto…');
+    try {
+      const gambar = await siapkanFoto(foto);
+      const d = await callApi('/api/assist', { aksi: 'pegonfoto', gambar });
+      tampil(P.escapeHtml(d.hasil.pegon).replace(/\n/g, '<br>'), [], 'AI · baca foto', d.hasil.latin);
+      setWarns(d.hasil.peringatan || []);
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const perkuat = async () => {
+    if (!hasil || !hasil.latin.trim()) return toast('Konversi teks dulu sebelum diperkuat dengan AI.');
+    setErr(null); setBusy('Meminta AI memeriksa & memperkuat hasil…');
+    try {
+      const d = await callApi('/api/assist', { aksi: 'pegon', teks: hasil.latin, hasilMesin: teksHasil() });
+      if (box.current) box.current.innerText = d.hasil.pegon;
+      setHasil((h) => ({ ...h, tag: 'diperkuat AI', details: [] })); setWarns(d.hasil.peringatan || []); setRincian(false);
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const pilihFile = async (file) => {
+    if (!file) return;
+    setErr(null); setFileInfo({ nama: file.name, arab: false }); setLatin('Mengekstrak teks…');
+    try {
+      const r = await bacaFile(file);
+      setLatin(r.teks.trim() || '(Tidak ada teks yang terbaca. Mungkin PDF hasil pindaian: coba mode Foto.)');
+      setFileInfo({ nama: file.name, arab: r.arab });
+    } catch (e) { setLatin(''); setFileInfo(null); setErr(e && e.code ? e : { code: 'FILE', message: 'Gagal membaca file: ' + ((e && e.message) || e) }); }
+  };
+  const bersihkan = () => { setLatin(''); setFileInfo(null); setFoto(null); setHasil(null); setWarns([]); setErr(null); };
+
+  const bicara = () => {
+    if (!SR) return;
+    if (mic.on) { rec.current && rec.current.stop(); return; }
+    const r = new SR(); r.lang = 'id-ID'; r.continuous = false; r.interimResults = true;
+    base.current = latin;
+    r.onresult = (e) => { let fin = '', tmp = ''; for (let i = 0; i < e.results.length; i++) (e.results[i].isFinal ? (fin += e.results[i][0].transcript) : (tmp += e.results[i][0].transcript)); setLatin((base.current + ' ' + fin + tmp).trim()); };
+    r.onerror = (e) => setMic({ on: false, hint: e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Izin mikrofon ditolak. Aktifkan di pengaturan browser.' : e.error === 'no-speech' || e.error === 'aborted' ? '' : 'Gagal mengenali suara (' + e.error + ').' });
+    r.onend = () => setMic((m) => ({ ...m, on: false }));
+    rec.current = r; setMic({ on: true, hint: '' }); r.start();
+  };
+  useEffect(() => () => { try { rec.current && rec.current.abort(); } catch (e) {} }, []);
+
+  const salin = async () => { try { await navigator.clipboard.writeText(teksHasil()); toast('Hasil Pegon disalin.'); } catch (e) { toast('Penyalinan ditolak browser. Pilih teks lalu salin manual.'); } };
+  const unduhDocx = async () => { try { simpanBerkas('hasil-pegon.docx', await pegonDocx(teksHasil())); toast('File diunduh.'); } catch (e) { toast('Gagal membuat file: ' + (e.message || e)); } };
+  const flagged = hasil ? hasil.details.filter((d) => d.flagged).length : 0;
+
+  const MODES = [['teks', 'Teks'], ['file', 'File (Word/PDF)'], ['foto', 'Foto']];
+  return (
+    <div className="fade-in grid gap-5 lg:grid-cols-12">
+      <div className="min-w-0 space-y-5 lg:col-span-5">
+        <Section title="Teks Latin" icon={Languages}>
+          <div role="tablist" className="mb-3 flex gap-1.5">
+            {MODES.map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={mode === id} onClick={() => setMode(id)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${mode === id ? 'bg-soft text-soft-ink' : 'border border-line text-mute hover:bg-soft'}`}>{label}</button>
+            ))}
+          </div>
+          {mode === 'teks' && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Btn onClick={bicara} disabled={!SR}><Mic size={16} />{mic.on ? 'Mendengarkan… (ketuk untuk berhenti)' : 'Bicara (Indonesia)'}</Btn>
+                <span className="text-xs text-mute">{!SR ? 'Tidak didukung di browser ini. Coba Chrome di Android.' : mic.hint}</span>
+              </div>
+              <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Tempel atau ketik teks Latin di sini…" />
+            </div>
+          )}
+          {mode === 'file' && (
+            <div className="space-y-2">
+              <label className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm hover:bg-soft">
+                <Upload size={20} /><span><b>Unggah file</b> Word (.docx) atau PDF</span>
+                <input type="file" className="hidden" accept=".docx,.pdf,application/pdf" onChange={(e) => { pilihFile(e.target.files[0]); e.target.value = ''; }} />
+              </label>
+              {fileInfo && <p className="text-xs text-mute">{fileInfo.nama}</p>}
+              {fileInfo && fileInfo.arab && <p className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">File ini memuat aksara Arab. Dari PDF, teks Arab sering terbaca rusak (huruf bersambung hilang). Aksara Arab tidak diubah oleh mesin, tetapi periksa hasil ekstraksinya.</p>}
+              <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Teks hasil ekstraksi muncul di sini, bisa diedit sebelum dikonversi." />
+            </div>
+          )}
+          {mode === 'foto' && (
+            <div className="space-y-2">
+              <label className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm hover:bg-soft">
+                <Camera size={20} /><span><b>Ambil / unggah foto</b> teks Latin</span>
+                <span className="text-xs text-mute">Dibaca dan dikonversi oleh AI server (memakai kuota AI madrasah)</span>
+                <input type="file" className="hidden" accept="image/*" capture="environment" onChange={(e) => { setFoto(e.target.files[0] || null); e.target.value = ''; }} />
+              </label>
+              {foto && <p className="text-xs text-mute">{foto.name}</p>}
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Btn kind="primary" onClick={konversi} disabled={!!busy}>Konversi ke Pegon</Btn>
+            <Btn onClick={bersihkan}>Bersihkan</Btn>
+          </div>
+        </Section>
+        <details className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+          <summary className="cursor-pointer text-sm font-bold uppercase tracking-wide text-soft-ink">Kelola kamus tambahan</summary>
+          <div className="mt-4"><PegonKamus onChange={() => {}} /></div>
+        </details>
+      </div>
+
+      <div className="min-w-0 space-y-5 lg:col-span-7">
+        {busy && <Spin>{busy}</Spin>}
+        {err && <ErrorBox e={err} />}
+        {!hasil ? (
+          <Empty icon={Languages} title="Belum ada hasil" text="Ketik, unggah, atau foto teks Latin, lalu tekan Konversi ke Pegon." />
+        ) : (
+          <Section title={`Hasil Pegon · ${hasil.tag}`} icon={Languages}>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <Btn onClick={salin}><Copy size={16} />Salin</Btn>
+              <Btn onClick={() => simpanBerkas('hasil-pegon.txt', new Blob([teksHasil()], { type: 'text/plain;charset=utf-8' }))}><Download size={16} />.txt</Btn>
+              <Btn onClick={unduhDocx}><FileText size={16} />.docx</Btn>
+              <Btn kind="soft" onClick={perkuat} disabled={!!busy}><Sparkles size={16} />Perkuat dengan AI</Btn>
+              {hasil.details.length > 0 && <Btn onClick={() => setRincian((v) => !v)}>{rincian ? 'Sembunyikan rincian' : 'Rincian per kata'}</Btn>}
+            </div>
+            <div key={hasil.id} ref={box} dir="rtl" lang="ar" contentEditable suppressContentEditableWarning spellCheck={false}
+              className="ar rounded-xl border border-line bg-bg p-4 outline-none focus-visible:border-brand [&_.flag]:rounded [&_.flag]:bg-warn-bg [&_.flag]:px-0.5"
+              dangerouslySetInnerHTML={{ __html: hasil.html }} />
+            <p className="mt-2 text-xs text-mute">Hasil bisa diedit langsung. Transliterasi otomatis: periksa ulang oleh yang menguasai Pegon sebelum dipakai resmi.</p>
+            {(flagged > 0 || warns.length > 0) && (
+              <div className="mt-4 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+                <p className="font-bold">Perlu diperiksa manual{flagged ? ` (${flagged} kata bersorot)` : ''}</p>
+                {warns.map((w, i) => <p key={i} className="mt-1"><b>{w.kata}</b> — {w.catatan}</p>)}
+              </div>
+            )}
+            {hasil.tag.includes('foto') && hasil.latin && <p className="mt-3 text-xs text-mute">Teks Latin terbaca: {hasil.latin}</p>}
+            {rincian && (
+              <div className="mt-4 max-h-[360px] overflow-auto rounded-xl border border-line">
+                <table className="w-full text-sm"><thead className="bg-soft text-left text-soft-ink"><tr><th className="p-2">Latin</th><th className="p-2">Pegon</th><th className="p-2">Ket.</th></tr></thead>
+                  <tbody>{hasil.details.map((d, i) => <tr key={i} className={d.flagged ? 'bg-warn-bg' : ''}><td className="p-2">{d.latin}</td><td className="ar-sm p-2" dir="rtl">{d.pegon}</td><td className="p-2 text-xs text-mute">{d.note}</td></tr>)}</tbody></table>
+              </div>
+            )}
+          </Section>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App({ user, profile }) {
   const db = firebase.firestore();
   const col = db.collection('soal');
@@ -1529,6 +1857,7 @@ function App({ user, profile }) {
     { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
+    { id: 'pegon', label: 'Pegonizer', icon: Languages },
     ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export';
@@ -1577,6 +1906,7 @@ function App({ user, profile }) {
         {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
+        {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
         {tab === 'cfg' && isAdmin && <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}

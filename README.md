@@ -63,6 +63,17 @@ Pastikan `git status` tidak menampilkan `.env` atau file kunci JSON. Repositori 
 
 Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: lakukan Redeploy.
 
+## Pegonizer (alih aksara Latin ke Pegon)
+
+Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortografi al-Qolam '24). Dipakai semua pengguna aktif.
+
+- **Mesin aturan** berjalan di browser tanpa kuota AI: `public/pegon.js` (sumber tunggal; `src/pegon.js` hanya meneruskannya ke server dan tes, sama seperti `kutipan.js`). Aturan master untuk prompt AI ada di `src/pegonRules.js`.
+- **Masukan:** teks, suara (Web Speech API bawaan browser), file Word/PDF (pustaka mammoth dan pdf.js dimuat hanya saat dibutuhkan), dan foto.
+- **Bantuan AI** lewat `/api/assist`, aksi `pegon` (memperkuat hasil mesin) dan `pegonfoto` (membaca teks Latin dari foto). Memakai login, peran, batas pemakaian, plafon harian madrasah, dan pengembalian kuota yang sama dengan fitur AI lain. Foto diperkecil di browser (maks. 1600 px) dan dibatasi di server. Adapter Gemini kini mendukung gambar, jadi kedua penyedia AI bisa membaca foto.
+- **Ekspor soal:** di tab Export/Download ada format **Soal Pegon (DOCX)**. Teks soal, opsi, kunci, dan pembahasan ditulis Pegon (aksara Arab di dalam teks tidak diubah); kata yang diragukan mesin disorot kuning agar diperiksa editor.
+- **Kamus tambahan** (serapan Arab, e keras/pepet, pengecualian -kan/-kah/-lah) tersimpan di browser perangkat masing-masing dan bisa diekspor atau diimpor sebagai `.json`. Entri divalidasi saat ditambah atau diimpor.
+- Tes: `test/pegon.test.js` (kalibrasi master prompt, validasi, layanan AI dengan klien palsu, adapter gambar).
+
 ## Batas gratis yang perlu diperhatikan
 
 - **Firestore Spark:** contoh kuota di dokumen Firebase adalah 20.000 tulis dan 50.000 baca per hari. Bila habis, Firestore berhenti sampai bulan berikutnya. Aplikasi menyimpan salinan data di browser dan membatasi daftar soal ke 300 terbaru untuk menghemat bacaan. Untuk madrasah dengan puluhan pengguna, ini umumnya cukup, tetapi pantau di Firebase Console > Usage.

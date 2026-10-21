@@ -1,9 +1,10 @@
-// POST /api/assist: terjemah teks, analisis teks, telaah dan perbaikan soal, uji jawab buta.
+// POST /api/assist: terjemah teks, analisis teks, telaah dan perbaikan soal, uji jawab buta, serta bantuan AI Pegon.
 import { route, authenticateStaff, enforceAi, withRefund, GLOBAL_AI_ID } from '../src/platform.js';
 import { loadAiConfig } from '../src/aiConfig.js';
 import { ApiError, validateInput, getModel } from '../src/soalService.js';
 import { terjemahTeks, analisisTeks, telaahSoal, validateTeks } from '../src/assistService.js';
 import { cekButa } from '../src/cekButa.js';
+import { perkuatPegon, fotoPegon, validatePegon, validateFoto } from '../src/pegonService.js';
 import { periksaKutipan, bidangDariAI, bidangDariSoal } from '../src/kutipan.js';
 import { periksaSikap } from '../src/sikap.js';
 
@@ -12,15 +13,19 @@ const ASSIST = {
   analisis: analisisTeks,
   telaah: telaahSoal,
   cekbuta: (body) => cekButa(body.soal, validateInput(body).teks, { tingkat: body.tingkat }),
+  pegon: perkuatPegon,
+  pegonfoto: fotoPegon,
 };
 
 export default route(async (req) => {
   const u = await authenticateStaff(req);
   const aksi = req.body && req.body.aksi;
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
-  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, atau cekbuta.');
+  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, pegon, atau pegonfoto.');
   let teks;
-  if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
+  if (aksi === 'pegon') validatePegon(req.body); // teks Latin, bukan Arab: jangan lewat validateTeks
+  else if (aksi === 'pegonfoto') validateFoto(req.body);
+  else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
   await enforceAi(u.uid);
   const hasil = await withRefund(u.uid, () => run(req.body), [GLOBAL_AI_ID]); // gagal di sisi server/AI: kuota dikembalikan

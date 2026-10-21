@@ -19,6 +19,14 @@ export function toGeminiSchema(s) {
   return out;
 }
 
+/** Isi pesan -> parts Gemini. String biasa tetap teks; array blok (format Anthropic) mendukung teks dan gambar base64. */
+export function toParts(content) {
+  if (!Array.isArray(content)) return [{ text: String(content) }];
+  return content.map((b) => (b && b.type === 'image' && b.source && b.source.type === 'base64'
+    ? { inlineData: { mimeType: String(b.source.media_type), data: String(b.source.data) } }
+    : { text: String((b && b.text) ?? '') }));
+}
+
 const retrySeconds = (json, headers) => {
   const h = Number(headers?.get?.('retry-after'));
   if (Number.isFinite(h) && h > 0) return Math.ceil(h);
@@ -51,7 +59,7 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_0
       async create({ model, max_tokens, system, tools = [], messages }) {
         const body = {
           systemInstruction: { parts: [{ text: String(system || '') }] },
-          contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })),
+          contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: toParts(m.content) })),
           tools: [{ functionDeclarations: tools.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.input_schema) })) }],
           toolConfig: { functionCallingConfig: { mode: 'ANY' } }, // wajib memanggil salah satu alat
           // Model Gemini 3 "berpikir" dulu dan token berpikir ikut dihitung, jadi beri ruang lebih besar.
