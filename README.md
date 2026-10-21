@@ -74,6 +74,16 @@ Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortogra
 - **Kamus tambahan** (serapan Arab, e keras/pepet, pengecualian -kan/-kah/-lah) tersimpan di browser perangkat masing-masing dan bisa diekspor atau diimpor sebagai `.json`. Entri divalidasi saat ditambah atau diimpor.
 - Tes: `test/pegon.test.js` (kalibrasi master prompt, validasi, layanan AI dengan klien palsu, adapter gambar).
 
+### Kamus Pegon bersama dan tombol Pegonkan
+
+- **Kamus bersama** disimpan di Firestore, koleksi `kamusPegon` (satu kata satu dokumen; id `arab_ilmu`, `e_seperti`, `suf_seolah`). Semua staf membacanya, jadi hasil Pegon seragam antarpengguna. **Hanya editor dan admin** yang boleh menambah, mengubah, atau menghapus.
+- **Urutan pemakaian mesin:** kamus bawaan, lalu kamus bersama, lalu tambahan di perangkat (yang terakhir menang, hanya di perangkat itu). Entri perangkat yang berbeda dari kamus bersama ditandai di tab Pegonizer, dengan tombol **Pakai kamus bersama**.
+- **Membagikan:** editor/admin memakai **Bagikan tambahan perangkat ini**; entri yang berhasil dibagikan otomatis dicabut dari perangkat supaya salinan lokal yang usang tidak menimpa koreksi editor lain. Penyusun tidak bisa menulis ke kamus bersama: koreksinya tetap di perangkatnya sampai diekspor dan diserahkan ke editor.
+- **Keamanan:** data dari jaringan tidak dipercaya. Setiap entri divalidasi ulang di mesin (`kamus.muatBersama`): huruf Latin a-z, ejaan Arab hanya blok Arab dasar, id harus cocok dengan isi, jumlah dibatasi 5000. `firestore.rules` menerapkan pola yang sama sebagai lapisan kedua.
+- **Wajib setelah memperbarui:** salin ulang `firestore.rules` ke Firebase Console > Rules dan **Publish**. Tanpa itu kamus bersama tidak termuat (muncul peringatan di tab Pegonizer; Pegon tetap jalan dengan kamus bawaan dan perangkat).
+- **Tombol Pegonkan** ada di form Penyusunan Soal. Ia hanya menampilkan pratinjau Pegon (stimulus, pertanyaan, opsi, pembahasan opsional) dan tidak mengubah isian Latin, karena telaah AI, cek kutipan, dan uji buta bekerja pada teks Latin. Kata yang disorot mesin bisa langsung dibereskan ke kamus dari panel itu.
+- Tes: `test/kamusRules.test.js` menjaga pola regex dan struktur izin di `firestore.rules` tetap sama dengan mesin. Aturan itu sendiri belum diuji di emulator Firestore.
+
 ## Batas gratis yang perlu diperhatikan
 
 - **Firestore Spark:** contoh kuota di dokumen Firebase adalah 20.000 tulis dan 50.000 baca per hari. Bila habis, Firestore berhenti sampai bulan berikutnya. Aplikasi menyimpan salinan data di browser dan membatasi daftar soal ke 300 terbaru untuk menghemat bacaan. Untuk madrasah dengan puluhan pengguna, ini umumnya cukup, tetapi pantau di Firebase Console > Usage.

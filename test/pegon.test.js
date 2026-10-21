@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { convertText, kamus, kalibrasiOk } from '../src/pegon.js';
+import { convertText, kamus, kalibrasiOk, jenisPerbaikan } from '../src/pegon.js';
 import { perkuatPegon, fotoPegon, validateFoto, validatePegon } from '../src/pegonService.js';
 import { toParts } from '../src/gemini.js';
 
@@ -70,4 +70,87 @@ test('adapter Gemini: teks biasa tetap teks, blok gambar menjadi inlineData', ()
   assert.deepEqual(toParts('halo'), [{ text: 'halo' }]);
   assert.deepEqual(toParts([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } }, { type: 'text', text: 'baca' }]),
     [{ inlineData: { mimeType: 'image/png', data: 'QUJD' } }, { text: 'baca' }]);
+});
+
+// ---- Kamus bersama (Firestore): data jaringan tidak dipercaya ----
+const reset = () => kamus.muatBersama([]);
+
+test('kamus bersama: entri valid dipakai mesin, lalu dicabut bersih saat daftar kosong', () => {
+  const sebelum = convertText('tawakkul').pegon;
+  const r = kamus.muatBersama([{ id: 'arab_tawakkul', jenis: 'arab', kata: 'tawakkul', arab: 'توكل' }]);
+  assert.deepEqual(r, { masuk: 1, lewat: 0 });
+  assert.ok(convertText('tawakkul').pegon.includes('توكل'));
+  reset();
+  assert.equal(convertText('tawakkul').pegon, sebelum);
+});
+
+test('kamus bersama: entri jahat atau tak konsisten dilewati, sisanya tetap masuk', () => {
+  const r = kamus.muatBersama([
+    { jenis: 'arab', kata: 'ok', arab: 'علم' },
+    { jenis: 'arab', kata: 'x', arab: '<img src=x onerror=alert(1)>' },
+    { jenis: 'arab', kata: '__proto__', arab: 'علم' },
+    { jenis: 'arab', kata: 'constructor', arab: 'علم' },
+    { jenis: 'arab', kata: 'y', arab: 'علم\u200d' },
+    { jenis: 'e', kata: 'zz', tipe: 'sembarang' },
+    { jenis: 'zzz', kata: 'a' },
+    { id: 'arab_lain', jenis: 'arab', kata: 'cocok', arab: 'علم' },
+    null, 'teks', 42, [],
+  ]);
+  assert.equal(r.masuk, 1);
+  assert.equal(r.lewat, 11);
+  assert.deepEqual(Object.keys(kamus.bersama().arab), ['ok']);
+  assert.doesNotMatch(convertText('constructor').pegon, /function|native code/);
+  reset();
+});
+
+test('kamus bersama: masukan bukan array tidak melempar dan tidak menyisakan data lama', () => {
+  kamus.muatBersama([{ jenis: 'suf', kata: 'seolah' }]);
+  assert.deepEqual(kamus.bersama().suffixExc, ['seolah']);
+  assert.deepEqual(kamus.muatBersama(undefined), { masuk: 0, lewat: 0 });
+  assert.deepEqual(kamus.bersama(), { arab: {}, keras: [], pepet: [], suffixExc: [] });
+});
+
+test('kamus bersama: jumlah entri dibatasi agar dokumen berlebih tidak membanjiri browser', () => {
+  const banyak = Array.from({ length: 5003 }, (_, i) => ({ jenis: 'suf', kata: 'k' + String.fromCharCode(97 + (i % 26)).repeat(1 + (i % 7)) + 'q'.repeat(i % 5) }));
+  const r = kamus.muatBersama(banyak);
+  assert.equal(r.masuk + r.lewat, 5003);
+  assert.ok(r.lewat >= 3);
+  reset();
+});
+
+test('kamus bersama: prioritas bawaan < bersama < lokal, dan e keras/pepet berpindah bersih', () => {
+  kamus.muatBersama([{ jenis: 'arab', kata: 'ilmu', arab: 'عِلْم' }, { jenis: 'e', kata: 'wortelan', tipe: 'keras' }]);
+  assert.ok(convertText('ilmu').pegon.includes('عِلْم'), 'bersama menimpa bawaan');
+  assert.equal(kamus.tambahArab('ilmu', 'علوم').ok, true);
+  assert.ok(convertText('ilmu').pegon.includes('علوم'), 'lokal menimpa bersama');
+  assert.deepEqual(kamus.bentrok(), [{ jenis: 'arab', kata: 'ilmu', lokal: 'علوم', bersama: 'عِلْم' }]);
+  kamus.hapusArab('ilmu');
+  assert.deepEqual(kamus.bentrok(), []);
+
+  kamus.tambahE('wortelan', 'pepet');
+  assert.ok(kamus.bersama().keras.includes('wortelan') && kamus.kustom().pepet.includes('wortelan'));
+  assert.deepEqual(kamus.bentrok(), [{ jenis: 'e', kata: 'wortelan', lokal: 'pepet', bersama: 'keras' }]);
+  kamus.hapusE('wortelan'); reset();
+  assert.equal(kamus.kosong(), true);
+  assert.ok(kalibrasiOk(), 'mesin kembali ke kalibrasi baku');
+});
+
+test('kamus bersama: entriLokal memetakan kamus perangkat ke bentuk bagikan dan membuang yang tak lolos', () => {
+  kamus.tambahArab('tawakal', 'توكل'); kamus.tambahE('reken', 'keras'); kamus.tambahSuffixExc('seolah');
+  const { entri, lewat } = kamus.entriLokal();
+  assert.equal(lewat, 0);
+  assert.deepEqual(entri.map(kamus.idEntri).sort(), ['arab_tawakal', 'e_reken', 'suf_seolah']);
+  kamus.hapusArab('tawakal'); kamus.hapusE('reken'); kamus.hapusSuffixExc('seolah');
+  assert.equal(kamus.kosong(), true);
+});
+
+test('jenisPerbaikan: mengenali catatan mesin yang bisa dibereskan lewat kamus', () => {
+  assert.equal(jenisPerbaikan('ada bunyi e — cek pepet/keras'), 'e');
+  assert.equal(jenisPerbaikan('kemungkinan serapan Arab yang belum ada di kamus — pastikan ejaan Arabnya, lalu tambahkan ke kamus'), 'arab');
+  assert.equal(jenisPerbaikan('kata depan «ke» berdiri sendiri'), null);
+  assert.equal(jenisPerbaikan(undefined), null);
+  // setiap kata bersorot dari mesin harus punya jalur perbaikan atau memang kasus khusus «ke»
+  for (const d of convertText('reken tafakkur kemarin ke pasar').details.filter((x) => x.flagged)) {
+    assert.ok(jenisPerbaikan(d.note) || /^ke$/i.test(d.latin), `${d.latin}: ${d.note}`);
+  }
 });

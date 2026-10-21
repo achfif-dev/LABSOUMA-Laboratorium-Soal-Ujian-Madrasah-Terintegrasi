@@ -119,6 +119,9 @@ const FALLBACK_CFG = {
 };
 const AppCfgCtx = React.createContext(FALLBACK_CFG);
 const useCfg = () => React.useContext(AppCfgCtx);
+// Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
+const KamusCtx = React.createContext({ docs: [], ver: 0, err: null, canShare: false, simpan: async () => {}, hapus: async () => {} });
+const useKamus = () => React.useContext(KamusCtx);
 const tingkatAktif = (cfg) => cfg.tingkat.filter((t) => t.aktif);
 const labelTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).label) || nama;
 const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingkat || m.tingkat.includes(tingkat))).map((m) => m.nama);
@@ -553,6 +556,98 @@ function AssistView({ state, onIdea }) {
 }
 
 /* ---------- Tab 1: Penyusunan ---------- */
+/* ---------- Pegonkan: pratinjau Pegon dari isian soal (isian Latin TIDAK diubah) + perbaikan kata bersorot ke kamus ---------- */
+function PegonSoal({ form, toast }) {
+  const P = window.Pegon;
+  const kc = useKamus();
+  const [tick, setTick] = useState(0);
+  const [bahas, setBahas] = useState(false);
+  const [isi, setIsi] = useState({}); // kata -> { arab, tipe }
+  const [busy, setBusy] = useState('');
+  const bagian = useMemo(() => {
+    const out = [];
+    const tambah = (label, teks) => { if (String(teks || '').trim()) out.push({ label, ...P.convertText(String(teks)) }); };
+    tambah('Stimulus', form.stimulus);
+    tambah('Pertanyaan', form.pertanyaan);
+    ['A', 'B', 'C', 'D', 'E'].forEach((k) => tambah('Opsi ' + k + (form.kunci === k ? ' (kunci)' : ''), (form.opsi || {})[k]));
+    if (bahas) tambah('Pembahasan', form.pembahasan);
+    return out;
+  }, [form.stimulus, form.pertanyaan, form.opsi, form.kunci, form.pembahasan, bahas, kc.ver, tick]);
+  // Kata bersorot yang bisa dibereskan lewat kamus. Kata berhubung (rekan-rekan) dipecah: mesin mencari kamus per bagian, bukan per gabungan.
+  const masalah = useMemo(() => {
+    const peta = new Map();
+    for (const b of bagian) for (const d of b.details) {
+      if (!d.flagged) continue;
+      for (const part of String(d.latin).split('-')) {
+        const k = part.toLowerCase();
+        if (!k || peta.has(k)) continue;
+        const det = P.convertText(part).details.find((x) => x.flagged);
+        if (det) peta.set(k, { kata: k, jenis: P.jenisPerbaikan(det.note), note: det.note });
+      }
+    }
+    return [...peta.values()];
+  }, [bagian]);
+  const salin = async () => { try { await navigator.clipboard.writeText(bagian.map((b) => b.label + '\n' + b.pegon).join('\n\n')); toast('Pegon soal disalin.'); } catch (e) { toast('Penyalinan ditolak browser. Pilih teks lalu salin manual.'); } };
+  const simpan = async (m, bersama) => {
+    const f = isi[m.kata] || {};
+    const en = m.jenis === 'arab' ? { jenis: 'arab', kata: m.kata, arab: f.arab } : { jenis: 'e', kata: m.kata, tipe: f.tipe || 'keras' };
+    const cek = P.kamus.bentukEntri(en);
+    if (!cek.ok) return toast(cek.pesan);
+    if (!bersama) {
+      const r = en.jenis === 'arab' ? P.kamus.tambahArab(en.kata, en.arab) : P.kamus.tambahE(en.kata, en.tipe);
+      if (r.ok === false) return toast(r.pesan);
+      setTick((n) => n + 1); return toast('Disimpan di perangkat ini.');
+    }
+    setBusy(m.kata);
+    try { await kc.simpan([cek.entri]); toast('Disimpan ke kamus bersama.'); }
+    catch (e) { toast(e && e.code === 'permission-denied' ? 'Ditolak: hanya editor/admin yang boleh mengubah kamus bersama.' : 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); }
+    finally { setBusy(''); }
+  };
+  if (!bagian.length) return <p className="mt-3 text-xs text-mute">Isi stimulus, pertanyaan, atau opsi dulu.</p>;
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn onClick={salin}><Copy size={16} />Salin Pegon</Btn>
+        <label className="inline-flex items-center gap-2 text-xs text-mute"><input type="checkbox" checked={bahas} onChange={(e) => setBahas(e.target.checked)} />Sertakan pembahasan</label>
+      </div>
+      <div className="space-y-2">
+        {bagian.map((b, i) => (
+          <div key={i}>
+            <p className="text-xs font-semibold text-soft-ink">{b.label}</p>
+            <div dir="rtl" lang="ar" className="ar rounded-xl border border-line bg-surface p-3 [&_.flag]:rounded [&_.flag]:bg-warn-bg [&_.flag]:px-0.5"
+              dangerouslySetInnerHTML={{ __html: b.html }} />
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-mute">Hanya untuk dilihat dan disalin; isian Latin soal tidak berubah dan tetap dipakai untuk telaah AI, cek kutipan, dan uji buta. Ekspor <b>Soal Pegon (DOCX)</b> memakai kamus yang sama. Transliterasi otomatis perlu diperiksa oleh yang menguasai Pegon.</p>
+      {masalah.length > 0 && (
+        <div className="rounded-xl bg-warn-bg px-3 py-3 text-warn">
+          <p className="font-bold">{masalah.length} kata bersorot. Bila ejaannya sudah Anda ketahui, simpan ke kamus supaya hasil berikutnya benar:</p>
+          <div className="mt-2 space-y-2">
+            {masalah.map((m) => (
+              <div key={m.kata} className="rounded-lg bg-surface p-2 text-ink">
+                <p className="text-sm"><b>{m.kata}</b> <span className="text-xs text-mute">— {m.note}</span></p>
+                {m.jenis ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                    {m.jenis === 'arab'
+                      ? <input className="field ar-sm" dir="rtl" lang="ar" placeholder="Ejaan Arab, mis. توكل" value={(isi[m.kata] || {}).arab || ''} onChange={(e) => setIsi({ ...isi, [m.kata]: { ...(isi[m.kata] || {}), arab: e.target.value } })} />
+                      : <Select value={(isi[m.kata] || {}).tipe || 'keras'} onChange={(v) => setIsi({ ...isi, [m.kata]: { ...(isi[m.kata] || {}), tipe: v } })}><option value="keras">e keras (ي)</option><option value="pepet">e pepet (tidak ditulis)</option></Select>}
+                    <div className="flex flex-wrap gap-2">
+                      {kc.canShare && <Btn kind="primary" disabled={busy === m.kata} onClick={() => simpan(m, true)}>Simpan untuk semua</Btn>}
+                      <Btn onClick={() => simpan(m, false)}>{kc.canShare ? 'Hanya di perangkat ini' : 'Simpan di perangkat ini'}</Btn>
+                    </div>
+                  </div>
+                ) : <p className="mt-1 text-xs text-mute">Kasus ini belum bisa diatur lewat kamus; putuskan dan edit manual di hasil Pegon.</p>}
+              </div>
+            ))}
+          </div>
+          {!kc.canShare && <p className="mt-2 text-xs">Anda penyusun: simpanan di perangkat ini tidak terlihat oleh rekan. Untuk membagikannya, ekspor kamus di tab Pegonizer dan serahkan ke editor.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const cfg = useCfg();
   const [busy, setBusy] = useState(false);
@@ -581,6 +676,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
       return tk === f.tingkat && mp === f.mapel ? f : { ...f, tingkat: tk, mapel: mp };
     });
   }, [cfg, editingId]);
+  const [pg, setPg] = useState(false); // panel Pegonkan
   const [butaState, setButaState] = useState(null);
   const ujiButa = async (soal) => {
     setButaState({ loading: true });
@@ -931,6 +1027,13 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               {undo && <Btn kind="ghost" onClick={undoFix}><RotateCcw size={16} />Urungkan perbaikan</Btn>}
             </div>
             {tl && <div className="mt-3"><TelaahView state={tl} onApply={applyFix} /></div>}
+          </div>
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn kind="soft" onClick={() => setPg((v) => !v)} aria-expanded={pg}><Languages size={16} />{pg ? 'Tutup Pegon' : 'Pegonkan'}</Btn>
+              <span className="text-xs text-mute">Lihat soal ini dalam aksara Pegon. Isian Latin tidak diubah.</span>
+            </div>
+            {pg && <PegonSoal form={form} toast={toast} />}
           </div>
           <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
@@ -1707,9 +1810,58 @@ function PegonKamus({ onChange }) {
     try { const r = P.kamus.impor(await file.text()); setPesan(`Kamus digabung: ${r.masuk} entri masuk${r.lewat ? `, ${r.lewat} dilewati karena tidak valid` : ''}.`); sync(); }
     catch (err) { setPesan('Gagal membaca berkas kamus (harus .json hasil ekspor aplikasi ini).'); }
   };
+  const kc = useKamus();
+  const [bagi, setBagi] = useState(false);
+  const bersamaDocs = useMemo(() => [...kc.docs].sort((a, b) => String(a.kata).localeCompare(String(b.kata))), [kc.docs]);
+  const bersamaHit = q ? bersamaDocs.filter((d) => String(d.kata).includes(q) || String(d.arab || '').includes(q)) : bersamaDocs;
+  const lokal = P.kamus.entriLokal();
+  const bentrok = P.kamus.bentrok();
+  const bagikanLokal = async () => {
+    if (!lokal.entri.length) return setPesan('Belum ada tambahan di perangkat ini untuk dibagikan.');
+    if (!window.confirm(`Bagikan ${lokal.entri.length} entri dari perangkat ini ke kamus bersama? Semua pengguna akan memakainya, dan entri yang sama di kamus bersama akan tertimpa.`)) return;
+    setBagi(true);
+    try {
+      const ok = await kc.simpan(lokal.entri);
+      // Entri yang sudah dibagikan dicabut dari lokal: kalau dibiarkan, salinan lokal yang usang akan menimpa koreksi editor lain di perangkat ini.
+      for (const en of ok) { if (en.jenis === 'arab') P.kamus.hapusArab(en.kata); else if (en.jenis === 'e') P.kamus.hapusE(en.kata); else P.kamus.hapusSuffixExc(en.kata); }
+      setPesan(`${ok.length} entri dibagikan dan dipindah dari perangkat ini ke kamus bersama.${lokal.lewat ? ` ${lokal.lewat} entri lokal dilewati karena tidak memenuhi aturan kamus bersama (hanya huruf Arab dasar).` : ''}`);
+      sync();
+    } catch (e) { setPesan(e && e.code === 'permission-denied' ? 'Ditolak server: peran Anda tidak boleh mengubah kamus bersama.' : (e && e.message) || 'Gagal membagikan. Periksa koneksi lalu coba lagi.'); }
+    finally { setBagi(false); }
+  };
+  const hapusBersama = async (d) => {
+    if (!window.confirm(`Hapus "${d.kata}" dari kamus bersama? Semua pengguna akan kembali ke kamus bawaan untuk kata ini.`)) return;
+    try { await kc.hapus(d.id); } catch (e) { setPesan((e && e.message) || 'Gagal menghapus.'); }
+  };
+  const pakaiBersama = () => { for (const b of bentrok) { if (b.jenis === 'arab') P.kamus.hapusArab(b.kata); else P.kamus.hapusE(b.kata); } sync(); setPesan('Entri perangkat yang berbeda dari kamus bersama sudah dibuang.'); };
   return (
     <div className="space-y-5 text-sm">
-      <p className="text-mute">Tambahan tersimpan di browser perangkat ini saja. Gunakan ekspor dan impor untuk memindahkannya ke perangkat atau rekan lain.</p>
+      <div className="rounded-xl border border-line p-3">
+        <Label hint={`(${bersamaDocs.length} entri, dipakai semua pengguna)`}>Kamus bersama madrasah</Label>
+        <p className="mt-1 text-mute">Urutan pemakaian mesin: kamus bawaan, lalu kamus bersama, lalu tambahan di perangkat ini (yang terakhir menang di perangkat ini saja).{' '}
+          {kc.canShare ? 'Sebagai editor/admin Anda dapat menambah dan menghapus entri bersama; semua perubahan terlihat oleh seluruh pengguna.' : 'Perubahan kamus bersama hanya oleh editor atau admin. Koreksi Anda tersimpan di perangkat ini; untuk membagikannya, ekspor lalu serahkan berkasnya ke editor.'}</p>
+        {kc.err && <p role="alert" className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-bad">{kc.err}</p>}
+        {bentrok.length > 0 && (
+          <div className="mt-2 rounded-lg bg-warn-bg px-3 py-2 text-warn">
+            <p className="font-semibold">{bentrok.length} entri perangkat ini berbeda dari kamus bersama, sehingga hasil Pegon di sini bisa berbeda dari rekan Anda:</p>
+            <p className="mt-1">{bentrok.map((b) => `${b.kata} (${b.jenis === 'arab' ? b.lokal + ' ≠ ' + b.bersama : b.lokal + ' ≠ ' + b.bersama})`).join(', ')}</p>
+            <div className="mt-2"><Btn onClick={pakaiBersama}>Pakai kamus bersama</Btn></div>
+          </div>
+        )}
+        {kc.canShare && <div className="mt-3"><Btn kind="soft" disabled={bagi} onClick={bagikanLokal}>{bagi ? 'Membagikan…' : `Bagikan tambahan perangkat ini (${lokal.entri.length})`}</Btn></div>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {bersamaHit.slice(0, 80).map((d) => (
+            <span key={d.id} title={d.updatedByName ? 'Oleh ' + d.updatedByName : ''} className="inline-flex items-center gap-2 rounded-lg border border-line bg-bg px-2.5 py-1 text-sm">
+              {d.jenis === 'arab' && <span className="ar-sm" dir="rtl">{d.arab}</span>}
+              <span className="text-mute">{d.kata}{d.jenis === 'e' ? ' · e ' + d.tipe : d.jenis === 'suf' ? ' · akar' : ''}</span>
+              {kc.canShare && <button type="button" aria-label="Hapus dari kamus bersama" onClick={() => hapusBersama(d)} className="text-mute hover:text-bad"><X size={14} /></button>}
+            </span>
+          ))}
+          {!bersamaDocs.length && <span className="text-mute">Belum ada entri bersama.</span>}
+          {bersamaHit.length > 80 && <span className="text-mute">…dan {bersamaHit.length - 80} lagi (persempit dengan kolom cari di bawah).</span>}
+        </div>
+      </div>
+      <p className="text-mute">Tambahan di bawah tersimpan di browser perangkat ini saja. Gunakan ekspor dan impor untuk memindahkannya ke perangkat atau rekan lain.</p>
       <div className="flex flex-wrap gap-2">
         <Btn onClick={() => { if (P.kamus.kosong()) return setPesan('Belum ada tambahan untuk diekspor.'); simpanBerkas('kamus-pegon.json', new Blob([P.kamus.ekspor()], { type: 'application/json' })); }}>Ekspor kamus</Btn>
         <label className="inline-flex cursor-pointer items-center rounded-lg border border-line px-4 py-2 text-sm font-semibold hover:bg-soft">Impor kamus<input type="file" accept="application/json,.json" className="hidden" onChange={impor} /></label>
@@ -1957,6 +2109,35 @@ function App({ user, profile }) {
     () => { setLoadErr('Bank soal tidak bisa dimuat. Periksa koneksi, atau minta admin memastikan peran Anda aktif.'); setLoaded(true); },
   ), []);
 
+  // ---- Kamus Pegon bersama ----
+  // Dibaca semua staf. Ditulis hanya editor/admin (aturan Firestore). Setiap dokumen divalidasi ulang di mesin (muatBersama).
+  const [kamusDocs, setKamusDocs] = useState([]);
+  const [kamusVer, setKamusVer] = useState(0);
+  const [kamusErr, setKamusErr] = useState(null);
+  useEffect(() => db.collection('kamusPegon').onSnapshot(
+    (snap) => {
+      const docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+      if (window.Pegon) window.Pegon.kamus.muatBersama(docs);
+      setKamusDocs(docs); setKamusErr(null); setKamusVer((n) => n + 1);
+    },
+    () => setKamusErr('Kamus bersama tidak dapat dimuat. Pegon memakai kamus bawaan dan kamus perangkat ini.'),
+  ), []);
+  const kamusSimpan = async (daftar) => {
+    if (!canReview) throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.');
+    const P = window.Pegon; const ok = [];
+    // Satu per satu (paralel kecil), bukan batch: aturan memanggil get() ke profil peran, dan batas panggilan akses per permintaan batch tidak pasti.
+    for (let i = 0; i < daftar.length; i += 10) {
+      await Promise.all(daftar.slice(i, i + 10).map(async (en) => {
+        const r = P.kamus.bentukEntri(en); if (!r.ok) return;
+        await db.collection('kamusPegon').doc(P.kamus.idEntri(r.entri)).set({ ...r.entri, updatedAt: ts(), updatedByUid: user.uid, updatedByName: String(displayName || '').slice(0, 120) });
+        ok.push(r.entri);
+      }));
+    }
+    return ok;
+  };
+  const kamusHapus = async (id) => { if (!canReview) throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.'); await db.collection('kamusPegon').doc(id).delete(); };
+  const kamusCtx = useMemo(() => ({ docs: kamusDocs, ver: kamusVer, err: kamusErr, canShare: canReview, simpan: kamusSimpan, hapus: kamusHapus }), [kamusDocs, kamusVer, kamusErr, canReview]);
+
   const failMsg = (e) => (e && e.code === 'permission-denied'
     ? 'Ditolak: Anda tidak berhak melakukan ini, atau soal sudah diubah orang lain.'
     : 'Gagal menyimpan. Periksa koneksi lalu coba lagi.');
@@ -2066,6 +2247,7 @@ function App({ user, profile }) {
 
       <main className="mx-auto max-w-6xl py-6 sm:py-8">
         <AppCfgCtx.Provider value={appCfg}>
+        <KamusCtx.Provider value={kamusCtx}>
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); }} toast={toast} />}
@@ -2077,6 +2259,7 @@ function App({ user, profile }) {
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
         {tab === 'cfg' && isAdmin && <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
+        </KamusCtx.Provider>
         </AppCfgCtx.Provider>
       </main>
       <Toast t={msg} />

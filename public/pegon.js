@@ -186,6 +186,13 @@ let customKeras = [];      // [lat, ...]
 let customPepet = [];      // [lat, ...]
 let customSuffixExc = [];  // [lat, ...]
 
+// Lapisan KAMUS BERSAMA (dari Firestore, koleksi kamusPegon). Urutan prioritas: bawaan < bersama < lokal perangkat.
+// Data dari jaringan TIDAK dipercaya: setiap entri divalidasi ulang di muatBersama() sebelum menyentuh mesin.
+let sharedArabic = Object.create(null);
+let sharedKeras = [];
+let sharedPepet = [];
+let sharedSuffixExc = [];
+
 // Live dictionaries dipakai mesin (bawaan + tambahan digabung). Dibangun ulang
 // tiap kali ada tambah/hapus lewat rebuildLiveDicts().
 let ARABIC_DICT = {};
@@ -212,10 +219,15 @@ function saveCustomDict(){
   }catch(e){ /* penyimpanan penuh/nonaktif — tambahan tetap berlaku untuk sesi ini saja */ }
 }
 function rebuildLiveDicts(){
-  ARABIC_DICT = Object.assign(Object.create(null), DEFAULT_ARABIC_DICT, customArabic); // [TERPADU] tanpa prototipe
-  KERAS_E_SEED = new Set([...DEFAULT_KERAS_E, ...customKeras]);
-  PEPET_E_SEED = new Set([...DEFAULT_PEPET_E, ...customPepet]);
-  SUFFIX_EXCEPTIONS = new Set([...DEFAULT_SUFFIX_EXC, ...customSuffixExc]);
+  ARABIC_DICT = Object.assign(Object.create(null), DEFAULT_ARABIC_DICT, sharedArabic, customArabic); // [TERPADU] tanpa prototipe
+  // e keras/pepet: lapisan yang lebih atas menang. Kata yang dipindah tipe dicabut dari tipe lamanya.
+  const keras = new Set(DEFAULT_KERAS_E), pepet = new Set(DEFAULT_PEPET_E);
+  const terapkan = (ks, ps) => { for (const w of ks) { pepet.delete(w); keras.add(w); } for (const w of ps) { keras.delete(w); pepet.add(w); } };
+  terapkan(sharedKeras, sharedPepet);
+  terapkan(customKeras, customPepet);
+  KERAS_E_SEED = keras;
+  PEPET_E_SEED = pepet;
+  SUFFIX_EXCEPTIONS = new Set([...DEFAULT_SUFFIX_EXC, ...sharedSuffixExc, ...customSuffixExc]);
 }
 loadCustomDict();
 rebuildLiveDicts();
@@ -542,7 +554,75 @@ const LATIN_RE = /^[a-z\u2019'\u02bc-]{1,40}$/;
 const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const kata = (v) => String(v == null ? '' : v).trim().toLowerCase();
 
+// Ejaan Arab untuk kamus BERSAMA sengaja lebih sempit daripada kamus lokal: hanya blok Arab dasar (U+0621-U+06FF, mencakup
+// huruf Pegon ڠ ڽ ڤ ڬ ۑ dan harakat), spasi, dan tanda hubung. Pola yang sama dipasang di firestore.rules (dijaga test/kamusRules.test.js).
+const SHARED_ARAB_RE = /^[\u0621-\u06FF \-]{1,60}$/;
+const MAKS_BERSAMA = 5000;
+
+/** Memeriksa satu entri kamus bersama dan mengembalikannya dalam bentuk baku. Tidak pernah melempar. */
+function bentukEntri(e) {
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return { ok: false, pesan: 'Entri bukan objek.' };
+  const jenis = e.jenis;
+  const k = kata(e.kata);
+  if (!['arab', 'e', 'suf'].includes(jenis)) return { ok: false, pesan: 'Jenis entri tidak dikenal.' };
+  if (BAD_KEYS.has(k) || !LATIN_RE.test(k)) return { ok: false, pesan: 'Kata Latin hanya boleh huruf a-z, tanda hubung, atau apostrof.' };
+  if (jenis === 'arab') {
+    const ar = typeof e.arab === 'string' ? e.arab.trim() : '';
+    if (!SHARED_ARAB_RE.test(ar)) return { ok: false, pesan: 'Ejaan Arab hanya boleh berisi huruf Arab (tanpa tanda baca atau karakter lain).' };
+    return { ok: true, entri: { jenis, kata: k, arab: ar } };
+  }
+  if (jenis === 'e') {
+    if (e.tipe !== 'keras' && e.tipe !== 'pepet') return { ok: false, pesan: 'Tipe e harus keras atau pepet.' };
+    return { ok: true, entri: { jenis, kata: k, tipe: e.tipe } };
+  }
+  return { ok: true, entri: { jenis, kata: k } };
+}
+const idEntri = (en) => en.jenis + '_' + en.kata;
+
 export const kamus = {
+  // ---- lapisan bersama (Firestore) ----
+  bentukEntri,
+  idEntri,
+  /** Mengganti seluruh lapisan bersama dengan `daftar` ({id?, jenis, kata, ...}). Entri tak valid atau ber-id salah dilewati. */
+  muatBersama(daftar) {
+    const arab = Object.create(null), keras = new Set(), pepet = new Set(), suf = new Set();
+    let masuk = 0, lewat = 0;
+    const src = Array.isArray(daftar) ? daftar.slice(0, MAKS_BERSAMA) : [];
+    lewat += Array.isArray(daftar) ? Math.max(0, daftar.length - src.length) : 0;
+    for (const raw of src) {
+      const r = bentukEntri(raw);
+      if (!r.ok || (raw.id != null && raw.id !== idEntri(r.entri))) { lewat++; continue; }
+      const en = r.entri;
+      if (en.jenis === 'arab') arab[en.kata] = en.arab;
+      else if (en.jenis === 'e') { (en.tipe === 'keras' ? keras : pepet).add(en.kata); (en.tipe === 'keras' ? pepet : keras).delete(en.kata); }
+      else suf.add(en.kata);
+      masuk++;
+    }
+    sharedArabic = arab; sharedKeras = [...keras]; sharedPepet = [...pepet]; sharedSuffixExc = [...suf];
+    rebuildLiveDicts();
+    return { masuk, lewat };
+  },
+  bersama: () => ({ arab: { ...sharedArabic }, keras: [...sharedKeras], pepet: [...sharedPepet], suffixExc: [...sharedSuffixExc] }),
+  /** Entri lokal perangkat ini dalam bentuk entri bersama (untuk tombol "bagikan"). Yang tak lolos validasi bersama dilewati. */
+  entriLokal() {
+    const hasil = []; let lewat = 0;
+    const tambah = (e) => { const r = bentukEntri(e); r.ok ? hasil.push(r.entri) : lewat++; };
+    for (const [k, v] of Object.entries(customArabic)) tambah({ jenis: 'arab', kata: k, arab: v });
+    for (const w of customKeras) tambah({ jenis: 'e', kata: w, tipe: 'keras' });
+    for (const w of customPepet) tambah({ jenis: 'e', kata: w, tipe: 'pepet' });
+    for (const w of customSuffixExc) tambah({ jenis: 'suf', kata: w });
+    return { entri: hasil, lewat };
+  },
+  /** Entri lokal yang isinya berbeda dengan kamus bersama (lokal menang di perangkat ini, tetapi orang lain tidak melihatnya). */
+  bentrok() {
+    const hasil = [];
+    for (const [k, v] of Object.entries(customArabic)) if (sharedArabic[k] !== undefined && sharedArabic[k] !== v) hasil.push({ jenis: 'arab', kata: k, lokal: v, bersama: sharedArabic[k] });
+    for (const w of customKeras) if (sharedPepet.includes(w)) hasil.push({ jenis: 'e', kata: w, lokal: 'keras', bersama: 'pepet' });
+    for (const w of customPepet) if (sharedKeras.includes(w)) hasil.push({ jenis: 'e', kata: w, lokal: 'pepet', bersama: 'keras' });
+    return hasil;
+  },
+
+  // ---- lapisan lokal (perangkat ini) ----
   bawaan: () => ({ arab: DEFAULT_ARABIC_DICT, keras: DEFAULT_KERAS_E, pepet: DEFAULT_PEPET_E, suffixExc: DEFAULT_SUFFIX_EXC }),
   kustom: () => ({ arab: { ...customArabic }, keras: [...customKeras], pepet: [...customPepet], suffixExc: [...customSuffixExc] }),
   kosong: () => !Object.keys(customArabic).length && !customKeras.length && !customPepet.length && !customSuffixExc.length,
@@ -584,6 +664,14 @@ export const kamus = {
 };
 
 export { convertText, escapeHtml };
+
+/** Dari catatan mesin pada kata bersorot: perbaikan apa yang bisa dilakukan pengguna lewat kamus? 'arab' | 'e' | null. */
+export function jenisPerbaikan(note) {
+  const n = String(note || '');
+  if (n.includes('serapan Arab')) return 'arab';
+  if (n.startsWith('ada bunyi e')) return 'e';
+  return null;
+}
 
 /** Uji kalibrasi dari master prompt: kembalikan true bila mesin masih cocok dengan contoh baku. */
 export function kalibrasiOk() {
