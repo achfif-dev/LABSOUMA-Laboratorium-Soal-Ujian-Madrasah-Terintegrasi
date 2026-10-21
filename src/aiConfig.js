@@ -2,7 +2,7 @@
 // Disimpan di Firestore config/ai (hanya Admin SDK yang bisa mengakses; aturan Firestore menolak klien).
 // Kunci API dienkripsi dan TIDAK pernah dikirim ke browser: hanya 4 karakter terakhir yang ditampilkan.
 // Urutan prioritas: pengaturan admin -> environment variable -> bawaan kode.
-import { ApiError, setRuntimeAi, toApiError, getClient, getModel, provider as envProvider, DEFAULT_MODELS } from './soalService.js';
+import { ApiError, setRuntimeAi, toApiError, getClient, getModel, provider as envProvider, DEFAULT_MODELS, MODEL_PRESETS } from './soalService.js';
 import { masterKey, encryptSecret, decryptSecret } from './secrets.js';
 import { firestoreAdmin } from './platform.js';
 
@@ -66,7 +66,7 @@ export async function statusAi() {
   }
   return {
     provider: aktif.provider, models: { gemini: (doc.models && doc.models.gemini) || '', anthropic: (doc.models && doc.models.anthropic) || '' },
-    modelBawaan: DEFAULT_MODELS, kunci,
+    modelBawaan: DEFAULT_MODELS, modelPilihan: MODEL_PRESETS, kunci,
     enkripsi: { sumber: String(process.env.CONFIG_ENCRYPTION_KEY || '').trim() ? 'env' : 'turunan' },
     aktif: { provider: aktif.provider, model: aktif.model, sumberKunci: aktif.sumberKunci, peringatan: aktif.peringatan },
   };
