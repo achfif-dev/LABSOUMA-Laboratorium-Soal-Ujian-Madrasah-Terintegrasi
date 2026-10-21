@@ -1,7 +1,7 @@
 {
-  "name": "Sistem Bank Soal Madrasah",
-  "short_name": "Bank Soal",
-  "description": "Bank soal madrasah berbasis teks kitab dengan bantuan AI",
+  "name": "LABSOUMA · Laboratorium Soal Ujian Madrasah Terintegrasi",
+  "short_name": "LABSOUMA",
+  "description": "Laboratorium Soal Ujian Madrasah Terintegrasi: bank soal berbasis teks kitab dengan bantuan AI",
   "start_url": "/",
   "scope": "/",
   "display": "browser",

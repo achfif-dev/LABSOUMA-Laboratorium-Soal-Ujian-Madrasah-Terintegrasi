@@ -1,4 +1,4 @@
-# Bank Soal Madrasah (Vercel + Firebase Spark + Gemini gratis)
+# LABSOUMA: Laboratorium Soal Ujian Madrasah Terintegrasi (Vercel + Firebase Spark + Gemini gratis)
 
 Susunan tanpa kartu kredit:
 
@@ -38,7 +38,7 @@ Tier gratis Gemini: konten yang dikirim boleh dipakai Google untuk meningkatkan 
 
 ### 3. GitHub
 ```bash
-git init && git add . && git commit -m "Bank Soal Madrasah"
+git init && git add . && git commit -m "LABSOUMA"
 git branch -M main
 git remote add origin https://github.com/<akun>/<repo>.git
 git push -u origin main
