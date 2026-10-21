@@ -84,6 +84,29 @@ environment variable seperti sebelumnya.
 - Perubahan berlaku paling lama sekitar satu menit di semua instance (cache 60 detik).
 - Admin tetap bisa melihat semua soal draf yang dikirim ke AI lewat penyedia yang ia pilih. Beri peran admin hanya ke orang tepercaya.
 
+### Uji koneksi AI
+
+Tombol **Uji koneksi AI** mengirim satu permintaan kecil ke penyedia untuk memastikan kunci, model, dan pemanggilan alat berfungsi.
+
+- Bisa dijalankan **sebelum menyimpan**: kunci dan model yang baru diketik diuji apa adanya, tanpa ditulis ke Firestore.
+- Kesalahan konfigurasi (kunci kosong, pengaturan tidak terbaca) ditolak sebelum memanggil AI dan tidak memakai jatah uji (3 per menit, 20 per hari).
+- Bila gagal, pesan menyebut penyebabnya: kunci ditolak (`AI_TEST_KEY`), model tidak ditemukan (`AI_MODEL_NOT_FOUND`), kuota atau laju
+  tercapai (`RATE_LIMIT`), waktu habis (`AI_TIMEOUT`), atau penyedia tidak terjangkau (`AI_UNREACHABLE`). Kunci tidak pernah ikut tercetak di pesan.
+
+## Konfigurasi aplikasi (admin)
+
+Tab **Konfigurasi** mengatur pilihan yang muncul di form penyusunan soal dan filter, tanpa redeploy:
+
+- **Tingkatan:** label, singkatan, keterangan kelas, aktif atau tidak. Nama tingkat (Ibtidaiyah, Tsanawiyah, Aliyah) tetap karena aturan
+  Firestore pada `soal/{id}` hanya menerima ketiganya. Kelas hanya keterangan di form dan tidak disimpan pada soal.
+- **Mata pelajaran:** nama, berlaku di tingkat mana, aktif atau tidak. Mapel di form mengikuti tingkat yang dipilih.
+- **Katalog kitab:** nama, pengarang, mapel, tingkat. Muncul sebagai saran di kolom Nama Kitab (disaring menurut tingkat dan mapel).
+  Tersedia kolom **Tempel banyak kitab** (`Nama | Pengarang | Mapel`, satu per baris) untuk mengisi cepat dari HP.
+
+Disimpan di Firestore `config/app` (klien tidak boleh mengaksesnya; lewat `/api/app-config`, baca untuk semua pengguna aktif, ubah khusus admin).
+Bila belum pernah diubah, aplikasi memakai `DEFAULT_APP_CONFIG` di `src/appConfig.js`. Daftar kitab bawaan hanyalah usulan awal: tinjau
+pengarang dan pembagian tingkatnya bersama guru mapel. Mengganti nama mapel tidak mengubah soal lama; soal lama tetap tampil di filter dengan nama lamanya.
+
 ## Mengganti penyedia AI lewat environment variable
 
 - Gemini (bawaan): `AI_PROVIDER=gemini`, `GEMINI_API_KEY=...`, model bawaan `gemini-3.8-flash`.
@@ -135,13 +158,14 @@ Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model d
 
 ```
 public/index.html        frontend React (satu file)
-api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config
+api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config
 src/gemini.js            adapter Gemini (tanpa dependensi)
 src/soalService.js       validasi, system prompt, pemilihan penyedia AI
 src/assistService.js     terjemah, analisis, telaah soal
 src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
 src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
-src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi)
+src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
+src/appConfig.js         konfigurasi aplikasi: tingkatan, mata pelajaran, katalog kitab
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
 src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
 src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { masterKey, encryptSecret, decryptSecret } from '../src/secrets.js';
 import {
-  resolveAi, validateConfigInput, statusAi, simpanAi, loadAiConfig, invalidateAiConfig, ujiAi,
+  resolveAi, validateConfigInput, statusAi, simpanAi, loadAiConfig, invalidateAiConfig, siapkanUji, jalankanUji, diagnosaUji,
 } from '../src/aiConfig.js';
 import { __setFirebaseForTest, authenticateAdmin } from '../src/platform.js';
 import { setRuntimeAi, getModel, provider, getClient, MODEL_PRESETS } from '../src/soalService.js';
@@ -157,18 +157,51 @@ test('loadAiConfig: cache 60 detik (satu bacaan), dan jatuh ke environment bila 
   assert.equal(v.apiKey, 'env-env-env-env-env-env-1'); assert.equal(v.sumberKunci, 'environment');
 }));
 
-test('ujiAi: memakai klien aktif dan melaporkan hasil; galat penyedia dipetakan ke pesan aman', () => withEnv({}, async () => {
+const PING_OK = { candidates: [{ content: { parts: [{ functionCall: { name: 'ping', args: { ok: true } } }] } }] };
+const resp = (status, json) => async () => ({ ok: status < 400, status, headers: new Headers(), json: async () => json });
+const uji = async (body) => jalankanUji(await siapkanUji(body));
+
+test('uji koneksi: memakai konfigurasi tersimpan, melaporkan hasil, dan memetakan galat penyedia ke penyebabnya', () => withEnv({}, async () => {
   const f = fakeFirebase(); __setFirebaseForTest(f);
   await simpanAi({ uid: 'a1' }, { provider: 'gemini', keys: { gemini: KUNCI_GEMINI } });
   const saved = globalThis.fetch;
   try {
-    globalThis.fetch = async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ candidates: [{ content: { parts: [{ functionCall: { name: 'ping', args: { ok: true } } }] } }] }) });
-    const r = await ujiAi(); assert.equal(r.ok, true); assert.equal(r.provider, 'gemini');
-    // klien Gemini menyimpan fetch saat dibuat, jadi buat ulang dengan kunci baru agar memakai fetch palsu berikutnya
-    await simpanAi({ uid: 'a1' }, { keys: { gemini: 'AIzaSyKUNCISALAHKUNCISALAH12345' } });
-    globalThis.fetch = async () => ({ ok: false, status: 400, headers: new Headers(), json: async () => ({ error: { message: 'API key not valid' } }) });
-    await assert.rejects(ujiAi(), { code: 'SERVER_AUTH' });
+    globalThis.fetch = resp(200, PING_OK);
+    const r = await uji({}); assert.equal(r.ok, true); assert.equal(r.provider, 'gemini'); assert.equal(r.sumberKunci, 'konfigurasi'); assert.equal(r.draf, false);
+    globalThis.fetch = resp(400, { error: { message: 'API key not valid' } });
+    await assert.rejects(uji({}), { code: 'AI_TEST_KEY' });
+    globalThis.fetch = resp(404, { error: { message: 'models/xyz is not found' } });
+    await assert.rejects(uji({}), (e) => e.code === 'AI_MODEL_NOT_FOUND' && /gemini-3\.8-flash/.test(e.message));
+    globalThis.fetch = resp(429, { error: { message: 'quota' } });
+    await assert.rejects(uji({}), { code: 'RATE_LIMIT', status: 429 });
+    globalThis.fetch = resp(200, { candidates: [{ content: { parts: [{ text: 'halo' }] } }] });
+    await assert.rejects(uji({}), { code: 'AI_BAD_OUTPUT' });
   } finally { globalThis.fetch = saved; }
+}));
+
+test('uji koneksi: kunci dan model dari formulir (belum disimpan) bisa diuji tanpa menulis ke Firestore', () => withEnv({}, async () => {
+  const f = fakeFirebase(); __setFirebaseForTest(f);
+  const saved = globalThis.fetch; let dipakai = null;
+  try {
+    globalThis.fetch = async (url, opt) => { dipakai = { url, key: opt.headers['x-goog-api-key'] }; return resp(200, PING_OK)(); };
+    const r = await uji({ draft: { provider: 'gemini', models: { gemini: 'gemini-3.5-flash-lite' }, keys: { gemini: KUNCI_GEMINI } } });
+    assert.equal(r.draf, true); assert.equal(r.sumberKunci, 'draf'); assert.equal(r.model, 'gemini-3.5-flash-lite');
+    assert.match(dipakai.url, /gemini-3\.5-flash-lite:generateContent/); assert.equal(dipakai.key, KUNCI_GEMINI);
+    assert.equal(f.data['config/ai'], undefined); // tidak ada yang tersimpan
+    await assert.rejects(siapkanUji({ draft: { keys: { gemini: 'pendek' } } }), { code: 'CONFIG_INVALID' });
+  } finally { globalThis.fetch = saved; }
+}));
+
+test('uji koneksi: kunci kosong ditolak sebelum memanggil AI, dengan petunjuk; kunci tidak bocor di pesan galat', () => withEnv({}, async () => {
+  const f = fakeFirebase(); __setFirebaseForTest(f);
+  await assert.rejects(siapkanUji({}), (e) => e.code === 'AI_KEY_MISSING' && /GEMINI_API_KEY/.test(e.message));
+  const r = { provider: 'gemini', model: 'm', apiKey: KUNCI_GEMINI };
+  const e = diagnosaUji(Object.assign(new Error(`bad ${KUNCI_GEMINI} bad`), { status: 400 }), r);
+  assert.ok(!e.message.includes(KUNCI_GEMINI));
+  const rusak = async () => { throw Object.assign(new Error('firestore mati'), { code: 'unavailable' }); };
+  await assert.rejects(siapkanUji({}, { baca: rusak, env: {} }), { code: 'CONFIG_READ_FAILED' });
+  const ok = await siapkanUji({}, { baca: rusak, env: { GEMINI_API_KEY: 'env-env-env-env-env-env-1' } });
+  assert.equal(ok.sumberKunci, 'environment'); assert.equal(ok.catatan.length, 1);
 }));
 
 /* ----------------------------------------------------------------- endpoint */

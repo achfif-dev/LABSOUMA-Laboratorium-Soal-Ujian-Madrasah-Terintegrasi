@@ -2,7 +2,7 @@
 // Disimpan di Firestore config/ai (hanya Admin SDK yang bisa mengakses; aturan Firestore menolak klien).
 // Kunci API dienkripsi dan TIDAK pernah dikirim ke browser: hanya 4 karakter terakhir yang ditampilkan.
 // Urutan prioritas: pengaturan admin -> environment variable -> bawaan kode.
-import { ApiError, setRuntimeAi, toApiError, getClient, getModel, provider as envProvider, DEFAULT_MODELS, MODEL_PRESETS } from './soalService.js';
+import { ApiError, setRuntimeAi, toApiError, createClientFor, DEFAULT_MODELS, MODEL_PRESETS } from './soalService.js';
 import { masterKey, encryptSecret, decryptSecret } from './secrets.js';
 import { firestoreAdmin } from './platform.js';
 
@@ -41,9 +41,9 @@ async function bacaDoc() {
 /** Dipanggil di awal setiap rute AI. Membaca Firestore paling sering sekali per menit per instance. */
 export async function loadAiConfig({ force = false, now = Date.now() } = {}) {
   if (!force && cache && now - cache.at < TTL_MS) { setRuntimeAi(cache.value); return cache.value; }
-  let doc = null;
-  try { doc = await bacaDoc(); } catch (e) { console.error('[aiConfig] gagal membaca config/ai, memakai environment:', e?.code ?? e?.message); }
-  const v = resolveAi(doc);
+  let doc = null; let galatBaca = '';
+  try { doc = await bacaDoc(); } catch (e) { galatBaca = String(e?.code ?? e?.message ?? 'tak diketahui'); console.error('[aiConfig] gagal membaca config/ai, memakai environment:', galatBaca); }
+  const v = { ...resolveAi(doc), galatBaca };
   cache = { at: now, value: v };
   setRuntimeAi(v);
   return v;
@@ -120,19 +120,71 @@ export async function simpanAi(user, body, { now = () => new Date().toISOString(
   return statusAi();
 }
 
-/** Satu panggilan kecil ke AI aktif untuk memastikan penyedia, model, dan kunci berfungsi. */
-export async function ujiAi() {
-  await loadAiConfig({ force: true });
-  const client = await getClient();
+/* ------------------------------------------------------------ Uji koneksi */
+
+const UJI_MS = 30_000;
+const NAMA = { gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
+const TOOL_PING = { name: 'ping', description: 'Uji koneksi.', input_schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean' } } } };
+
+/**
+ * Tahap 1 (tanpa memanggil AI, tidak memakai kuota): tentukan penyedia, model, dan kunci yang akan diuji.
+ * `body.draft` (opsional) = isian formulir yang BELUM disimpan: { provider, models, keys }. Tidak ada yang ditulis ke Firestore.
+ */
+export async function siapkanUji(body = {}, { baca = bacaDoc, env = process.env } = {}) {
+  const inp = validateConfigInput(body.draft && typeof body.draft === 'object' ? body.draft : {});
+  let doc = null; let galatBaca = '';
+  try { doc = await baca(); } catch (e) { galatBaca = String(e?.code ?? e?.message ?? 'tak diketahui'); }
+  const merged = { ...(doc || {}), models: { ...((doc && doc.models) || {}) } };
+  if (inp.provider) merged.provider = inp.provider;
+  for (const [p, m] of Object.entries(inp.models)) { if (m) merged.models[p] = m; else delete merged.models[p]; }
+  const aktif = resolveAi(merged, env);
+  let { apiKey, sumberKunci } = aktif;
+  const draf = !!(inp.provider || Object.keys(inp.models).length || Object.keys(inp.keys).length);
+  if (inp.keys[aktif.provider]) { apiKey = inp.keys[aktif.provider]; sumberKunci = 'draf'; }
+  const catatan = [];
+  if (galatBaca) {
+    if (!apiKey) throw new ApiError(500, 'CONFIG_READ_FAILED', `Pengaturan AI di Firestore tidak bisa dibaca (${galatBaca}), dan environment variable juga tidak berisi kunci ${NAMA[aktif.provider]}. Periksa FIREBASE_SERVICE_ACCOUNT dan Cloud Firestore API, atau isi GEMINI_API_KEY/ANTHROPIC_API_KEY di Vercel.`);
+    catatan.push(`Pengaturan tersimpan tidak bisa dibaca (${galatBaca}); uji memakai environment variable.`);
+  }
+  if (!apiKey) {
+    throw new ApiError(422, 'AI_KEY_MISSING', aktif.peringatan || `Kunci ${NAMA[aktif.provider]} belum ada. Tempel kunci di kolomnya (boleh diuji dulu sebelum disimpan), atau isi ${ENV_KEY[aktif.provider]} di Vercel.`);
+  }
+  if (aktif.peringatan) catatan.push(aktif.peringatan);
+  return { provider: aktif.provider, model: aktif.model, apiKey, sumberKunci, draf, catatan };
+}
+
+/** Ubah galat panggilan uji menjadi pesan yang menunjuk penyebabnya (khusus admin, jadi boleh lebih rinci dari pesan pengguna). */
+export function diagnosaUji(e, r) {
+  if (e instanceof ApiError) return e;
+  const nama = NAMA[r.provider];
+  const status = e && e.status;
+  const mentah = String((e && e.message) || '').split(r.apiKey).join('•••').replace(/\s+/g, ' ').slice(0, 220);
+  const rinci = mentah ? ` Rincian dari penyedia: ${mentah}` : '';
+  const h = e && e.headers;
+  const ra = Number(typeof h?.get === 'function' ? h.get('retry-after') : h?.['retry-after']);
+  const retryAfter = Number.isFinite(ra) && ra > 0 ? Math.ceil(ra) : undefined;
+  if (status === 401 || status === 403) return new ApiError(502, 'AI_TEST_KEY', `${nama} menolak kunci API. Periksa salinan kunci (tanpa spasi), pastikan belum dicabut, dan API-nya aktif di proyek kunci itu.${rinci}`);
+  if (status === 404) return new ApiError(502, 'AI_MODEL_NOT_FOUND', `Model "${r.model}" tidak ditemukan di ${nama} atau belum boleh dipakai kunci ini. Pilih salah satu tombol model di bawah atau ketik nama model yang benar.${rinci}`);
+  if (status === 429) return new ApiError(429, 'RATE_LIMIT', `${nama} membatasi permintaan: kuota atau laju kunci ini tercapai. Tunggu lalu coba lagi, atau cek kuota di konsol penyedia.${rinci}`, { retryAfter: retryAfter ?? 30 });
+  if (status === 400) return new ApiError(502, 'AI_TEST_REJECTED', `${nama} menolak permintaan uji. Biasanya nama model salah untuk jenis kunci ini.${rinci}`);
+  if (status === 529 || (status >= 500 && status < 600)) return new ApiError(503, 'AI_OVERLOADED', `${nama} sedang bermasalah atau sibuk. Coba lagi sebentar lagi.${rinci}`, { retryAfter: retryAfter ?? 15 });
+  if (e && (e.name === 'APIConnectionTimeoutError' || e.name === 'APIUserAbortError')) return new ApiError(504, 'AI_TIMEOUT', `Tidak ada balasan dari ${nama} dalam ${UJI_MS / 1000} detik. Coba lagi, atau pilih model yang lebih ringan.`);
+  if (e && e.name === 'APIConnectionError') return new ApiError(503, 'AI_UNREACHABLE', `Server tidak dapat menjangkau ${nama}. Coba lagi.${rinci}`);
+  return toApiError(e);
+}
+
+/** Tahap 2: satu panggilan kecil ke penyedia untuk memastikan kunci, model, dan pemanggilan alat berfungsi. */
+export async function jalankanUji(r, { client } = {}) {
   const t0 = Date.now();
   try {
-    const msg = await client.messages.create({
-      model: getModel(), max_tokens: 200, system: 'Panggil alat ping dengan ok=true.',
-      tools: [{ name: 'ping', description: 'Uji koneksi.', input_schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean' } } } }],
-      tool_choice: { type: 'any' }, messages: [{ role: 'user', content: 'ping' }],
+    const c = client || (await createClientFor(r.provider, r.apiKey, UJI_MS));
+    const msg = await c.messages.create({
+      model: r.model, max_tokens: 200, system: 'Panggil alat ping dengan ok=true.',
+      tools: [TOOL_PING], tool_choice: { type: 'any' }, messages: [{ role: 'user', content: 'ping' }],
     });
+    if (msg && msg.stop_reason === 'refusal') throw new ApiError(502, 'AI_MENOLAK', 'AI menolak permintaan uji karena kebijakan konten penyedia. Coba model lain.');
     const ok = (msg.content || []).some((b) => b.type === 'tool_use');
-    if (!ok) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI membalas tetapi tidak memanggil alat uji. Coba model lain.');
-  } catch (e) { throw toApiError(e); }
-  return { ok: true, provider: envProvider(), model: getModel(), ms: Date.now() - t0 };
+    if (!ok) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI membalas tetapi tidak memanggil alat uji. Model ini mungkin tidak mendukung pemanggilan alat; coba model lain.');
+  } catch (e) { throw diagnosaUji(e, r); }
+  return { ok: true, provider: r.provider, model: r.model, ms: Date.now() - t0, sumberKunci: r.sumberKunci, draf: r.draf, catatan: r.catatan };
 }

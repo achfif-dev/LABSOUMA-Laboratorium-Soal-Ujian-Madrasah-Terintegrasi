@@ -216,6 +216,17 @@ export function normalizeSoal(raw, level) {
 
 let sharedClient;
 let sharedSig = '';
+
+/** Membuat klien baru untuk penyedia dan kunci tertentu (tanpa cache). Dipakai juga oleh uji koneksi. */
+export async function createClientFor(p, key, budgetMs = AI_BUDGET_MS) {
+  if (p === 'gemini') {
+    const { createGeminiClient } = await import('./gemini.js');
+    return createGeminiClient({ apiKey: key, timeoutMs: budgetMs, budgetMs });
+  }
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  return new Anthropic({ apiKey: key, timeout: budgetMs, maxRetries: 0 });
+}
+
 /** Klien AI sesuai penyedia aktif: "gemini" (bawaan, ada tier gratis) atau "anthropic" (Claude). Keduanya berbentuk client.messages.create(). */
 export async function getClient() {
   const p = provider();
@@ -229,13 +240,7 @@ export async function getClient() {
   }
   const sig = `${p}:${key}`; // klien dibuat ulang bila penyedia atau kunci berganti
   if (sharedClient && sharedSig === sig) return sharedClient;
-  if (p === 'gemini') {
-    const { createGeminiClient } = await import('./gemini.js');
-    sharedClient = createGeminiClient({ apiKey: key, timeoutMs: AI_BUDGET_MS, budgetMs: AI_BUDGET_MS });
-  } else {
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    sharedClient = new Anthropic({ apiKey: key, timeout: AI_BUDGET_MS, maxRetries: 0 });
-  }
+  sharedClient = await createClientFor(p, key);
   sharedSig = sig;
   return sharedClient;
 }
@@ -251,6 +256,7 @@ export function toApiError(err) {
 
   if (status === 429) return new ApiError(429, 'RATE_LIMIT', 'Batas permintaan AI tercapai. Tunggu sebentar lalu coba lagi.', { retryAfter: retryAfter ?? 30 });
   if (status === 401 || status === 403) return new ApiError(500, 'SERVER_AUTH', 'Kunci API server ditolak. Hubungi administrator.');
+  if (status === 404) return new ApiError(502, 'AI_MODEL_NOT_FOUND', 'Model AI tidak ditemukan atau belum boleh dipakai kunci ini. Admin: periksa nama model di Pengaturan AI.');
   if (status === 529 || (status >= 500 && status < 600)) return new ApiError(503, 'AI_OVERLOADED', 'Layanan AI sedang sibuk. Coba lagi dalam beberapa saat.', { retryAfter: retryAfter ?? 15 });
   if (err && (err.name === 'APIConnectionTimeoutError' || err.name === 'APIUserAbortError')) return new ApiError(504, 'AI_TIMEOUT', 'AI terlalu lama merespons. Coba lagi.');
   if (err && err.name === 'APIConnectionError') return new ApiError(503, 'AI_UNREACHABLE', 'Server tidak dapat menjangkau layanan AI. Coba lagi.');
