@@ -69,6 +69,7 @@ Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: la
 - **Gemini gratis:** jika muncul "Batas permintaan AI tercapai", itu kuota proyek habis. Tunggu atau ganti `AI_MODEL` ke `gemini-3.5-flash-lite`.
 - **Vercel Hobby:** ketentuan wajarnya membatasi pemakaian ke personal non-komersial. Pastikan penggunaan Anda sesuai.
 - Batas per pengguna di aplikasi (5 per menit, 60 per hari untuk AI) disimpan di Firestore dan bisa diubah lewat `LIMIT_*`.
+- **Plafon global:** selain batas per pengguna, ada plafon harian untuk seluruh madrasah (`LIMIT_GLOBAL_PER_DAY`, bawaan 1000 panggilan AI). Bila penuh, semua pengguna ditolak sampai besok (WIB). Sesuaikan dengan kuota penyedia Anda. Uji jawab buta dan telaah juga dihitung.
 
 ## Pengaturan AI dari aplikasi (admin)
 
@@ -102,6 +103,27 @@ environment variable seperti sebelumnya.
 - **CSP:** `vercel.json` memasang `Content-Security-Policy-Report-Only` (tidak memblokir apa pun). Buka situs, login, dan coba semua fitur dengan konsol browser terbuka. Bila tidak ada pesan "[Report Only]" yang mengganggu, ubah nama header menjadi `Content-Security-Policy` agar ditegakkan. Bila `authDomain` Firebase Anda memakai domain kustom, tambahkan ke `frame-src` dan `connect-src`. `frame-ancestors` sudah ditegakkan lewat header terpisah.
 - Jika kunci pernah bocor: Gemini, hapus dan buat ulang di AI Studio. Firebase, hapus kunci akun layanan di Google Cloud Console > IAM > Service Accounts > Keys dan buat baru, lalu perbarui env di Vercel dan Redeploy.
 
+## Kontrol mutu soal AI
+
+Pemeriksaan otomatis membantu editor, tidak menggantikannya. Hasilnya disimpan di dokumen soal (`ai`: dibuat AI, model, hasil kutipan, hasil uji buta) sebagai jejak audit.
+
+- **Kutipan Arab:** kutipan di soal dan pembahasan dicocokkan dengan teks kitab. Kata yang sama tetapi **harakatnya berbeda** ditandai "mirip" (bukan lolos). Pemeriksaan ini tidak menilai kebenaran kunci atau terjemahan.
+- **Uji jawab buta:** model menjawab soal tanpa melihat kunci dan pembahasan. Bila jawabannya berbeda (termasuk "tidak ada yang benar" atau "lebih dari satu benar"), soal ditandai. Berjalan otomatis setelah Generate dan bisa diulang dari tombol **Uji jawab buta** (penyusun dan editor). Biayanya satu panggilan AI tambahan. Isi `AI_VERIFY_MODEL` agar penguji memakai model berbeda dari pembuat soal.
+- **Nada soal:** kata yang menyalahkan atau mengkafirkan ditandai untuk diperiksa manusia (kata seperti "kafir" sah dalam bahasan fiqih, jadi ini peringatan, bukan penolakan).
+- **Gerbang persetujuan:** soal dengan kutipan "gagal" atau uji buta "beda" hanya bisa disetujui editor bila menulis catatan alasan (override), dan aturan Firestore menegakkannya. Catatan ini berdasarkan hasil yang dikirim aplikasi: ia jejak audit dan pengaman terhadap kelalaian, bukan pertahanan terhadap penyusun yang sengaja curang. Admin tetap bisa mengubah status langsung.
+- **Terjemahan** ditandai sebagai draf mesin yang perlu ditinjau ustadz atau guru.
+- **Tautan sumber** diisi penyusun dan tidak otomatis terikat ke teks yang disimpan; aturan Firestore hanya mensyaratkan `https://`. Editor perlu mencocokkannya.
+- **Penolakan penyedia AI:** bila penyedia memblokir teks karena kebijakan keamanan, pengguna melihat pesan khusus (bukan galat generik). Penolakan ini tetap menghitung kuota.
+- **Waktu:** satu panggilan AI dibatasi 45 detik (fungsi Vercel maksimal 60 detik). Claude tidak diulang otomatis; Gemini hanya diulang bila sisa waktu cukup.
+
+### Evaluasi mutu AI (set soal emas)
+
+Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model diukur terpisah:
+
+1. Salin `eval/golden.example.json` menjadi `eval/golden.json`, lalu isi 20 sampai 30 kasus dari kitab yang Anda kuasai (campur L1/L2/L3, fiqih dan nahwu/sharaf, teks yang memuat khilaf, dan beberapa kasus `telaah` dengan soal yang sengaja dicacati). Isi contoh hanya ilustrasi: cocokkan dengan kitabnya.
+2. Jalankan dari tab **Actions > Evaluasi AI > Run workflow** (butuh secret `GEMINI_API_KEY` atau `ANTHROPIC_API_KEY`), atau `npm run eval` di komputer.
+3. Jalankan ulang tiap mengganti model atau prompt, lalu bandingkan angka lulusnya. Eval memakai kuota API sungguhan.
+
 ## Fitur teks kitab dan bantuan AI
 
 - **Ambil teks dari tautan:** shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org (teks). Satu halaman per permintaan; nama kitab dan nomor halaman terisi dari judul halaman bila terbaca. Tautan sumber disimpan bersama soal. Struktur halaman situs bisa berubah; bila gagal, salin manual.
@@ -122,6 +144,10 @@ src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
 src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi)
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
 src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
+src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)
+src/cekButa.js           uji jawab buta oleh model penguji
+eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
+.github/workflows/       ci.yml (npm test) dan eval.yml (evaluasi manual)
 src/access.js            logika murni: peran, domain, batas
 firestore.rules          aturan keamanan data
 test/                    npm test (tanpa kunci, tanpa internet)

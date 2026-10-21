@@ -41,9 +41,29 @@ service cloud.firestore {
           && d().pembahasan is string && d().pembahasan.size() <= 4000
           && d().indikator is string && d().indikator.size() <= 1000
           && d().sumberUrl is string && d().sumberUrl.size() <= 500
+          && (d().sumberUrl == '' || d().sumberUrl.matches('https://.*'))
+          && validAi()
           && validOpsi()
           && d().kunci in ['', 'A', 'B', 'C', 'D', 'E']
           && d().catatan is string && d().catatan.size() <= 1000;
+      }
+
+      // Jejak audit AI: soal ini dibuat AI? model apa? hasil pemeriksaan kutipan dan uji jawab buta.
+      // Dihitung klien (bukan jaminan keamanan terhadap penyusun yang curang); fungsinya jejak audit dan gerbang persetujuan.
+      function validAi() {
+        return d().ai is map
+          && d().ai.keys().hasOnly(['dibuat', 'model', 'verifikasi', 'buta'])
+          && d().ai.keys().hasAll(['dibuat', 'model', 'verifikasi', 'buta'])
+          && d().ai.dibuat is bool
+          && d().ai.model is string && d().ai.model.size() <= 60
+          && d().ai.verifikasi in ['', 'lolos', 'periksa', 'gagal', 'tanpa_teks']
+          && d().ai.buta in ['', 'sepakat', 'beda'];
+      }
+
+      // Soal dengan kutipan tidak cocok atau uji buta berbeda hanya bisa disetujui editor bila disertai catatan alasan (override).
+      function perluAlasan() {
+        return resource.data.get('ai', {}).get('verifikasi', '') == 'gagal'
+          || resource.data.get('ai', {}).get('buta', '') == 'beda';
       }
 
       // Opsi: hanya kunci A-E, tiap nilai string <= 1000 karakter (mencegah dokumen membengkak).
@@ -59,12 +79,12 @@ service cloud.firestore {
 
       function createKeys() {
         return ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
-                'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan',
+                'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                 'authorUid', 'authorName', 'createdAt', 'updatedAt'];
       }
       function authorKeys() {
         return ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
-                'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'updatedAt'];
+                'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai', 'updatedAt'];
       }
       function reviewKeys() {
         return ['status', 'catatan', 'reviewerUid', 'reviewerName', 'reviewedAt', 'updatedAt'];
@@ -101,12 +121,13 @@ service cloud.firestore {
           && d().reviewerUid == request.auth.uid
           && d().reviewedAt == request.time
           && d().catatan is string && d().catatan.size() <= 1000
-          && (d().status == 'approved' || d().catatan.size() > 0) )
+          && (d().status == 'approved' || d().catatan.size() > 0)
+          && (d().status == 'revision' || d().catatan.size() > 0 || !perluAlasan()) )
         ||
         // 3) Admin boleh mengubah isi dan status, tetapi tidak identitas penyusun.
         ( isAdmin()
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
-                              'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan',
+                              'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
                               'reviewerUid', 'reviewerName', 'reviewedAt'])
           && d().authorUid == resource.data.authorUid

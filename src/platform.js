@@ -5,6 +5,9 @@ import { STAFF, parseList, initialRole, domainAllowed, rateDecision, shouldPromo
 
 export const num = (name, def) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
 export const aiLimits = () => ({ perMinute: num('LIMIT_PER_MINUTE', 5), perDay: num('LIMIT_PER_DAY', 60) });
+// Plafon pemakaian AI untuk SELURUH madrasah per hari (menjaga kuota gratis penyedia dan biaya). Bukan per pengguna.
+export const GLOBAL_AI_ID = 'global_ai';
+export const globalAiLimits = () => ({ perMinute: 1_000_000, perDay: num('LIMIT_GLOBAL_PER_DAY', 1000) });
 export const kitabLimits = () => ({ perMinute: num('LIMIT_KITAB_PER_MINUTE', 10), perDay: num('LIMIT_KITAB_PER_DAY', 200) });
 
 /* ------------------------------------------------------------- Firebase Admin */
@@ -89,7 +92,7 @@ export async function ensureProfile(u) {
 }
 
 /** Batas per pengguna di semua instance (Firestore: rate/{docId}). */
-export async function enforceRate(docId, limits) {
+export async function enforceRate(docId, limits, { pesanHarian } = {}) {
   const { db } = await firebase();
   const ref = db.doc(`rate/${docId}`);
   await db.runTransaction(async (tx) => {
@@ -97,12 +100,20 @@ export async function enforceRate(docId, limits) {
     const d = rateDecision(snap.data(), Date.now(), limits);
     if (!d.ok) {
       const msg = d.code === 'RATE_LIMIT_DAILY'
-        ? 'Kuota harian Anda untuk fitur ini habis. Coba lagi besok.'
+        ? (pesanHarian || 'Kuota harian Anda untuk fitur ini habis. Coba lagi besok.')
         : `Terlalu banyak permintaan. Coba lagi dalam ${d.retryAfter} detik.`;
       throw new ApiError(429, d.code, msg, { retryAfter: d.retryAfter });
     }
     tx.set(ref, d.state);
   });
+}
+
+/** Kuota AI: batas per pengguna lalu plafon harian seluruh madrasah. Bila plafon penuh, hitungan pengguna dikembalikan. */
+export async function enforceAi(uid) {
+  await enforceRate(uid, aiLimits());
+  try {
+    await enforceRate(GLOBAL_AI_ID, globalAiLimits(), { pesanHarian: 'Kuota AI harian seluruh madrasah sudah habis. Coba lagi besok, atau minta admin menaikkan LIMIT_GLOBAL_PER_DAY.' });
+  } catch (e) { await refundRate(uid); throw e; }
 }
 
 /** Mengembalikan satu hitungan kuota (dipakai saat AI gagal di sisi server). Tidak pernah melempar galat. */
@@ -118,9 +129,9 @@ export async function refundRate(docId) {
 }
 
 /** Jalankan `fn`; bila gagal karena masalah server/AI, kuota `docId` dikembalikan lalu galat dilempar ulang. */
-export async function withRefund(docId, fn) {
+export async function withRefund(docId, fn, extraIds = []) {
   try { return await fn(); } catch (e) {
-    if (refundable(e)) await refundRate(docId);
+    if (refundable(e)) { await refundRate(docId); for (const id of extraIds) await refundRate(id); }
     throw e;
   }
 }

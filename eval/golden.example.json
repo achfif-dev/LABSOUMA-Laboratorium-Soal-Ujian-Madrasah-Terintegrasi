@@ -1,0 +1,30 @@
+{
+  "versi": 1,
+  "catatan": "CONTOH FORMAT. Teks Arab di bawah diketik untuk ilustrasi: cocokkan dengan kitabnya sebelum dipercaya. Salin file ini menjadi eval/golden.json, lalu ganti dan tambahkan kasus dari kitab yang Anda kuasai (minimal 20-30 kasus: campur L1/L2/L3, fiqih, nahwu/sharaf, dan teks yang memuat khilaf). Kasus 'telaah' memakai soal yang sengaja dicacati untuk menguji apakah telaah AI menangkapnya. 'kunci_harus_memuat' berisi kata yang HARUS ada pada opsi kunci (kosongkan bila tak bisa dipastikan).",
+  "kasus": [
+    {
+      "id": "safinah-air-l1", "jenis": "generate", "nama": "Safinatun Naja", "mapel": "Fiqih", "tingkat": "MA", "level": "L1",
+      "teks": "المياه التي يجوز بها التطهير سبع مياه: ماء السماء وماء البحر وماء النهر وماء البئر وماء العين وماء الثلج وماء البرد",
+      "kunci_harus_memuat": []
+    },
+    {
+      "id": "safinah-air-l2", "jenis": "generate", "nama": "Safinatun Naja", "mapel": "Fiqih", "tingkat": "MTs", "level": "L2",
+      "teks": "المياه التي يجوز بها التطهير سبع مياه: ماء السماء وماء البحر وماء النهر وماء البئر وماء العين وماء الثلج وماء البرد",
+      "fokus": "jumlah macam air yang boleh dipakai bersuci",
+      "kunci_harus_memuat": ["tujuh"]
+    },
+    {
+      "id": "telaah-kunci-salah", "jenis": "telaah", "nama": "Safinatun Naja", "mapel": "Fiqih", "tingkat": "MA", "level": "L1",
+      "teks": "المياه التي يجوز بها التطهير سبع مياه: ماء السماء وماء البحر وماء النهر وماء البئر وماء العين وماء الثلج وماء البرد",
+      "soal": {
+        "stimulus": "",
+        "pertanyaan": "Berapa macam air yang boleh dipakai untuk bersuci menurut teks?",
+        "opsi": { "A": "Tiga macam", "B": "Lima macam", "C": "Tujuh macam", "D": "Sembilan macam", "E": "Sebelas macam" },
+        "kunci": "B",
+        "pembahasan": "Teks menyebut المياه التي يجوز بها التطهير سبع مياه, sehingga jawabannya lima macam.",
+        "indikator": "Peserta didik dapat menyebutkan jumlah macam air suci."
+      },
+      "harapan": { "temuan_kritis_aspek": "kunci", "kunci_benar_memuat": "tujuh" }
+    }
+  ]
+}

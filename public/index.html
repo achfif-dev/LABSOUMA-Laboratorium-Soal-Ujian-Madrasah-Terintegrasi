@@ -95,7 +95,7 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; window.Kutipan = K;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; window.Kutipan = K; window.Sikap = S;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
@@ -127,6 +127,7 @@ const emptyForm = () => ({
   nama: '', juz: '', hal: '', teks: '',
   stimulus: '', pertanyaan: '', indikator: '', sumberUrl: '',
   opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '',
+  ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
 });
 
 /* ---------- Export builders ---------- */
@@ -276,6 +277,17 @@ const KUTIPAN_UI = {
   periksa: ['Periksa kutipan secara manual', 'bg-warn-bg text-warn'],
   gagal: ['Ada kutipan yang tidak ada di teks kitab', 'bg-bad-bg text-bad'],
 };
+function SikapBadge({ q }) {
+  const S = window.Sikap; const K = window.Kutipan;
+  const r = useMemo(() => (S && K ? S.periksaSikap(K.bidangDariSoal(q)) : null), [S, K, q.stimulus, q.pertanyaan, q.opsi, q.pembahasan]);
+  if (!r || r.status === 'aman') return null;
+  return (
+    <div className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">
+      <p className="font-semibold">Periksa nada soal (madrasah berhaluan wasathiyah)</p>
+      {r.temuan.map((t, i) => <p key={i} className="mt-1">Kata “{t.kata}” di {t.bidang}: {t.alasan}. Pastikan sesuai teks dan tidak menyalahkan pihak lain.</p>)}
+    </div>
+  );
+}
 function KutipanBadge({ q }) {
   const K = window.Kutipan;
   const r = useMemo(
@@ -291,8 +303,9 @@ function KutipanBadge({ q }) {
       {r.peringatan.map((w, i) => <p key={'w' + i} className="mt-1">{w}</p>)}
       {bermasalah.map((d, i) => (
         <div key={i} className="mt-2 border-t border-line pt-2">
-          <p className="font-semibold">{d.label}: {d.status === 'mirip' ? 'mirip, tapi ada kata yang berbeda' : 'tidak ditemukan di teks kitab'}</p>
+          <p className="font-semibold">{d.label}: {d.bedaHarakat ? 'kata sama, tetapi harakat berbeda dari teks kitab' : d.status === 'mirip' ? 'mirip, tapi ada kata yang berbeda' : 'tidak ditemukan di teks kitab'}</p>
           <p dir="rtl" lang="ar" className="ar mt-1">{d.kutipan}</p>
+          {d.bedaHarakat && d.bedaHarakat.map((h, j) => <p key={j} className="mt-1" dir="rtl" lang="ar"><span className="ar">{h.kutipan}</span> ≠ <span className="ar">{h.teks}</span></p>)}
           {d.terdekat && <p className="mt-1">Bagian teks yang paling dekat (tanpa harakat):</p>}
           {d.terdekat && <p dir="rtl" lang="ar" className="ar">{d.terdekat}</p>}
         </div>
@@ -317,6 +330,7 @@ const QuestionView = ({ q }) => (
       <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Pembahasan: </span>{q.pembahasan}</p>
     )}
     <KutipanBadge q={q} />
+    <SikapBadge q={q} />
     {q.indikator && (
       <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Indikator: </span>{q.indikator}</p>
     )}
@@ -326,6 +340,7 @@ const Meta = ({ q }) => (
   <div className="flex flex-wrap gap-1.5">
     <Chip>{q.mapel}</Chip><Chip>{q.tingkat}</Chip><Chip>{levelLabel(q.level)}</Chip>
     {q.contoh && <Chip>Contoh data</Chip>}
+    {q.ai && q.ai.dibuat && <Chip>Dibuat AI{q.ai.model ? ` · ${q.ai.model}` : ''}</Chip>}
   </div>
 );
 const refText = (q) => [q.nama || 'Kitab belum diisi', q.juz && `Juz ${q.juz}`, q.hal && `Hal. ${q.hal}`].filter(Boolean).join(' · ');
@@ -350,7 +365,7 @@ const apiErr = (e) => (e && e.name === 'AbortError' ? null : (e && e.code ? e : 
 const ERR_TITLES = {
   INVALID_ARABIC: 'Teks Arab tidak valid', TEKS_TIDAK_MEMADAI: 'Teks belum cukup', TEKS_TOO_LONG: 'Teks terlalu panjang', SOAL_KOSONG: 'Naskah soal belum lengkap',
   RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai', RATE_LIMIT_DAILY: 'Kuota harian habis',
-  AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai',
+  AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
   AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', NETWORK: 'Tidak terhubung ke server',
   URL_INVALID: 'Tautan tidak valid', URL_NOT_ALLOWED: 'Situs belum didukung', SUMBER_NOT_FOUND: 'Halaman tidak ditemukan', SUMBER_BLOCKED: 'Situs menolak permintaan otomatis',
   SUMBER_ERROR: 'Situs sumber bermasalah', SUMBER_TIMEOUT: 'Situs sumber lambat', SUMBER_TOO_LARGE: 'Halaman terlalu besar', SUMBER_BUKAN_TEKS: 'Bukan halaman teks',
@@ -385,6 +400,21 @@ const VERDICT = { layak: ['Layak', 'bg-ok-bg text-ok'], perlu_perbaikan: ['Perlu
 const ASPEK = { kunci: 'Kunci', pengecoh: 'Pengecoh', kejelasan: 'Kejelasan', level: 'Level', bahasa: 'Bahasa', pembahasan: 'Pembahasan', rujukan: 'Rujukan', indikator: 'Indikator', kesesuaian_teks: 'Kesesuaian teks' };
 const H3 = ({ children }) => <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-mute">{children}</h3>;
 
+function ButaView({ state }) {
+  if (!state) return null;
+  if (state.loading) return <Spin>Menguji soal tanpa kunci...</Spin>;
+  if (state.error) return <div className="mt-2"><ErrorBox e={state.error} /></div>;
+  const d = state.data;
+  if (d.status === 'sepakat') return <p className="mt-2 rounded-lg bg-ok-bg px-3 py-2 text-xs font-semibold text-ok">Uji buta: penguji menjawab {d.jawaban}, sama dengan kunci.</p>;
+  if (d.status === 'tanpa_kunci') return <p className="mt-2 text-xs text-mute">Pilih kunci jawaban dulu agar hasil uji bisa dibandingkan.</p>;
+  return (
+    <div className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-xs text-bad">
+      <p className="font-semibold">Uji buta berbeda dari kunci: penguji menjawab “{d.jawaban === 'tidak_ada' ? 'tidak ada yang benar' : d.jawaban === 'lebih_dari_satu' ? 'lebih dari satu benar' : d.jawaban}”, kunci {d.kunci}.</p>
+      {d.alasan && <p className="mt-1">{d.alasan}</p>}
+      <p className="mt-1">Cek ulang kunci dan pengecoh sebelum mengirim ke editor.</p>
+    </div>
+  );
+}
 function TelaahView({ state, onApply, onUseNotes }) {
   if (state.loading) return <Spin>Sedang menelaah soal terhadap teks kitab...</Spin>;
   if (state.error) return <ErrorBox e={state.error} />;
@@ -436,7 +466,7 @@ function AssistView({ state, onIdea }) {
             <ul className="space-y-1">{d.istilah.map((x, i) => (
               <li key={i} className="flex items-baseline gap-3"><span dir="rtl" lang="ar" className="ar ar-sm shrink-0 !leading-normal">{x.arab}</span><span>{x.arti}</span></li>))}</ul></div>
         )}
-        <p className="text-xs text-mute">Terjemahan AI. Cocokkan dengan kitab terjemahan atau guru sebelum dipakai.</p>
+        <p className="text-xs text-mute">Draf terjemahan mesin (AI), belum ditinjau ustadz atau guru. Jangan dipakai sebagai kunci atau pembahasan sebelum dicocokkan dengan kitab terjemahan atau ditinjau orang yang menguasai kitabnya.</p>
       </div>
     );
   }
@@ -462,8 +492,20 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const [busy, setBusy] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [errors, setErrors] = useState([]);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const setOpt = (k, v) => setForm((f) => ({ ...f, opsi: { ...f.opsi, [k]: v } }));
+  // Hasil uji buta hanya berlaku untuk isi soal yang diuji: ubah isi, hasilnya dihapus.
+  const AFFECT = ['teks', 'stimulus', 'pertanyaan', 'kunci'];
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v, ...(AFFECT.includes(k) ? { ai: { ...f.ai, buta: '' } } : {}) }));
+  const setOpt = (k, v) => setForm((f) => ({ ...f, opsi: { ...f.opsi, [k]: v }, ai: { ...f.ai, buta: '' } }));
+  const [butaState, setButaState] = useState(null);
+  const ujiButa = async (soal) => {
+    setButaState({ loading: true });
+    try {
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: form.teks, nama: form.nama, tingkat: form.tingkat, level: form.level, soal });
+      setButaState({ data: d.hasil });
+      const st = d.hasil.status === 'sepakat' || d.hasil.status === 'beda' ? d.hasil.status : '';
+      setForm((f) => ({ ...f, ai: { ...f.ai, buta: st } }));
+    } catch (e) { const er = apiErr(e); setButaState(er ? { error: er } : null); }
+  };
 
   const [status, setStatus] = useState('idle');
   const [apiError, setApiError] = useState(null);
@@ -486,7 +528,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const ERR_TITLE = {
     INVALID_ARABIC: 'Teks Arab tidak valid', TEKS_TIDAK_MEMADAI: 'Teks belum cukup untuk dijadikan soal', TEKS_TOO_LONG: 'Teks terlalu panjang',
     RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai',
-    AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai',
+    AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
     SOAL_KOSONG: 'Naskah soal belum lengkap', AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', RATE_LIMIT_DAILY: 'Kuota harian habis',
     NETWORK: 'Tidak terhubung ke server', SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', SERVER_AUTH: 'Kunci API server bermasalah',
   };
@@ -516,8 +558,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
         stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '',
         opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e },
         kunci: s.kunci_jawaban, pembahasan: s.pembahasan || '', indikator: s.indikator_kisi_kisi || '',
+        ai: { dibuat: true, model: String(data.model || '').slice(0, 60), verifikasi: (data.verifikasi && data.verifikasi.status) || '', buta: '' },
       }));
       setGenerated(true);
+      ujiButa({ stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '', opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e }, kunci: s.kunci_jawaban }); // tanpa await: tidak menahan tampilan soal
     } catch (e) {
       if (e && e.name === 'AbortError') { /* dibatalkan pengguna */ }
       else setApiError({ code: 'NETWORK', message: 'Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.' });
@@ -593,7 +637,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     const p = tl.data.perbaikan;
     setUndo({ ...form, opsi: { ...form.opsi } });
     setForm((f) => ({ ...f, stimulus: p.stimulus, pertanyaan: p.pertanyaan, opsi: { A: p.pilihan_a, B: p.pilihan_b, C: p.pilihan_c, D: p.pilihan_d, E: p.pilihan_e },
-      kunci: p.kunci_jawaban, pembahasan: p.pembahasan, indikator: p.indikator_kisi_kisi }));
+      kunci: p.kunci_jawaban, pembahasan: p.pembahasan, indikator: p.indikator_kisi_kisi, ai: { ...f.ai, buta: '' } }));
     setTl(null); toast('Perbaikan diterapkan. Tombol Urungkan tersedia.');
   };
   const undoFix = () => { setForm(undo); setUndo(null); };
@@ -761,6 +805,15 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
             </div>
             {tl && <div className="mt-3"><TelaahView state={tl} onApply={applyFix} /></div>}
           </div>
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn kind="soft" onClick={() => ujiButa({ stimulus: form.stimulus, pertanyaan: form.pertanyaan, opsi: form.opsi, kunci: form.kunci })} disabled={!!(butaState && butaState.loading) || !form.pertanyaan.trim() || !form.kunci}>
+                {butaState && butaState.loading ? <Loader2 size={16} className="spin" /> : <Check size={16} />}Uji jawab buta
+              </Btn>
+              <span className="text-xs text-mute">Model menjawab tanpa melihat kunci; bila berbeda, soal perlu ditelaah.</span>
+            </div>
+            <ButaView state={butaState} />
+          </div>
 
           {errors.length > 0 && (
             <ul role="alert" className="mt-4 space-y-1 rounded-lg bg-bad-bg px-4 py-3 text-sm text-bad">
@@ -783,6 +836,26 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
   const [note, setNote] = useState('');
   const [err, setErr] = useState(false);
   const [tl, setTl] = useState(null);
+  const [errOk, setErrOk] = useState(false);
+  const [buta, setButa] = useState(null);
+  const K = window.Kutipan;
+  const kutLive = useMemo(() => (K && q.teks && q.pembahasan ? K.periksaKutipan(K.bidangDariSoal(q), q.teks).status : ''), [K, q.teks, q.pembahasan, q.stimulus, q.pertanyaan, q.opsi]);
+  const a = q.ai || {};
+  const alasanOverride = [
+    (kutLive === 'gagal' || a.verifikasi === 'gagal') && 'ada kutipan Arab yang tidak ada di teks kitab',
+    (a.buta === 'beda' || (buta && buta.data && buta.data.status === 'beda')) && 'uji jawab buta berbeda dari kunci',
+  ].filter(Boolean);
+  const runButa = async () => {
+    setButa({ loading: true });
+    try {
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: q.teks, nama: q.nama, tingkat: q.tingkat, level: q.level, soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci } });
+      setButa({ data: d.hasil });
+    } catch (e) { const er = apiErr(e); setButa(er ? { error: er } : null); }
+  };
+  const setujui = () => {
+    if (alasanOverride.length && !note.trim()) { setErrOk(true); return; }
+    onApprove(q.id, alasanOverride.length ? `[Disetujui dengan catatan] ${note.trim()}`.slice(0, 1000) : '');
+  };
   const runTelaah = async () => {
     setTl({ loading: true });
     try {
@@ -816,15 +889,27 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
           <Btn kind="soft" onClick={runTelaah} disabled={!!(tl && tl.loading)}>
             {tl && tl.loading ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}Telaah AI
           </Btn>
+          <Btn kind="soft" className="ml-2" onClick={runButa} disabled={!!(buta && buta.loading)}>
+            {buta && buta.loading ? <Loader2 size={16} className="spin" /> : <Check size={16} />}Uji jawab buta
+          </Btn>
+          <ButaView state={buta} />
           {tl && <div className="mt-3"><TelaahView state={tl} onUseNotes={(t) => { setNote(t.slice(0, 1000)); setErr(false); }} /></div>}
         </div>
+        {alasanOverride.length > 0 && (
+          <div role="alert" className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-xs text-bad">
+            <p className="font-semibold">Peringatan sebelum menyetujui: {alasanOverride.join('; ')}.</p>
+            <p className="mt-1">Soal ini baru bisa disetujui bila Anda menulis catatan alasan di kolom di bawah (override). Catatan tersimpan bersama soal.</p>
+            {errOk && <p className="mt-1 font-semibold">Tulis catatan alasan lebih dulu.</p>}
+          </div>
+        )}
+        {q.sumberUrl && <p className="mb-3 text-xs text-mute">Tautan sumber diisi penyusun dan tidak otomatis terikat ke teks di atas. Cocokkan sendiri bila perlu.</p>}
         <Label htmlFor={'note-' + q.id}>Catatan Revisi</Label>
         <textarea id={'note-' + q.id} rows={2} className={`field ${err ? '!border-[var(--bad)]' : ''}`} placeholder="Wajib diisi bila meminta revisi"
-          value={note} onChange={(e) => { setNote(e.target.value); setErr(false); }} />
+          value={note} onChange={(e) => { setNote(e.target.value); setErr(false); setErrOk(false); }} />
         {err && <p className="mt-1 text-xs font-medium text-bad">Tulis catatan revisi agar penyusun tahu apa yang diperbaiki.</p>}
         {own && <p className="mt-2 text-xs font-medium text-warn">Anda penyusun soal ini. Soal harus ditinjau editor lain.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
-          <Btn kind="primary" disabled={own} onClick={() => onApprove(q.id)}><CheckCircle2 size={16} />Setujui Soal</Btn>
+          <Btn kind="primary" disabled={own} onClick={setujui}><CheckCircle2 size={16} />Setujui Soal</Btn>
           <Btn kind="danger" disabled={own} onClick={() => { if (!note.trim()) { setErr(true); return; } onRevise(q.id, note.trim()); }}><RotateCcw size={16} />Minta Revisi</Btn>
         </div>
       </footer>
@@ -1187,7 +1272,14 @@ function App({ user, profile }) {
     ? 'Ditolak: Anda tidak berhak melakukan ini, atau soal sudah diubah orang lain.'
     : 'Gagal menyimpan. Periksa koneksi lalu coba lagi.');
 
-  const content = () => Object.fromEntries(FIELDS.map((k) => [k, form[k]]));
+  // Jejak audit disimpan bersama soal; editor melihatnya dan aturan Firestore memakainya sebagai gerbang persetujuan.
+  const aiMeta = () => {
+    const K = window.Kutipan; const a = form.ai || {};
+    let v = '';
+    if (K && form.teks && form.pembahasan) { try { v = K.periksaKutipan(K.bidangDariSoal(form), form.teks).status; } catch (e) { v = ''; } }
+    return { dibuat: !!a.dibuat, model: String(a.model || '').slice(0, 60), verifikasi: v, buta: a.buta || '' };
+  };
+  const content = () => ({ ...Object.fromEntries(FIELDS.map((k) => [k, form[k]])), ai: aiMeta() });
   const commit = async (status) => {
     try {
       if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
@@ -1204,11 +1296,11 @@ function App({ user, profile }) {
       toast(okMsg);
     } catch (e) { toast(failMsg(e)); }
   };
-  const approve = (id) => review(id, 'approved', '', 'Soal disetujui dan masuk Bank Soal.');
+  const approve = (id, note = '') => review(id, 'approved', note, 'Soal disetujui dan masuk Bank Soal.');
   const revise = (id, note) => review(id, 'revision', note, 'Permintaan revisi dikirim ke penyusun.');
   const edit = (q) => {
     const base = emptyForm();
-    setForm({ ...base, ...Object.fromEntries(FIELDS.map((k) => [k, q[k] ?? base[k]])), opsi: { ...base.opsi, ...q.opsi } });
+    setForm({ ...base, ...Object.fromEntries(FIELDS.map((k) => [k, q[k] ?? base[k]])), opsi: { ...base.opsi, ...q.opsi }, ai: { ...base.ai, ...(q.ai || {}) } });
     setEditingId(q.id); setTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
