@@ -89,6 +89,8 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
+<script type="module">import * as K from '/kutipan.js'; window.Kutipan = K;</script>
+
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
 const L = new Proxy(window.LucideReact || {}, { get: (t, k) => t[k] || (() => null) });
@@ -262,6 +264,36 @@ const Empty = ({ icon: Icon, title, text }) => (
     <p className="mx-auto mt-1 max-w-sm text-sm text-mute">{text}</p>
   </div>
 );
+/* ---------- Pemeriksa kutipan Arab (gratis, di browser, tanpa kuota AI) ---------- */
+const KUTIPAN_UI = {
+  lolos: ['Kutipan cocok dengan teks kitab', 'bg-ok-bg text-ok'],
+  periksa: ['Periksa kutipan secara manual', 'bg-warn-bg text-warn'],
+  gagal: ['Ada kutipan yang tidak ada di teks kitab', 'bg-bad-bg text-bad'],
+};
+function KutipanBadge({ q }) {
+  const K = window.Kutipan;
+  const r = useMemo(
+    () => (K && q.teks && q.pembahasan ? K.periksaKutipan(K.bidangDariSoal(q), q.teks) : null),
+    [K, q.teks, q.pembahasan, q.stimulus, q.pertanyaan, q.opsi],
+  );
+  if (!r || r.status === 'tanpa_teks') return null;
+  const [label, cls] = KUTIPAN_UI[r.status];
+  const bermasalah = r.detail.filter((d) => d.status !== 'cocok');
+  return (
+    <div className={`rounded-lg px-3 py-2 text-xs ${cls}`}>
+      <p className="font-semibold">{label}{r.ringkas.total ? ` (${r.ringkas.cocok} dari ${r.ringkas.total} cocok)` : ''}</p>
+      {r.peringatan.map((w, i) => <p key={'w' + i} className="mt-1">{w}</p>)}
+      {bermasalah.map((d, i) => (
+        <div key={i} className="mt-2 border-t border-line pt-2">
+          <p className="font-semibold">{d.label}: {d.status === 'mirip' ? 'mirip, tapi ada kata yang berbeda' : 'tidak ditemukan di teks kitab'}</p>
+          <p dir="rtl" lang="ar" className="ar mt-1">{d.kutipan}</p>
+          {d.terdekat && <p className="mt-1">Bagian teks yang paling dekat (tanpa harakat):</p>}
+          {d.terdekat && <p dir="rtl" lang="ar" className="ar">{d.terdekat}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
 const QuestionView = ({ q }) => (
   <div className="space-y-3">
     {q.stimulus && <p className="rounded-lg bg-soft px-3 py-2 text-sm leading-relaxed text-soft-ink">{q.stimulus}</p>}
@@ -278,6 +310,7 @@ const QuestionView = ({ q }) => (
     {q.pembahasan && (
       <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Pembahasan: </span>{q.pembahasan}</p>
     )}
+    <KutipanBadge q={q} />
     {q.indikator && (
       <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Indikator: </span>{q.indikator}</p>
     )}
@@ -707,7 +740,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               </div>
             </fieldset>
             <div><Label htmlFor="pembahasan">Pembahasan / Dalil Pendukung</Label>
-              <textarea id="pembahasan" rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} /></div>
+              <textarea id="pembahasan" rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} />
+              <div className="mt-2"><KutipanBadge q={form} /></div></div>
             <div><Label htmlFor="indikator" hint="(opsional)">Indikator Kisi-kisi</Label>
               <textarea id="indikator" rows={2} className="field" placeholder="Peserta didik dapat ..." value={form.indikator} onChange={(e) => set('indikator', e.target.value)} /></div>
           </div>
