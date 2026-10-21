@@ -229,6 +229,7 @@ export async function getClient() {
 export function toApiError(err) {
   if (err instanceof ApiError) return err;
   const status = err && err.status;
+  console.error('[ai] galat dari penyedia:', status ?? err?.name, String(err?.message || '').replace(/\s+/g, ' ').slice(0, 200));
   const h = err && err.headers;
   const ra = Number(typeof h?.get === 'function' ? h.get('retry-after') : h?.['retry-after']);
   const retryAfter = Number.isFinite(ra) && ra > 0 ? Math.ceil(ra) : undefined;

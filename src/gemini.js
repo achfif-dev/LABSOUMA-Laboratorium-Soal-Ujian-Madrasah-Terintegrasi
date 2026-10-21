@@ -40,7 +40,12 @@ function httpError(status, json, headers) {
   return err;
 }
 
-export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_000 }) {
+// Google kadang membalas 500/502/503/504 sesaat ("model overloaded"). Coba ulang sebentar, tetapi hanya bila
+// masih ada waktu: fungsi Vercel dibatasi 60 detik, jadi percobaan ulang berhenti setelah RETRY_WINDOW_MS.
+const RETRY_STATUS = new Set([500, 502, 503, 504]);
+const RETRY_WINDOW_MS = 20_000;
+
+export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_000, retries = 2, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   return {
     messages: {
       async create({ model, max_tokens, system, tools = [], messages }) {
@@ -52,29 +57,35 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_0
           // Model Gemini 3 "berpikir" dulu dan token berpikir ikut dihitung, jadi beri ruang lebih besar.
           generationConfig: { maxOutputTokens: Math.min(16384, Math.max(Number(max_tokens) || 0, 8192)) },
         };
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), timeoutMs);
-        let res;
-        try {
-          res = await fetchImpl(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
-            method: 'POST', signal: ctl.signal,
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-            body: JSON.stringify(body),
-          });
-        } catch (e) {
-          throw Object.assign(new Error(e?.name === 'AbortError' ? 'timeout' : 'network'), { name: e?.name === 'AbortError' ? 'APIConnectionTimeoutError' : 'APIConnectionError' });
-        } finally { clearTimeout(timer); }
+        const started = Date.now();
+        for (let attempt = 0; ; attempt++) {
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), timeoutMs);
+          let res;
+          try {
+            res = await fetchImpl(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
+              method: 'POST', signal: ctl.signal,
+              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+              body: JSON.stringify(body),
+            });
+          } catch (e) {
+            throw Object.assign(new Error(e?.name === 'AbortError' ? 'timeout' : 'network'), { name: e?.name === 'AbortError' ? 'APIConnectionTimeoutError' : 'APIConnectionError' });
+          } finally { clearTimeout(timer); }
 
-        let json = null;
-        try { json = await res.json(); } catch { /* bukan JSON */ }
-        if (!res.ok) throw httpError(res.status, json, res.headers);
+          let json = null;
+          try { json = await res.json(); } catch { /* bukan JSON */ }
+          if (!res.ok) {
+            if (RETRY_STATUS.has(res.status) && attempt < retries && Date.now() - started < RETRY_WINDOW_MS) { await sleep(800 * (attempt + 1)); continue; }
+            throw httpError(res.status, json, res.headers);
+          }
 
-        const cand = json?.candidates?.[0];
-        const parts = cand?.content?.parts || [];
-        const calls = parts.filter((p) => p.functionCall).map((p) => ({ type: 'tool_use', name: p.functionCall.name, input: p.functionCall.args || {} }));
-        const stop_reason = cand?.finishReason === 'MAX_TOKENS' ? 'max_tokens' : calls.length ? 'tool_use' : 'end_turn';
-        const content = calls.length ? calls : parts.filter((p) => p.text && !p.thought).map((p) => ({ type: 'text', text: p.text }));
-        return { stop_reason, content };
+          const cand = json?.candidates?.[0];
+          const parts = cand?.content?.parts || [];
+          const calls = parts.filter((p) => p.functionCall).map((p) => ({ type: 'tool_use', name: p.functionCall.name, input: p.functionCall.args || {} }));
+          const stop_reason = cand?.finishReason === 'MAX_TOKENS' ? 'max_tokens' : calls.length ? 'tool_use' : 'end_turn';
+          const content = calls.length ? calls : parts.filter((p) => p.text && !p.thought).map((p) => ({ type: 'text', text: p.text }));
+          return { stop_reason, content };
+        }
       },
     },
   };
