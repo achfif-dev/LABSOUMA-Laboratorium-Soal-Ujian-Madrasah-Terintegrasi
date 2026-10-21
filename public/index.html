@@ -2074,7 +2074,12 @@ function App({ user, profile }) {
   const isAdmin = profile.role === 'admin';
   const canReview = profile.role === 'editor' || isAdmin;
 
-  const [tab, setTab] = useState('compose');
+  // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
+  const [tab, setTabRaw] = useState(() => {
+    const h = (window.location.hash || '').slice(1);
+    return ['compose', 'review', 'bank', 'export', 'pegon'].includes(h) || (isAdmin && ['users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+  });
+  const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const keluar = () => {
