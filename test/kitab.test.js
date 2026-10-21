@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKitabUrl, htmlToArabicText, parseTitle, fetchKitab, findByClass, DEFAULT_HOSTS } from '../src/kitabFetch.js';
+import { parseKitabUrl, htmlToArabicText, parseTitle, fetchKitab, findByClass, stripComments, stripElements, neutralizeStrayLt, DEFAULT_HOSTS } from '../src/kitabFetch.js';
 
 const ISI = 'الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ وَالصَّلَاةُ وَالسَّلَامُ عَلَى أَشْرَفِ الْمُرْسَلِينَ';
 const PAGE = `<!doctype html><html><head><title>ص3 - الفواكه العذاب - تقريظ - المكتبة الشاملة.</title><script>var x="مرحبا بكم في الموقع الإلكتروني للمكتبة";</script></head>
@@ -71,4 +71,24 @@ test('fetchKitab: teks panjang dipotong di batas baris dan ditandai', async () =
 test('fetchKitab: timeout menjadi 504', async () => {
   const slow = (u, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(Object.assign(new Error('a'), { name: 'AbortError' }))));
   await assert.rejects(fetchKitab('https://shamela.ws/x', { timeoutMs: 20, fetchImpl: slow }), { code: 'SUMBER_TIMEOUT', status: 504 });
+});
+
+test('pembersih HTML: perilaku tetap benar (komentar, elemen bersarang, tag rusak)', () => {
+  assert.equal(stripComments('a<!-- x -->b<!--y-->c'), 'abc');
+  assert.equal(stripComments('a<!-- tak tertutup b'), 'a');
+  assert.equal(stripElements('a<nav>x</nav>b<SCRIPT>y</script >c'), 'abc');
+  assert.equal(stripElements('a<nav>tak tertutup'), 'a<nav>tak tertutup'); // tanpa penutup: dibiarkan
+  assert.equal(stripElements('<nav><nav>x</nav>sisa</nav>'), 'sisa</nav>'); // sama seperti perilaku semula
+  assert.equal(neutralizeStrayLt('<p>a</p> 1 < 2 <b'), '<p>a</p> 1 &lt; 2 &lt;b');
+});
+
+test('htmlToArabicText: HTML jahat 2 MB selesai cepat (waktu linear, bukan kuadratik)', () => {
+  const MB = 2_000_000;
+  const rep = (s) => s.repeat(Math.floor(MB / s.length));
+  const jahat = ['<body>' + rep('<nav '), '<body>' + rep('<!-- '), '<body>' + rep('<title>'), '<div class=\"nass\">' + rep('<div '), rep('<div class=\"nass\">') + 'x', rep('<script>a<b ')];
+  for (const html of jahat) {
+    const t = Date.now();
+    htmlToArabicText(html);
+    assert.ok(Date.now() - t < 5000, `terlalu lambat: ${html.slice(0, 25)}`); // sebelum perbaikan: puluhan detik sampai menit
+  }
 });

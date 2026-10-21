@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseList, initialRole, domainAllowed, rateDecision, STAFF } from '../src/access.js';
+import { parseList, initialRole, domainAllowed, rateDecision, shouldPromote, STAFF } from '../src/access.js';
 
 test('initialRole: admin hanya bila email ada di daftar DAN terverifikasi', () => {
   const admins = parseList(' Admin@Madrasah.sch.id , kepala@gmail.com ,');
@@ -37,4 +37,10 @@ test('rateDecision: batas per menit, reset jendela, batas harian WIB', () => {
 
 test('STAFF tidak memuat pending/nonaktif', () => {
   assert.deepEqual(STAFF, ['penyusun', 'editor', 'admin']);
+});
+
+test('shouldPromote: ADMIN_EMAILS hanya mengangkat profil pending, tidak membalik admin yang diturunkan atau dinonaktifkan', () => {
+  assert.equal(shouldPromote('pending', 'admin'), true);
+  for (const role of ['penyusun', 'editor', 'nonaktif', 'admin']) assert.equal(shouldPromote(role, 'admin'), false, role);
+  assert.equal(shouldPromote('pending', 'pending'), false);
 });
