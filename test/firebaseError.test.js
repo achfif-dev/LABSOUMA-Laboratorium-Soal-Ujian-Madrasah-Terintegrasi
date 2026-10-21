@@ -17,3 +17,10 @@ test('sendError memakai pesan Firebase, bukan pesan soal', () => {
   assert.equal(out.c, 500);
   assert.match(out.b.error.message, /Firestore/);
 });
+
+import { serverError } from '../src/platform.js';
+test('serverError menampilkan ringkasan galat polos, bukan galat SDK AI', () => {
+  assert.equal(serverError(new Error('boom  x')).message, 'Galat di server: boom x');
+  assert.equal(serverError(Object.assign(new Error('x'), { status: 429 })), null);
+  assert.equal(serverError(Object.assign(new Error('x'), { name: 'APIConnectionError' })), null);
+});

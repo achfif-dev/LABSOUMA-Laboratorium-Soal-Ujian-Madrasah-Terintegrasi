@@ -111,8 +111,16 @@ export function firebaseError(e) {
   return null;
 }
 
+/** Galat polos tanpa status/nama SDK AI = masalah sisi server sendiri: tampilkan ringkasan agar mudah dilacak. */
+export function serverError(e) {
+  if (!e || typeof e !== 'object' || e.status || /^API/.test(String(e.name || ''))) return null;
+  const msg = String(e.message || '').replace(/\s+/g, ' ').slice(0, 220);
+  if (!msg) return null;
+  return new ApiError(500, 'SERVER_ERROR', `Galat di server: ${msg}`);
+}
+
 export function sendError(res, e) {
-  const err = e instanceof ApiError ? e : (firebaseError(e) || toApiError(e));
+  const err = e instanceof ApiError ? e : (firebaseError(e) || serverError(e) || toApiError(e));
   if (!(e instanceof ApiError)) console.error('[api] error tak terduga:', e?.code ?? e?.status, e?.message); // jangan bocorkan ke klien
   if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
   return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.retryAfter ? { retryAfter: err.retryAfter } : {}) } });
