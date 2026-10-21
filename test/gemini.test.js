@@ -38,8 +38,10 @@ test('create: MAX_TOKENS, tanpa functionCall, dan error HTTP dipetakan', async (
   const mk = (resp) => createGeminiClient({ apiKey: 'k', sleep: async () => {}, fetchImpl: async () => resp });
   const args = { model: 'm', max_tokens: 10, system: '', tools: [TOOL_TOLAK], messages: [{ role: 'user', content: 'x' }] };
   assert.equal((await mk(reply({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] })).messages.create(args)).stop_reason, 'max_tokens');
-  const none = await mk(reply({ promptFeedback: { blockReason: 'SAFETY' } })).messages.create(args);
+  const none = await mk(reply({ candidates: [{ finishReason: 'STOP', content: { parts: [] } }] })).messages.create(args);
   assert.deepEqual(none, { stop_reason: 'end_turn', content: [] });
+  const blok = await mk(reply({ promptFeedback: { blockReason: 'SAFETY' } })).messages.create(args);
+  assert.deepEqual(blok, { stop_reason: 'refusal', content: [] }); // diblokir keamanan: bukan hasil kosong biasa
 
   const e429 = await mk(reply({ error: { message: 'quota', details: [{ retryDelay: '34.2s' }] } }, { status: 429 })).messages.create(args).catch((e) => e);
   assert.equal(toApiError(e429).code, 'RATE_LIMIT'); assert.equal(toApiError(e429).retryAfter, 35);
@@ -93,4 +95,21 @@ test('create: 503 sesaat dicoba ulang lalu berhasil; 503 terus-menerus berhenti 
   const c3 = createGeminiClient({ apiKey: 'k', sleep: async () => {}, fetchImpl: async () => { k++; return reply({ error: { message: 'quota' } }, { status: 429 }); } });
   await c3.messages.create(args).catch(() => {});
   assert.equal(k, 1);
+});
+
+test('gemini: blokir keamanan dipetakan ke stop_reason refusal, bukan hasil kosong', async () => {
+  const mk = (json) => createGeminiClient({ apiKey: 'k', fetchImpl: async () => ({ ok: true, status: 200, headers: new Map(), json: async () => json }) });
+  const args = { model: 'm', max_tokens: 100, system: 's', tools: [], messages: [{ role: 'user', content: 'x' }] };
+  assert.equal((await mk({ promptFeedback: { blockReason: 'SAFETY' } }).messages.create(args)).stop_reason, 'refusal');
+  assert.equal((await mk({ candidates: [{ finishReason: 'SAFETY', content: { parts: [] } }] }).messages.create(args)).stop_reason, 'refusal');
+});
+
+test('gemini: percobaan ulang tidak melampaui anggaran waktu total', async () => {
+  let n = 0; let t = 0; const realNow = Date.now; Date.now = () => t;
+  try {
+    const c = createGeminiClient({ apiKey: 'k', budgetMs: 45_000, sleep: async () => { t += 800; },
+      fetchImpl: async () => { n++; t += 18_000; return { ok: false, status: 503, headers: new Map(), json: async () => ({}) }; } });
+    await c.messages.create({ model: 'm', max_tokens: 1, system: 's', tools: [], messages: [{ role: 'user', content: 'x' }] }).catch(() => {});
+    assert.ok(n <= 2, `terlalu banyak percobaan: ${n}`);
+  } finally { Date.now = realNow; }
 });

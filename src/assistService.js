@@ -1,7 +1,7 @@
 // Bantuan AI di luar penyusunan soal baru: terjemah teks kitab, analisis teks, dan telaah/perbaikan soal.
 import {
   ApiError, toApiError, getClient, getModel, validateInput, normalizeSoal, arabicProblem,
-  clean, TINGKAT, MAX_TEKS, TOOL_TOLAK,
+  clean, TINGKAT, MAX_TEKS, TOOL_TOLAK, periksaPenolakan,
 } from './soalService.js';
 
 const KONTEKS = `Konteks lembaga: madrasah berhaluan Ahlussunnah wal Jamaah yang moderat (wasathiyah). Setia pada teks dan mazhab yang tertulis di dalamnya, gunakan bahasa santun, jangan menyalahkan atau merendahkan kelompok lain, dan jangan menambah pendapat atau dalil yang tidak ada di teks.
@@ -138,6 +138,7 @@ async function runTool(client, { system, user, tools, maxTokens }) {
       tool_choice: { type: 'any' }, messages: [{ role: 'user', content: user }],
     });
   } catch (e) { throw toApiError(e); }
+  periksaPenolakan(msg);
   if (msg.stop_reason === 'max_tokens') throw new ApiError(502, 'AI_BAD_OUTPUT', 'Hasil AI terpotong. Coba lagi dengan teks yang lebih pendek.');
   const call = (msg.content || []).find((b) => b.type === 'tool_use');
   if (!call) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI tidak mengembalikan hasil. Coba lagi.');

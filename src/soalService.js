@@ -35,6 +35,16 @@ export const MODEL_PRESETS = {
 };
 export const getModel = () => (runtime && runtime.model) || process.env.AI_MODEL || DEFAULT_MODELS[provider()] || DEFAULT_MODELS.gemini;
 
+// Anggaran waktu satu panggilan AI. Fungsi Vercel dibatasi 60 detik (vercel.json); sisanya untuk autentikasi dan Firestore.
+export const AI_BUDGET_MS = 45_000;
+
+/** Penolakan oleh penyedia AI (kebijakan konten) dipetakan ke pesan yang menjelaskan sebabnya. */
+export function periksaPenolakan(msg) {
+  if (msg && msg.stop_reason === 'refusal') {
+    throw new ApiError(422, 'AI_MENOLAK', 'AI menolak memproses teks ini karena kebijakan keamanan konten penyedia. Coba bagian teks yang lebih pendek, atau ganti model di Pengaturan AI.');
+  }
+}
+
 /* ---------------------------------------------------------------- Validasi */
 
 const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
@@ -216,10 +226,10 @@ export async function getClient() {
   if (sharedClient && sharedSig === sig) return sharedClient;
   if (p === 'gemini') {
     const { createGeminiClient } = await import('./gemini.js');
-    sharedClient = createGeminiClient({ apiKey: key });
+    sharedClient = createGeminiClient({ apiKey: key, timeoutMs: AI_BUDGET_MS, budgetMs: AI_BUDGET_MS });
   } else {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    sharedClient = new Anthropic({ apiKey: key, timeout: 60_000, maxRetries: 1 });
+    sharedClient = new Anthropic({ apiKey: key, timeout: AI_BUDGET_MS, maxRetries: 0 });
   }
   sharedSig = sig;
   return sharedClient;
@@ -269,6 +279,7 @@ export async function generateSoal(body, deps = {}) {
     throw toApiError(e);
   }
 
+  periksaPenolakan(msg);
   if (msg.stop_reason === 'max_tokens') throw new ApiError(502, 'AI_BAD_OUTPUT', 'Hasil AI terpotong. Coba lagi dengan teks yang lebih pendek.');
   const call = (msg.content || []).find((b) => b.type === 'tool_use');
   if (!call) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI tidak mengembalikan soal. Coba generate lagi.');

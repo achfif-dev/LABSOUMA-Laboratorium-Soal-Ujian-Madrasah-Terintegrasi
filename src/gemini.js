@@ -45,7 +45,7 @@ function httpError(status, json, headers) {
 const RETRY_STATUS = new Set([500, 502, 503, 504]);
 const RETRY_WINDOW_MS = 20_000;
 
-export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_000, retries = 2, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_000, budgetMs = 45_000, retries = 2, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   return {
     messages: {
       async create({ model, max_tokens, system, tools = [], messages }) {
@@ -60,7 +60,8 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_0
         const started = Date.now();
         for (let attempt = 0; ; attempt++) {
           const ctl = new AbortController();
-          const timer = setTimeout(() => ctl.abort(), timeoutMs);
+          // Seluruh percobaan (termasuk ulang) harus selesai dalam budgetMs agar fungsi Vercel (60 dtk) tidak mati lebih dulu.
+          const timer = setTimeout(() => ctl.abort(), Math.max(1000, Math.min(timeoutMs, budgetMs - (Date.now() - started))));
           let res;
           try {
             res = await fetchImpl(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
@@ -75,11 +76,16 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 55_0
           let json = null;
           try { json = await res.json(); } catch { /* bukan JSON */ }
           if (!res.ok) {
-            if (RETRY_STATUS.has(res.status) && attempt < retries && Date.now() - started < RETRY_WINDOW_MS) { await sleep(800 * (attempt + 1)); continue; }
+            if (RETRY_STATUS.has(res.status) && attempt < retries && Date.now() - started < RETRY_WINDOW_MS && budgetMs - (Date.now() - started) > 8000) { await sleep(800 * (attempt + 1)); continue; }
             throw httpError(res.status, json, res.headers);
           }
 
+          // Penolakan keamanan: prompt diblokir (tanpa kandidat) atau jawaban dihentikan karena kebijakan konten.
+          const blokir = json?.promptFeedback?.blockReason;
           const cand = json?.candidates?.[0];
+          if (blokir || (!cand?.content?.parts?.some((p) => p.functionCall) && /SAFETY|PROHIBITED|BLOCKLIST|SPII|RECITATION/.test(String(cand?.finishReason || '')))) {
+            return { stop_reason: 'refusal', content: [] };
+          }
           const parts = cand?.content?.parts || [];
           const calls = parts.filter((p) => p.functionCall).map((p) => ({ type: 'tool_use', name: p.functionCall.name, input: p.functionCall.args || {} }));
           const stop_reason = cand?.finishReason === 'MAX_TOKENS' ? 'max_tokens' : calls.length ? 'tool_use' : 'end_turn';
