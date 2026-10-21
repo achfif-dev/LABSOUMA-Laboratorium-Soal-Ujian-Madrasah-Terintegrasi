@@ -35,7 +35,7 @@ test('create: permintaan memakai kunci di header, mode ANY, dan hasil functionCa
 });
 
 test('create: MAX_TOKENS, tanpa functionCall, dan error HTTP dipetakan', async () => {
-  const mk = (resp) => createGeminiClient({ apiKey: 'k', fetchImpl: async () => resp });
+  const mk = (resp) => createGeminiClient({ apiKey: 'k', sleep: async () => {}, fetchImpl: async () => resp });
   const args = { model: 'm', max_tokens: 10, system: '', tools: [TOOL_TOLAK], messages: [{ role: 'user', content: 'x' }] };
   assert.equal((await mk(reply({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] })).messages.create(args)).stop_reason, 'max_tokens');
   const none = await mk(reply({ promptFeedback: { blockReason: 'SAFETY' } })).messages.create(args);
@@ -72,4 +72,25 @@ test('getClient memilih penyedia dari environment', async () => {
     await assert.rejects(getClient(), { code: 'SERVER_NOT_CONFIGURED', message: /AI_PROVIDER/ });
     process.env.AI_MODEL = 'gemini-3.5-flash-lite'; assert.equal(getModel(), 'gemini-3.5-flash-lite');
   } finally { for (const k of ['AI_PROVIDER', 'AI_MODEL', 'GEMINI_API_KEY']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } }
+});
+
+test('create: 503 sesaat dicoba ulang lalu berhasil; 503 terus-menerus berhenti setelah 3 percobaan', async () => {
+  const args = { model: 'm', max_tokens: 10, system: '', tools: [TOOL_SOAL], messages: [{ role: 'user', content: 'x' }] };
+  const ok = reply({ candidates: [{ finishReason: 'STOP', content: { parts: [{ functionCall: { name: 'buat_soal', args: soal } }] } }] });
+  const sibuk = reply({ error: { message: 'The model is overloaded' } }, { status: 503 });
+
+  let n = 0; const waits = [];
+  const c1 = createGeminiClient({ apiKey: 'k', sleep: async (ms) => { waits.push(ms); }, fetchImpl: async () => (++n < 3 ? sibuk : ok) });
+  assert.equal((await c1.messages.create(args)).stop_reason, 'tool_use');
+  assert.equal(n, 3); assert.deepEqual(waits, [800, 1600]);
+
+  let m = 0;
+  const c2 = createGeminiClient({ apiKey: 'k', sleep: async () => {}, fetchImpl: async () => { m++; return sibuk; } });
+  const e = await c2.messages.create(args).catch((x) => x);
+  assert.equal(m, 3); assert.equal(toApiError(e).code, 'AI_OVERLOADED');
+
+  let k = 0; // kesalahan klien (kunci salah, kuota) tidak dicoba ulang
+  const c3 = createGeminiClient({ apiKey: 'k', sleep: async () => {}, fetchImpl: async () => { k++; return reply({ error: { message: 'quota' } }, { status: 429 }); } });
+  await c3.messages.create(args).catch(() => {});
+  assert.equal(k, 1);
 });
