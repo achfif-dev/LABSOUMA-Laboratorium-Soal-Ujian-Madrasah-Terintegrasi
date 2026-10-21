@@ -29,7 +29,8 @@ service cloud.firestore {
       function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
       function validContent() {
-        return d().tingkat in ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah']
+        // Tingkat boleh buatan admin (menu Konfigurasi), jadi hanya dibatasi bentuknya.
+        return d().tingkat is string && d().tingkat.size() > 0 && d().tingkat.size() <= 40
           && d().level in ['L1', 'L2', 'L3']
           && d().mapel is string && d().mapel.size() <= 60
           && d().nama is string && d().nama.size() <= 120

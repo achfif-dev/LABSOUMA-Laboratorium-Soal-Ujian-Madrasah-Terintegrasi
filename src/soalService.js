@@ -72,6 +72,13 @@ export const TINGKAT = {
   mts: 'Tsanawiyah (MTs)', tsanawiyah: 'Tsanawiyah (MTs)',
   ma: 'Aliyah (MA)', aliyah: 'Aliyah (MA)',
 };
+// Tingkat tambahan buatan admin (menu Konfigurasi). Diisi lewat daftarkanTingkat() dari appConfig sebelum validasi.
+let tingkatKustom = new Map();
+export function daftarkanTingkat(list) {
+  tingkatKustom = new Map(list.map((t) => [String(t.nama).trim().toLowerCase(), cleanLine(t.label || t.nama, 40) || String(t.nama)]));
+}
+/** Kunci tingkat (MI, Ibtidaiyah, atau nama tingkat buatan admin) -> label untuk prompt AI; undefined bila tidak dikenal. */
+export const resolveTingkat = (raw) => { const k = String(raw || '').trim().toLowerCase(); return TINGKAT[k] || tingkatKustom.get(k); };
 export const LEVEL = { l1: 'L1', l2: 'L2', l3: 'L3', hots: 'L3' };
 
 export const clean = (v, max) =>
@@ -95,8 +102,8 @@ export function validateInput(body) {
   const problem = arabicProblem(teks);
   if (problem) throw new ApiError(422, 'INVALID_ARABIC', problem);
 
-  const tingkat = TINGKAT[String(body.tingkat || '').trim().toLowerCase()];
-  if (!tingkat) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat harus MI/Ibtidaiyah, MTs/Tsanawiyah, atau MA/Aliyah.');
+  const tingkat = resolveTingkat(body.tingkat);
+  if (!tingkat) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat tidak dikenal. Pilih salah satu tingkat yang tersedia di menu Konfigurasi (bawaan: MI/Ibtidaiyah, MTs/Tsanawiyah, MA/Aliyah).');
   const level = LEVEL[String(body.level || '').trim().toLowerCase()];
   if (!level) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat kesukaran harus L1, L2, atau L3 (HOTS).');
 

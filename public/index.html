@@ -62,6 +62,9 @@ tailwind.config = {
     direction: rtl; text-align: right; font-size: 1.65rem; line-height: 2.3;
   }
   .ar-sm { font-size: 1.35rem; line-height: 2.1; }
+  /* Nama Arab (kitab, pengarang, tingkat) yang disisipkan di baris teks Latin: kecil, rata kanan-ke-kiri, terisolasi dari teks Latin di sekitarnya */
+  .ar-nama { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; unicode-bidi: isolate; font-size: 1.2em; line-height: 1.7; color: var(--ink); }
+  .ar-input { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 1.2rem; line-height: 1.8; }
   textarea.ar { resize: vertical; }
   .field { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
            padding: 9px 12px; font-size: 14px; }
@@ -124,6 +127,13 @@ const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingka
 const kitabUntuk = (cfg, tingkat, mapel) =>
   cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel));
 const KITAB_LAIN = '__lain__';
+const cariKitab = (cfg, nama) => cfg.kitab.find((k) => k.nama.toLowerCase() === String(nama || '').trim().toLowerCase());
+const namaArabKitab = (cfg, nama) => (cariKitab(cfg, nama) || {}).namaArab || '';
+const labelArabTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).labelArab) || '';
+// Teks Arab di tengah kalimat Latin: font Amiri, arah RTL terisolasi.
+const ArNama = ({ children, className = '' }) => (children ? <span dir="rtl" lang="ar" className={'ar-nama ' + className}>{children}</span> : null);
+// Tambahan setelah rujukan kitab: " · نama Arab" bila kitab ada di katalog dan punya nama Arab.
+const RefArab = ({ q }) => { const a = namaArabKitab(useCfg(), q.nama); return a ? <> · <ArNama>{a}</ArNama></> : null; };
 const LEVEL = [
   { v: 'L1', label: 'L1 – Ingatan' },
   { v: 'L2', label: 'L2 – Aplikasi' },
@@ -180,8 +190,8 @@ const buildCsvForms = (qs) =>
   qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildCsvRdm = (qs) =>
-  '﻿' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Juz', 'Halaman', 'Indikator'].map(csvEsc).join(',') + '\n' +
-  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan, q.nama, q.juz, q.hal, q.indikator].map(csvEsc).join(',')).join('\n') + '\n';
+  '﻿' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator'].map(csvEsc).join(',') + '\n' +
+  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildDocx = async (qs, mode) => {
   const D = window.docx;
@@ -189,7 +199,7 @@ const buildDocx = async (qs, mode) => {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
   const T = (text, o = {}) => new TextRun({ text: String(text || ''), font: 'Calibri', size: 24, ...o });
   const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
-  const AR = (text) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children: [new TextRun({ text: String(text || ''), font: 'Traditional Arabic', size: 40, rightToLeft: true })] });
+  const AR = (text, size = 40) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children: [new TextRun({ text: String(text || ''), font: 'Traditional Arabic', size, rightToLeft: true })] });
   const kids = [];
   const date = new Date().toLocaleDateString('id-ID', { dateStyle: 'long' });
   kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(mode === 'kartu' ? 'KARTU SOAL' : 'NASKAH SOAL', { bold: true, size: 32 })] }));
@@ -232,6 +242,7 @@ const buildDocx = async (qs, mode) => {
     qs.forEach((q, i) => {
       kids.push(P([T(`${i + 1}. ${q.kunci}`, { bold: true }), T(`  ${q.pembahasan}`)]));
       if (q.nama) kids.push(P(T(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555', italics: true }), { indent: { left: 400 } }));
+      if (q.namaArab) kids.push(AR(q.namaArab, 32));
     });
   } else {
     qs.forEach((q, i) => {
@@ -250,6 +261,7 @@ const buildDocx = async (qs, mode) => {
         ], 'E2F1E9')] }),
         new TableRow({ children: [cell([
           P(T(`Rujukan: ${q.nama || '-'}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555' })),
+          ...(q.namaArab ? [AR(q.namaArab, 32)] : []),
           ...(q.teks ? [AR(q.teks)] : []),
         ])] }),
       ];
@@ -379,13 +391,16 @@ const QuestionView = ({ q }) => (
     )}
   </div>
 );
-const Meta = ({ q }) => (
+const Meta = ({ q }) => {
+  const cfg = useCfg();
+  return (
   <div className="flex flex-wrap gap-1.5">
-    <Chip>{q.mapel}</Chip><Chip>{q.tingkat}</Chip><Chip>{levelLabel(q.level)}</Chip>
+    <Chip>{q.mapel}</Chip><Chip>{labelTingkat(cfg, q.tingkat)}</Chip><Chip>{levelLabel(q.level)}</Chip>
     {q.contoh && <Chip>Contoh data</Chip>}
     {q.ai && q.ai.dibuat && <Chip>Dibuat AI{q.ai.model ? ` · ${q.ai.model}` : ''}</Chip>}
   </div>
-);
+  );
+};
 const refText = (q) => [q.nama || 'Kitab belum diisi', q.juz && `Juz ${q.juz}`, q.hal && `Hal. ${q.hal}`].filter(Boolean).join(' · ');
 
 const Toast = ({ t }) => t ? (
@@ -747,7 +762,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
             <div><Label htmlFor="tingkat">Tingkat</Label>
               <Select id="tingkat" value={form.tingkat} onChange={pilihTingkat}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select>
-              {kelasInfo && <p className="mt-1 text-xs text-mute">Kelas {kelasInfo}</p>}</div>
+              {(kelasInfo || labelArabTingkat(cfg, form.tingkat)) && <p className="mt-1 text-xs text-mute">{kelasInfo && `Kelas ${kelasInfo}`}{kelasInfo && labelArabTingkat(cfg, form.tingkat) ? ' · ' : ''}<ArNama>{labelArabTingkat(cfg, form.tingkat)}</ArNama></p>}</div>
             <div><Label htmlFor="mapel">Mata Pelajaran</Label>
               <Select id="mapel" value={form.mapel} onChange={(v) => set('mapel', v)}>{mapelOpsi.map((t) => <option key={t}>{t}</option>)}</Select></div>
             <div><Label htmlFor="level">Tingkat Kesukaran</Label>
@@ -808,12 +823,17 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
             <div><Label htmlFor="nama">Nama Kitab</Label>
               <Select id="nama" value={kManual ? KITAB_LAIN : form.nama} onChange={pilihKitab}>
                 <option value="">{kitabOpsi.length ? '— Pilih kitab —' : '— Belum ada kitab untuk tingkat dan mapel ini —'}</option>
-                {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{k.pengarang ? `${k.nama} · ${k.pengarang}` : k.nama}</option>)}
+                {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{[k.pengarang ? `${k.nama} · ${k.pengarang}` : k.nama, k.namaArab].filter(Boolean).join(' — ')}</option>)}
                 {!kManual && form.nama && !namaDiKatalog && <option value={form.nama}>{form.nama} (di luar katalog)</option>}
                 <option value={KITAB_LAIN}>Lainnya (ketik manual)…</option>
               </Select>
               {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
               {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab untuk {labelTingkat(cfg, form.tingkat)} · {form.mapel} di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
+              {kitabCocok && (kitabCocok.namaArab || kitabCocok.pengarangArab) && (
+                <div className="mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">
+                  {kitabCocok.namaArab && <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal">{kitabCocok.namaArab}</p>}
+                  {kitabCocok.pengarangArab && <p dir="rtl" lang="ar" className="ar-nama text-sm opacity-80">{kitabCocok.pengarangArab}</p>}
+                </div>)}
               {kitabCocok && kitabCocok.pengarang && <p className="mt-1 text-xs text-mute">Pengarang: {kitabCocok.pengarang}</p>}</div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label htmlFor="juz">Juz / Volume</Label><input id="juz" className="field" placeholder="1" value={form.juz} onChange={(e) => set('juz', e.target.value)} /></div>
@@ -977,13 +997,13 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     <article className="overflow-hidden rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
         <Meta q={q} />
-        <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}</span>
+        <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /></span>
       </header>
       <div className="grid md:grid-cols-2">
         <div className="min-w-0 border-b border-line p-4 sm:p-5 md:border-b-0 md:border-r">
           <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><Quote size={14} />Teks Kitab Asli</h3>
           <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">{q.teks || '—'}</p></div>
-          <p className="mt-2 text-xs text-mute">{refText(q)}</p>
+          <p className="mt-2 text-xs text-mute">{refText(q)}<RefArab q={q} /></p>
           {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
         </div>
         <div className="min-w-0 p-4 sm:p-5">
@@ -1065,7 +1085,7 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
           <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
-              <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
+              <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
             </div>
             {q.status === 'revision' && q.catatan && (
               <p className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-sm text-bad"><span className="font-semibold">Catatan editor: </span>{q.catatan}</p>
@@ -1095,6 +1115,7 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
 
 /* ---------- Tab 4: Export ---------- */
 function Export({ all, toast }) {
+  const cfg = useCfg();
   const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
   const [f, setF] = useState({ mapel: '', tingkat: '' });
   const [fmt, setFmt] = useState('gift');
@@ -1111,7 +1132,8 @@ function Export({ all, toast }) {
   };
 
   const list = applyFilter(approved, f);
-  const chosen = picked ? list.filter((q) => picked.has(q.id)) : list;
+  // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
+  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama) }));
   const format = FORMATS.find((x) => x.id === fmt);
   const isText = !!format.build;
   const text = isText ? format.build(chosen) : '';
@@ -1324,15 +1346,14 @@ function AiConfig({ toast }) {
 }
 
 /* ---------- Konfigurasi aplikasi (admin): tingkatan, mata pelajaran, katalog kitab ---------- */
-const TK_SINGKAT = { Ibtidaiyah: 'MI', Tsanawiyah: 'MTs', Aliyah: 'MA' };
-const TingkatChecks = ({ value, onChange }) => (
+const rapikan = (n) => String(n || '').replace(/\s+/g, ' ').trim();
+const TingkatChecks = ({ value, onChange, daftar }) => (
   <div className="flex flex-wrap gap-x-3 gap-y-1">
-    {TINGKAT.map((t) => (
-      <label key={t} className="flex items-center gap-1 text-xs font-semibold">
-        <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={value.includes(t)}
-          onChange={(e) => onChange(TINGKAT.filter((x) => (x === t ? e.target.checked : value.includes(x))))} />{TK_SINGKAT[t]}
-      </label>
-    ))}
+    {daftar.filter((t) => rapikan(t.nama)).map((t) => { const n = rapikan(t.nama); return (
+      <label key={t._k} className="flex items-center gap-1 text-xs font-semibold">
+        <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={value.includes(n)}
+          onChange={(e) => onChange(daftar.map((x) => rapikan(x.nama)).filter((x) => x && (x === n ? e.target.checked : value.includes(x))))} />{t.singkat || t.label || n}
+      </label>); })}
   </div>
 );
 const AktifCek = ({ checked, onChange }) => (
@@ -1342,49 +1363,88 @@ const AktifCek = ({ checked, onChange }) => (
 );
 function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   const seq = useRef(0);
-  const bubuhId = (c) => ({ tingkat: c.tingkat.map((t) => ({ ...t })), mapel: c.mapel.map((m) => ({ ...m, _k: ++seq.current })), kitab: c.kitab.map((k) => ({ ...k, _k: ++seq.current })) });
-  const kelasDari = (c) => Object.fromEntries(c.tingkat.map((t) => [t.nama, (t.kelas || []).join(', ')]));
+  const bubuhId = (c) => ({
+    tingkat: c.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', kelasTeks: (t.kelas || []).join(', '), _k: ++seq.current })),
+    mapel: c.mapel.map((m) => ({ ...m, _k: ++seq.current })),
+    kitab: c.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', _k: ++seq.current })),
+  });
   const [d, setD] = useState(() => bubuhId(cfg));
-  const [kelasTeks, setKelasTeks] = useState(() => kelasDari(cfg));
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState('');
   const [cari, setCari] = useState('');
   const [batas, setBatas] = useState(30);
   const [massal, setMassal] = useState('');
-  useEffect(() => { setD(bubuhId(cfg)); setKelasTeks(kelasDari(cfg)); }, [cfg]);
+  const [salinDari, setSalinDari] = useState({});
+  useEffect(() => { setD(bubuhId(cfg)); }, [cfg]);
 
+  // Bentuk yang dikirim ke server: tanpa penanda UI (_k, baru, kelasTeks); nama tingkat dirapikan agar cocok dengan rujukan di mapel/kitab.
   const susun = () => ({
-    tingkat: d.tingkat.map((t) => ({ ...t, kelas: (kelasTeks[t.nama] || '').split(',').map((x) => x.trim()).filter(Boolean) })),
-    mapel: d.mapel.map(({ _k, ...m }) => m),
-    kitab: d.kitab.map(({ _k, ...k }) => k),
+    tingkat: d.tingkat.filter((t) => rapikan(t.nama)).map(({ _k, baru, kelasTeks, ...t }) => ({ ...t, nama: rapikan(t.nama), kelas: kelasTeks.split(/[,،]/).map((x) => x.trim()).filter(Boolean) })),
+    mapel: d.mapel.map(({ _k, ...m }) => ({ ...m, tingkat: m.tingkat.map(rapikan) })),
+    kitab: d.kitab.map(({ _k, ...k }) => ({ ...k, tingkat: k.tingkat.map(rapikan) })),
   });
-  const dirty = JSON.stringify(susun()) !== JSON.stringify({ tingkat: cfg.tingkat.map((t) => ({ ...t, kelas: t.kelas || [] })), mapel: cfg.mapel, kitab: cfg.kitab });
+  const dirty = JSON.stringify(susun()) !== JSON.stringify({ tingkat: cfg.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '' })), mapel: cfg.mapel, kitab: cfg.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '' })) });
+  const namaTingkat = d.tingkat.map((t) => rapikan(t.nama)).filter(Boolean);
+  const tanpaNama = d.tingkat.some((t) => !rapikan(t.nama));
 
-  const setT = (nama, patch) => setD((x) => ({ ...x, tingkat: x.tingkat.map((t) => (t.nama === nama ? { ...t, ...patch } : t)) }));
+  // Tingkat: mengubah kunci hanya mungkin untuk tingkat baru (belum disimpan); rujukan di mapel/kitab ikut diganti.
+  const setT = (k, patch) => setD((x) => {
+    const lama = x.tingkat.find((t) => t._k === k); if (!lama) return x;
+    let { mapel, kitab } = x;
+    if (patch.nama !== undefined && rapikan(lama.nama)) {
+      const ganti = (arr) => arr.map((n) => (n === rapikan(lama.nama) ? rapikan(patch.nama) : n));
+      mapel = mapel.map((m) => ({ ...m, tingkat: ganti(m.tingkat) })); kitab = kitab.map((b) => ({ ...b, tingkat: ganti(b.tingkat) }));
+    }
+    return { ...x, mapel, kitab, tingkat: x.tingkat.map((t) => (t._k === k ? { ...t, ...patch } : t)) };
+  });
+  const tambahT = () => setD((x) => ({ ...x, tingkat: [...x.tingkat, { nama: '', label: '', labelArab: '', singkat: '', kelas: [], kelasTeks: '', aktif: true, baru: true, _k: ++seq.current }] }));
+  const geserT = (k, arah) => setD((x) => {
+    const i = x.tingkat.findIndex((t) => t._k === k); const j = i + arah;
+    if (i < 0 || j < 0 || j >= x.tingkat.length) return x;
+    const t = [...x.tingkat]; [t[i], t[j]] = [t[j], t[i]]; return { ...x, tingkat: t };
+  });
+  const hapusT = (k) => {
+    const t = d.tingkat.find((x) => x._k === k); if (!t) return;
+    if (d.tingkat.length <= 1) { toast('Minimal satu tingkat harus ada.'); return; }
+    if (!t.baru && !window.confirm(`Hapus tingkat "${t.label || t.nama}"? Soal lama dengan tingkat ini tetap tersimpan, tetapi tidak bisa difilter lagi. Menonaktifkan biasanya lebih aman.`)) return;
+    const n = rapikan(t.nama);
+    setD((x) => ({ ...x, tingkat: x.tingkat.filter((y) => y._k !== k), mapel: x.mapel.map((m) => ({ ...m, tingkat: m.tingkat.filter((y) => y !== n) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: b.tingkat.filter((y) => y !== n) })) }));
+  };
+  // Tingkat baru belum punya mapel/kitab: salin cakupan dari tingkat lain agar tidak mencentang satu per satu.
+  const salinCakupan = (k) => {
+    const t = d.tingkat.find((x) => x._k === k); const dari = salinDari[k]; const n = t && rapikan(t.nama);
+    if (!n || !dari || dari === n) return;
+    const tambah = (arr) => (arr.includes(dari) && !arr.includes(n) ? [...arr, n] : arr);
+    setD((x) => ({ ...x, mapel: x.mapel.map((m) => ({ ...m, tingkat: tambah(m.tingkat) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: tambah(b.tingkat) })) }));
+    toast(`Mapel dan kitab milik ${dari} ditambahkan juga ke ${n}. Tekan Simpan agar berlaku.`);
+  };
+
   const setM = (k, patch) => setD((x) => {
     const lama = x.mapel.find((m) => m._k === k);
     const ganti = patch.nama !== undefined && lama ? lama.nama : null; // mengganti nama mapel ikut mengubah kitab yang menunjuk ke nama lama
     return { ...x, mapel: x.mapel.map((m) => (m._k === k ? { ...m, ...patch } : m)), kitab: ganti === null ? x.kitab : x.kitab.map((b) => (b.mapel === ganti ? { ...b, mapel: patch.nama } : b)) };
   });
   const hapusM = (k) => setD((x) => ({ ...x, mapel: x.mapel.filter((m) => m._k !== k) }));
-  const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', tingkat: [...TINGKAT], aktif: true, _k: ++seq.current }] }));
+  const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current }] }));
   const setK = (k, patch) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === k ? { ...b, ...patch } : b)) }));
   const hapusK = (k) => setD((x) => ({ ...x, kitab: x.kitab.filter((b) => b._k !== k) }));
-  const tambahK = () => { setCari(''); setD((x) => ({ ...x, kitab: [{ nama: '', pengarang: '', mapel: (x.mapel[0] || {}).nama || '', tingkat: [...TINGKAT], aktif: true, _k: ++seq.current }, ...x.kitab] })); };
+  const kitabBaru = (o = {}) => ({ nama: '', namaArab: '', pengarang: '', pengarangArab: '', mapel: '', tautan: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current, ...o });
+  const tambahK = () => { setCari(''); setD((x) => ({ ...x, kitab: [kitabBaru({ mapel: (x.mapel[0] || {}).nama || '' }), ...x.kitab] })); };
   const tambahMassal = () => {
     const ada = new Set(d.kitab.map((b) => b.nama.toLowerCase())); let baru = 0; let lewat = 0; const isi = [];
     for (const baris of massal.split('\n')) {
-      const [nama = '', pengarang = '', mapel = '', tautan = ''] = baris.split('|').map((x) => x.trim());
+      const [nama = '', pengarang = '', mapel = '', tautan = '', namaArab = '', pengarangArab = ''] = baris.split('|').map((x) => x.trim());
       if (!nama) continue;
       if (ada.has(nama.toLowerCase())) { lewat++; continue; }
       ada.add(nama.toLowerCase()); baru++;
-      isi.push({ nama, pengarang, mapel, tautan, tingkat: [...TINGKAT], aktif: true, _k: ++seq.current });
+      isi.push(kitabBaru({ nama, pengarang, mapel, tautan, namaArab, pengarangArab }));
     }
     setD((x) => ({ ...x, kitab: [...isi, ...x.kitab] })); setMassal('');
     toast(`${baru} kitab ditambahkan${lewat ? `, ${lewat} dilewati (nama sudah ada)` : ''}. Tekan Simpan agar berlaku.`);
   };
 
   const simpan = async () => {
+    if (tanpaNama) { setErr({ message: 'Ada tingkat baru yang belum diberi kunci (nama). Isi atau hapus dulu.' }); return; }
     setBusy('simpan'); setErr(null);
     try { const r = await callApi('/api/app-config', { aksi: 'simpan', config: susun() }); onSaved(r); toast('Konfigurasi disimpan.'); }
     catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
@@ -1397,7 +1457,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   };
 
   const q = cari.trim().toLowerCase();
-  const kitabTampil = d.kitab.filter((b) => !q || b.nama.toLowerCase().includes(q) || (b.pengarang || '').toLowerCase().includes(q) || (b.mapel || '').toLowerCase().includes(q));
+  const kitabTampil = d.kitab.filter((b) => !q || b.nama.toLowerCase().includes(q) || (b.namaArab || '').includes(cari.trim()) || (b.pengarang || '').toLowerCase().includes(q) || (b.mapel || '').toLowerCase().includes(q));
   const namaMapel = [...new Set(d.mapel.map((m) => m.nama).filter(Boolean))];
 
   return (
@@ -1405,21 +1465,46 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
       <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
         Atur pilihan yang muncul di form penyusunan soal dan filter. {kustom ? 'Sedang memakai pengaturan Anda.' : 'Sedang memakai daftar bawaan aplikasi.'}
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
-          <li>Nama tingkat (Ibtidaiyah, Tsanawiyah, Aliyah) tetap karena dipakai aturan database. Yang bisa diatur: label, keterangan kelas, dan aktif atau tidak.</li>
+          <li>Tingkatan bisa ditambah, diurutkan, dinonaktifkan, atau dihapus. <b>Kunci</b> tingkat dipakai pada setiap soal, jadi tidak bisa diubah setelah disimpan; yang bisa diubah kapan saja adalah label, singkatan, label Arab, dan kelas.</li>
+          <li>Tingkat baru belum punya mapel dan kitab: pakai tombol <b>Salin mapel &amp; kitab dari…</b> atau centang per mapel/kitab di bawah.</li>
           <li>Mengganti nama mapel tidak mengubah soal lama. Soal lama tetap muncul di filter dengan nama lamanya.</li>
           <li>Kelas hanya tampil sebagai keterangan di form; tidak disimpan pada soal.</li>
-          <li>Daftar kitab awal adalah usulan. Periksa pengarang dan pembagian tingkatnya bersama guru mapel.</li>
+          <li>Nama Arab kitab dan pengarang tampil di pilihan kitab, daftar soal, dan ekspor (DOCX/CSV). Tulis dengan huruf Arab; harakat boleh.</li>
+          <li>Daftar kitab dan nama Arab bawaan adalah usulan. Periksa bersama ustadz atau guru mapel.</li>
         </ul>
       </div>
 
-      <Section title="Tingkatan" icon={Layers}>
+      <Section title={`Tingkatan & Kelas (${d.tingkat.length})`} icon={Layers} action={<Btn kind="soft" onClick={tambahT} disabled={d.tingkat.length >= 8}>Tambah tingkat</Btn>}>
         <div className="space-y-3">
-          {d.tingkat.map((t) => (
-            <div key={t.nama} className="grid gap-2 rounded-xl border border-line bg-bg p-3 sm:grid-cols-12">
-              <div className="sm:col-span-4"><Label htmlFor={'tl-' + t.nama}>Label ({t.nama})</Label><input id={'tl-' + t.nama} className="field" maxLength={40} value={t.label} onChange={(e) => setT(t.nama, { label: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label htmlFor={'ts-' + t.nama}>Singkatan</Label><input id={'ts-' + t.nama} className="field" maxLength={10} value={t.singkat} onChange={(e) => setT(t.nama, { singkat: e.target.value })} /></div>
-              <div className="sm:col-span-4"><Label htmlFor={'tk-' + t.nama} hint="(pisahkan koma)">Kelas</Label><input id={'tk-' + t.nama} className="field" value={kelasTeks[t.nama] || ''} onChange={(e) => setKelasTeks((x) => ({ ...x, [t.nama]: e.target.value }))} /></div>
-              <div className="flex items-end pb-2 sm:col-span-2"><AktifCek checked={t.aktif} onChange={(v) => setT(t.nama, { aktif: v })} /></div>
+          {d.tingkat.map((t, i) => (
+            <div key={t._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+              <div className="grid gap-2 sm:grid-cols-12">
+                <div className="sm:col-span-3">
+                  <Label htmlFor={'tn-' + t._k} hint={t.baru ? '(tetap setelah disimpan)' : '(kunci, tetap)'}>Kunci</Label>
+                  {t.baru
+                    ? <input id={'tn-' + t._k} className="field" maxLength={40} placeholder="mis. Wustha" value={t.nama} onChange={(e) => setT(t._k, { nama: e.target.value })} />
+                    : <p className="field !bg-soft font-semibold text-soft-ink">{t.nama}</p>}
+                </div>
+                <div className="sm:col-span-4"><Label htmlFor={'tl-' + t._k}>Label</Label><input id={'tl-' + t._k} className="field" maxLength={40} placeholder="Nama yang tampil" value={t.label} onChange={(e) => setT(t._k, { label: e.target.value })} /></div>
+                <div className="sm:col-span-3"><Label htmlFor={'ta-' + t._k} hint="(Arab)">Label Arab</Label><input id={'ta-' + t._k} dir="rtl" lang="ar" className="field ar-input" maxLength={40} placeholder="المرحلة" value={t.labelArab} onChange={(e) => setT(t._k, { labelArab: e.target.value })} /></div>
+                <div className="sm:col-span-2"><Label htmlFor={'ts-' + t._k}>Singkatan</Label><input id={'ts-' + t._k} className="field" maxLength={10} value={t.singkat} onChange={(e) => setT(t._k, { singkat: e.target.value })} /></div>
+                <div className="sm:col-span-12"><Label htmlFor={'tk-' + t._k} hint="(turunan tingkat, pisahkan koma; maks. 12)">Kelas</Label><input id={'tk-' + t._k} className="field" placeholder="mis. X, XI, XII" value={t.kelasTeks} onChange={(e) => setT(t._k, { kelasTeks: e.target.value })} /></div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <AktifCek checked={t.aktif} onChange={(v) => setT(t._k, { aktif: v })} />
+                <div className="flex items-center gap-1">
+                  <select aria-label={'Salin cakupan ke ' + (t.nama || 'tingkat baru')} className="field !w-auto !py-1 text-xs" value={salinDari[t._k] || ''} onChange={(e) => setSalinDari((x) => ({ ...x, [t._k]: e.target.value }))}>
+                    <option value="">Salin mapel &amp; kitab dari…</option>
+                    {namaTingkat.filter((n) => n !== rapikan(t.nama)).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => salinCakupan(t._k)} disabled={!rapikan(t.nama) || !salinDari[t._k]}>Salin</Btn>
+                </div>
+                <div className="ml-auto flex items-center gap-1">
+                  <button type="button" aria-label="Naikkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === 0} onClick={() => geserT(t._k, -1)}>↑</button>
+                  <button type="button" aria-label="Turunkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === d.tingkat.length - 1} onClick={() => geserT(t._k, 1)}>↓</button>
+                  <button type="button" aria-label={'Hapus ' + (t.label || t.nama || 'tingkat')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusT(t._k)}><Trash2 size={16} /></button>
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -1430,7 +1515,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
           {d.mapel.map((m) => (
             <div key={m._k} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-bg p-3">
               <input aria-label="Nama mata pelajaran" className="field min-w-[160px] flex-1" maxLength={60} placeholder="Nama mata pelajaran" value={m.nama} onChange={(e) => setM(m._k, { nama: e.target.value })} />
-              <TingkatChecks value={m.tingkat} onChange={(v) => setM(m._k, { tingkat: v })} />
+              <TingkatChecks daftar={d.tingkat} value={m.tingkat} onChange={(v) => setM(m._k, { tingkat: v })} />
               <AktifCek checked={m.aktif} onChange={(v) => setM(m._k, { aktif: v })} />
               <button type="button" aria-label={'Hapus ' + (m.nama || 'mapel')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusM(m._k)}><Trash2 size={16} /></button>
             </div>
@@ -1440,21 +1525,23 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
 
       <Section title={`Katalog Kitab (${d.kitab.length})`} icon={Library} action={<Btn kind="soft" onClick={tambahK}>Tambah kitab</Btn>}>
         <div className="space-y-3">
-          <input aria-label="Cari kitab" className="field" placeholder="Cari nama kitab, pengarang, atau mapel…" value={cari} onChange={(e) => { setCari(e.target.value); setBatas(30); }} />
+          <input aria-label="Cari kitab" className="field" placeholder="Cari nama kitab (Latin atau Arab), pengarang, atau mapel…" value={cari} onChange={(e) => { setCari(e.target.value); setBatas(30); }} />
           <div className="space-y-2">
             {kitabTampil.slice(0, batas).map((b) => (
               <div key={b._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
                 <div className="grid gap-2 sm:grid-cols-12">
-                  <input aria-label="Nama kitab" className="field sm:col-span-5" maxLength={120} placeholder="Nama kitab" value={b.nama} onChange={(e) => setK(b._k, { nama: e.target.value })} />
-                  <input aria-label="Pengarang" className="field sm:col-span-4" maxLength={100} placeholder="Pengarang (opsional)" value={b.pengarang || ''} onChange={(e) => setK(b._k, { pengarang: e.target.value })} />
-                  <input aria-label="Tautan kitab" type="text" inputMode="url" autoCapitalize="none" spellCheck={false} className="field sm:col-span-12" maxLength={300} placeholder="Tautan kitab (opsional), mis. https://shamela.ws/book/823" value={b.tautan || ''} onChange={(e) => setK(b._k, { tautan: e.target.value })} />
+                  <input aria-label="Nama kitab" className="field sm:col-span-6" maxLength={120} placeholder="Nama kitab (Latin)" value={b.nama} onChange={(e) => setK(b._k, { nama: e.target.value })} />
+                  <input aria-label="Nama kitab dalam huruf Arab" dir="rtl" lang="ar" className="field ar-input sm:col-span-6" maxLength={120} placeholder="اسم الكتاب" value={b.namaArab || ''} onChange={(e) => setK(b._k, { namaArab: e.target.value })} />
+                  <input aria-label="Pengarang" className="field sm:col-span-6" maxLength={100} placeholder="Pengarang (opsional)" value={b.pengarang || ''} onChange={(e) => setK(b._k, { pengarang: e.target.value })} />
+                  <input aria-label="Pengarang dalam huruf Arab" dir="rtl" lang="ar" className="field ar-input sm:col-span-6" maxLength={100} placeholder="اسم المؤلف" value={b.pengarangArab || ''} onChange={(e) => setK(b._k, { pengarangArab: e.target.value })} />
+                  <input aria-label="Tautan kitab" type="text" inputMode="url" autoCapitalize="none" spellCheck={false} className="field sm:col-span-9" maxLength={300} placeholder="Tautan kitab (opsional), mis. https://shamela.ws/book/823" value={b.tautan || ''} onChange={(e) => setK(b._k, { tautan: e.target.value })} />
                   <select aria-label="Mata pelajaran kitab" className="field sm:col-span-3" value={b.mapel || ''} onChange={(e) => setK(b._k, { mapel: e.target.value })}>
                     <option value="">(tanpa mapel)</option>
                     {[...new Set([...namaMapel, b.mapel].filter(Boolean))].map((n) => <option key={n}>{n}</option>)}
                   </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <TingkatChecks value={b.tingkat} onChange={(v) => setK(b._k, { tingkat: v })} />
+                  <TingkatChecks daftar={d.tingkat} value={b.tingkat} onChange={(v) => setK(b._k, { tingkat: v })} />
                   <AktifCek checked={b.aktif} onChange={(v) => setK(b._k, { aktif: v })} />
                   <button type="button" aria-label={'Hapus ' + (b.nama || 'kitab')} className="ml-auto rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusK(b._k)}><Trash2 size={16} /></button>
                 </div>
@@ -1465,7 +1552,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
           </div>
           <div className="space-y-2 rounded-xl border border-dashed border-line p-3">
             <Label htmlFor="massal" hint="(satu kitab per baris)">Tempel banyak kitab</Label>
-            <textarea id="massal" rows={4} className="field" placeholder={'Nama kitab | Pengarang | Mata pelajaran | Tautan (opsional)\nFathul Qarib | Ibnu Qasim al-Ghazzi | Fiqih | https://shamela.ws/book/…'} value={massal} onChange={(e) => setMassal(e.target.value)} />
+            <textarea id="massal" rows={4} className="field" placeholder={'Nama | Pengarang | Mapel | Tautan | Nama Arab | Pengarang Arab (kolom 4-6 opsional)\nFathul Qarib | Ibnu Qasim al-Ghazzi | Fiqih | | فتح القريب المجيب | ابن قاسم الغزي'} value={massal} onChange={(e) => setMassal(e.target.value)} />
             <Btn kind="soft" onClick={tambahMassal} disabled={!massal.trim()}>Tambahkan ke daftar</Btn>
           </div>
         </div>
@@ -1474,7 +1561,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
       {err && <ErrorBox e={err} />}
       <div className="flex flex-wrap gap-2">
         <Btn kind="primary" onClick={simpan} disabled={!!busy || !dirty}>{busy === 'simpan' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan konfigurasi</Btn>
-        <Btn kind="ghost" onClick={() => { setD(bubuhId(cfg)); setKelasTeks(kelasDari(cfg)); setErr(null); }} disabled={!!busy || !dirty}>Batalkan perubahan</Btn>
+        <Btn kind="ghost" onClick={() => { setD(bubuhId(cfg)); setErr(null); }} disabled={!!busy || !dirty}>Batalkan perubahan</Btn>
         <Btn kind="danger" onClick={pulihkan} disabled={!!busy || !kustom}>{busy === 'reset' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Pulihkan bawaan</Btn>
       </div>
     </div>

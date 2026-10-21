@@ -1,12 +1,14 @@
 // POST /api/generate: menyusun soal baru dengan AI.
 import { route, authenticateStaff, enforceAi, withRefund, GLOBAL_AI_ID } from '../src/platform.js';
 import { loadAiConfig } from '../src/aiConfig.js';
+import { muatTingkatKustom } from '../src/appConfig.js';
 import { generateSoal, validateInput, getModel } from '../src/soalService.js';
 import { periksaKutipan, bidangDariAI } from '../src/kutipan.js';
 import { periksaSikap } from '../src/sikap.js';
 
 export default route(async (req) => {
   const u = await authenticateStaff(req);
+  await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
   const input = validateInput(req.body); // tolak input cacat sebelum menghabiskan kuota
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
   await enforceAi(u.uid); // batas per pengguna + plafon harian seluruh madrasah

@@ -1,6 +1,7 @@
 // POST /api/assist: terjemah teks, analisis teks, telaah dan perbaikan soal, uji jawab buta, serta bantuan AI Pegon.
 import { route, authenticateStaff, enforceAi, withRefund, GLOBAL_AI_ID } from '../src/platform.js';
 import { loadAiConfig } from '../src/aiConfig.js';
+import { muatTingkatKustom } from '../src/appConfig.js';
 import { ApiError, validateInput, getModel } from '../src/soalService.js';
 import { terjemahTeks, analisisTeks, telaahSoal, validateTeks } from '../src/assistService.js';
 import { cekButa } from '../src/cekButa.js';
@@ -22,6 +23,7 @@ export default route(async (req) => {
   const aksi = req.body && req.body.aksi;
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
   if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, pegon, atau pegonfoto.');
+  await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
   let teks;
   if (aksi === 'pegon') validatePegon(req.body); // teks Latin, bukan Arab: jangan lewat validateTeks
   else if (aksi === 'pegonfoto') validateFoto(req.body);

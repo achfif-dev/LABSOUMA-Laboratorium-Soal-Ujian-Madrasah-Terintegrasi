@@ -1,7 +1,7 @@
 // Bantuan AI di luar penyusunan soal baru: terjemah teks kitab, analisis teks, dan telaah/perbaikan soal.
 import {
   ApiError, toApiError, getClient, getModel, validateInput, normalizeSoal, arabicProblem,
-  clean, TINGKAT, MAX_TEKS, TOOL_TOLAK, periksaPenolakan,
+  clean, resolveTingkat, MAX_TEKS, TOOL_TOLAK, periksaPenolakan,
 } from './soalService.js';
 
 const KONTEKS = `Konteks lembaga: madrasah berhaluan Ahlussunnah wal Jamaah yang moderat (wasathiyah). Setia pada teks dan mazhab yang tertulis di dalamnya, gunakan bahasa santun, jangan menyalahkan atau merendahkan kelompok lain, dan jangan menambah pendapat atau dalil yang tidak ada di teks.
@@ -111,7 +111,7 @@ export function validateTeks(body) {
     teks,
     nama: clean(body.nama, 120),
     mapel: clean(body.mapel, 60) || 'Fiqih',
-    tingkat: TINGKAT[String(body.tingkat || '').trim().toLowerCase()] || 'Aliyah (MA)',
+    tingkat: resolveTingkat(body.tingkat) || 'Aliyah (MA)',
   };
 }
 

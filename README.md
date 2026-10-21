@@ -108,11 +108,20 @@ Tombol **Uji koneksi AI** mengirim satu permintaan kecil ke penyedia untuk memas
 
 Tab **Konfigurasi** mengatur pilihan yang muncul di form penyusunan soal dan filter, tanpa redeploy:
 
-- **Tingkatan:** label, singkatan, keterangan kelas, aktif atau tidak. Nama tingkat (Ibtidaiyah, Tsanawiyah, Aliyah) tetap karena aturan
-  Firestore pada `soal/{id}` hanya menerima ketiganya. Kelas hanya keterangan di form dan tidak disimpan pada soal.
-- **Mata pelajaran:** nama, berlaku di tingkat mana, aktif atau tidak. Mapel di form mengikuti tingkat yang dipilih.
-- **Katalog kitab:** nama, pengarang, mapel, tingkat. Muncul sebagai saran di kolom Nama Kitab (disaring menurut tingkat dan mapel).
-  Tersedia kolom **Tempel banyak kitab** (`Nama | Pengarang | Mapel`, satu per baris) untuk mengisi cepat dari HP.
+- **Tingkatan dan turunannya (kelas):** bebas ditambah (maks. 8), diurutkan (↑ ↓), dinonaktifkan, atau dihapus. Tiap tingkat punya *kunci*,
+  label, label Arab, singkatan, dan daftar kelas (maks. 12). **Kunci** adalah nilai yang disimpan pada setiap soal (`soal.tingkat`), jadi
+  tidak bisa diubah setelah disimpan; label dan lainnya bisa diubah kapan saja. Tiga tingkat bawaan memakai kunci lama (`Ibtidaiyah`,
+  `Tsanawiyah`, `Aliyah`) agar soal lama tetap cocok. Tingkat baru belum punya mapel/kitab: pakai tombol **Salin mapel & kitab dari…**.
+  Kelas hanya keterangan di form dan tidak disimpan pada soal.
+- **Mata pelajaran:** nama, berlaku di tingkat mana (mengikuti daftar tingkat di atas), aktif atau tidak. Mapel di form mengikuti tingkat yang dipilih.
+- **Katalog kitab:** nama Latin, **nama Arab**, pengarang, **pengarang Arab**, mapel, tingkat, tautan. Muncul sebagai pilihan di kolom Nama Kitab
+  (disaring menurut tingkat dan mapel). Nama Arab tampil dengan font Amiri di form (kartu di bawah pilihan kitab), daftar soal, dan ekspor
+  DOCX/CSV (kolom "Kitab (Arab)"). Isian Arab wajib memuat huruf Arab (harakat boleh). Nama Arab tidak disimpan pada soal; diambil dari katalog
+  berdasarkan nama kitab, jadi mengubah nama Latin kitab memutus kaitannya untuk soal lama. 52 kitab bawaan sudah berisi nama Arab usulan: tinjau bersama ustadz.
+  Kolom **Tempel banyak kitab** menerima `Nama | Pengarang | Mapel | Tautan | Nama Arab | Pengarang Arab` (kolom 4 sampai 6 opsional).
+
+> **Penting saat memperbarui dari versi lama:** aturan Firestore untuk `soal` tidak lagi membatasi `tingkat` pada tiga nama tetap. Tempel ulang
+> `firestore.rules` dan **Publish** (atau `firebase deploy --only firestore:rules`); tanpa itu soal dengan tingkat baru ditolak database.
 
 Disimpan di Firestore `config/app` (klien tidak boleh mengaksesnya; lewat `/api/app-config`, baca untuk semua pengguna aktif, ubah khusus admin).
 Bila belum pernah diubah, aplikasi memakai `DEFAULT_APP_CONFIG` di `src/appConfig.js`. Daftar kitab bawaan hanyalah usulan awal: tinjau

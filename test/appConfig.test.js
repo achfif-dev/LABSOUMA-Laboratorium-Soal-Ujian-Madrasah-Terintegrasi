@@ -50,11 +50,54 @@ test('sanitize: membersihkan isian, membuang tingkat asing, dan menolak data yan
   assert.throws(() => sanitizeAppConfig('x'), { code: 'CONFIG_INVALID' });
 });
 
-test('sanitize: tingkat tak bisa ditambah/diganti nama; label dan kelas kosong kembali ke bawaan', () => {
-  const out = sanitizeAppConfig({ tingkat: [{ nama: 'Ula', label: 'Ula' }, { nama: 'Aliyah', label: '', kelas: [] }], mapel: [{ nama: 'Fiqih' }], kitab: [] });
-  assert.deepEqual(out.tingkat.map((t) => t.nama), ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah']);
-  const ma = out.tingkat.find((t) => t.nama === 'Aliyah');
-  assert.equal(ma.label, 'Aliyah (MA)'); assert.deepEqual(ma.kelas, ['X', 'XI', 'XII']);
+test('tingkatan: bisa ditambah, diurutkan, diberi label Arab, dan kelasnya boleh dikosongkan', () => {
+  const c = salin(DEFAULT_APP_CONFIG);
+  c.tingkat = [
+    { nama: 'Wustha', label: ' Wustha (Pesantren) ', labelArab: 'المرحلة الوسطى', singkat: 'Wst', kelas: ['1', '2', '2', ' 3 '] },
+    { nama: 'Aliyah', label: '', kelas: [] },
+    { nama: 'Ibtidaiyah', aktif: false },
+  ];
+  const out = sanitizeAppConfig(c);
+  assert.deepEqual(out.tingkat.map((t) => t.nama), ['Wustha', 'Aliyah', 'Ibtidaiyah']); // urutan mengikuti masukan
+  assert.deepEqual(out.tingkat[0].kelas, ['1', '2', '3']); // dobel dibuang
+  assert.equal(out.tingkat[0].label, 'Wustha (Pesantren)'); assert.equal(out.tingkat[0].labelArab, 'المرحلة الوسطى');
+  assert.equal(out.tingkat[1].label, 'Aliyah (MA)'); // label kosong pada tingkat bawaan kembali ke bawaan
+  assert.deepEqual(out.tingkat[1].kelas, []); // kelas boleh kosong
+  assert.equal(out.tingkat[2].aktif, false);
+  // mapel/kitab yang menunjuk tingkat yang sudah tidak ada: yang tak dikenal dibuang, kosong = semua tingkat yang ada
+  c.mapel = [{ nama: 'Fiqih', tingkat: ['Tsanawiyah', 'Wustha'] }, { nama: 'Nahwu', tingkat: ['Tsanawiyah'] }];
+  c.kitab = [{ nama: 'X', mapel: 'Fiqih', tingkat: ['Tsanawiyah'] }];
+  const o2 = sanitizeAppConfig(c);
+  assert.deepEqual(o2.mapel[0].tingkat, ['Wustha']); assert.deepEqual(o2.mapel[1].tingkat, ['Wustha', 'Aliyah', 'Ibtidaiyah']);
+  assert.deepEqual(o2.kitab[0].tingkat, ['Wustha', 'Aliyah', 'Ibtidaiyah']);
+});
+
+test('tingkatan: validasi nama, duplikat, jumlah; tanpa daftar memakai bawaan', () => {
+  const dasar = salin(DEFAULT_APP_CONFIG);
+  assert.throws(() => sanitizeAppConfig({ ...dasar, tingkat: [{ nama: '  ' }] }), { code: 'CONFIG_INVALID', message: /tanpa nama/ });
+  assert.throws(() => sanitizeAppConfig({ ...dasar, tingkat: [{ nama: 'Ula' }, { nama: 'ula' }] }), { code: 'CONFIG_INVALID', message: /dua kali/ });
+  assert.throws(() => sanitizeAppConfig({ ...dasar, tingkat: Array.from({ length: 9 }, (_, i) => ({ nama: 'T' + i })) }), { code: 'CONFIG_INVALID', message: /maksimal/ });
+  assert.throws(() => sanitizeAppConfig({ ...dasar, tingkat: [{ nama: 'A', kelas: Array.from({ length: 13 }, (_, i) => 'k' + i) }] }), { code: 'CONFIG_INVALID', message: /Kelas/ });
+  assert.deepEqual(sanitizeAppConfig({ ...dasar, tingkat: [] }).tingkat.map((t) => t.nama), TINGKAT_NAMA);
+  assert.deepEqual(sanitizeAppConfig({ mapel: [{ nama: 'Fiqih' }], kitab: [] }).tingkat.map((t) => t.nama), TINGKAT_NAMA);
+});
+
+test('nama Arab: bawaan lengkap; isian wajib huruf Arab; label/pengarang Arab ikut dibersihkan', () => {
+  const c = sanitizeAppConfig(DEFAULT_APP_CONFIG);
+  for (const k of c.kitab) { assert.ok(k.namaArab, `namaArab kosong: ${k.nama}`); assert.ok(k.pengarangArab, `pengarangArab kosong: ${k.nama}`); }
+  for (const t of c.tingkat) assert.ok(t.labelArab, t.nama);
+  assert.equal(c.kitab.find((k) => k.nama === 'Fathul Qarib').namaArab, 'فتح القريب المجيب');
+
+  const salah = salin(DEFAULT_APP_CONFIG); salah.kitab[0].namaArab = 'Safinatun Naja';
+  assert.throws(() => sanitizeAppConfig(salah), { code: 'CONFIG_INVALID', message: /huruf Arab/ });
+  const salah2 = salin(DEFAULT_APP_CONFIG); salah2.kitab[0].pengarangArab = 'Salim';
+  assert.throws(() => sanitizeAppConfig(salah2), { code: 'CONFIG_INVALID', message: /huruf Arab/ });
+  const salah3 = salin(DEFAULT_APP_CONFIG); salah3.tingkat[0].labelArab = 'MI';
+  assert.throws(() => sanitizeAppConfig(salah3), { code: 'CONFIG_INVALID', message: /huruf Arab/ });
+  const baik = salin(DEFAULT_APP_CONFIG); baik.kitab[0].namaArab = '  <b>سفينة</b>  النجا  ';
+  assert.equal(sanitizeAppConfig(baik).kitab[0].namaArab, 'bسفينة/b النجا'); // tanda < > dibuang, spasi dirapikan
+  const kosong = salin(DEFAULT_APP_CONFIG); kosong.kitab[0].namaArab = '';
+  assert.equal(sanitizeAppConfig(kosong).kitab[0].namaArab, ''); // opsional
 });
 
 test('resolveAppConfig: dokumen rusak atau kosong jatuh ke bawaan', () => {

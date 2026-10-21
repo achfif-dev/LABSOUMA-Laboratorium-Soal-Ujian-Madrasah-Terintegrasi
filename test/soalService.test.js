@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateSoal, arabicProblem, toApiError, ApiError } from '../src/soalService.js';
+import { generateSoal, arabicProblem, toApiError, ApiError, validateInput, daftarkanTingkat, resolveTingkat } from '../src/soalService.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';
 const base = { teks: TEKS, nama: 'Fathul Qarib', tingkat: 'MA', level: 'HOTS', mapel: 'Fiqih' };
@@ -81,4 +81,14 @@ test('pemetaan error API: rate limit, auth, overload, timeout', () => {
   assert.equal(toApiError({ name: 'APIConnectionTimeoutError' }).status, 504);
   assert.ok(toApiError(new Error('x')) instanceof ApiError);
   assert.doesNotMatch(toApiError({ status: 500, message: 'sk-ant-secret' }).message, /sk-ant/);
+});
+
+test('tingkat buatan admin dikenali setelah didaftarkan; yang tidak terdaftar tetap ditolak', () => {
+  daftarkanTingkat([]);
+  assert.throws(() => validateInput({ ...base, tingkat: 'Wustha' }), { code: 'BAD_REQUEST' });
+  daftarkanTingkat([{ nama: 'Wustha', label: 'Wustha <b>(Pesantren)' }]);
+  assert.equal(validateInput({ ...base, tingkat: 'wustha' }).tingkat, 'Wustha b(Pesantren)'); // label dibersihkan dari tanda < >
+  assert.equal(resolveTingkat('MTs'), 'Tsanawiyah (MTs)'); // tingkat bawaan tetap jalan
+  assert.throws(() => validateInput({ ...base, tingkat: 'SD' }), { code: 'BAD_REQUEST' });
+  daftarkanTingkat([]); // bersihkan agar tidak bocor ke tes lain
 });
