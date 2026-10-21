@@ -1,0 +1,31 @@
+name: Evaluasi AI
+# Dijalankan MANUAL dari tab Actions (Run workflow). Memakai kuota API sungguhan: satu kasus = 2-3 panggilan model.
+# Butuh eval/golden.json (salin dari eval/golden.example.json) dan secret GEMINI_API_KEY atau ANTHROPIC_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      provider: { description: 'gemini atau anthropic', default: 'gemini', required: true }
+      model: { description: 'Nama model (kosongkan = bawaan)', default: '', required: false }
+      verifier: { description: 'Model penguji jawab buta (kosongkan = sama dengan model)', default: '', required: false }
+      min: { description: 'Laju lulus minimum (0-1)', default: '0.8', required: true }
+      ulang: { description: 'Ulangi tiap kasus N kali', default: '1', required: true }
+jobs:
+  evaluasi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - name: Evaluasi
+        run: node eval/run.mjs eval/golden.json --min=${{ inputs.min }} --ulang=${{ inputs.ulang }}
+        env:
+          AI_PROVIDER: ${{ inputs.provider }}
+          AI_MODEL: ${{ inputs.model }}
+          AI_VERIFY_MODEL: ${{ inputs.verifier }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: hasil-evaluasi, path: eval/hasil.json }
