@@ -92,9 +92,28 @@ export async function enforceRate(docId, limits) {
 }
 
 /* ------------------------------------------------------------------ Rute */
+/** Galat Firebase/Firestore (kode gRPC atau pesan khas) -> pesan yang menunjuk penyebabnya. */
+export function firebaseError(e) {
+  const code = e?.code;
+  const msg = String(e?.message || '');
+  if (code === 5 || code === 'not-found' || /NOT_FOUND/.test(msg)) {
+    return new ApiError(500, 'FIRESTORE_NOT_FOUND', 'Database Firestore belum dibuat atau berada di proyek lain. Buat Firestore di Firebase Console (Build > Firestore Database > Create database) dan pastikan kunci akun layanan berasal dari proyek yang sama.');
+  }
+  if (code === 7 || code === 'permission-denied' || /PERMISSION_DENIED|has not been used|is disabled/.test(msg)) {
+    return new ApiError(500, 'FIRESTORE_PERMISSION', 'Akun layanan tidak diizinkan memakai Firestore. Aktifkan "Cloud Firestore API" di Google Cloud Console untuk proyek ini, lalu coba lagi.');
+  }
+  if (/app\/invalid-credential|invalid_grant|Failed to parse private key|Invalid PEM|DECODER/.test(msg + ' ' + code)) {
+    return new ApiError(500, 'SERVER_CREDENTIAL', 'Kunci akun layanan (FIREBASE_SERVICE_ACCOUNT) tidak valid atau sudah dihapus. Buat kunci baru dan perbarui di Vercel.');
+  }
+  if (/Cannot find (package|module)/.test(msg)) {
+    return new ApiError(500, 'SERVER_DEPENDENCY', 'Paket firebase-admin tidak terpasang di server. Pastikan package.json ikut ter-push dan deploy ulang.');
+  }
+  return null;
+}
+
 export function sendError(res, e) {
-  const err = toApiError(e);
-  if (!(e instanceof ApiError)) console.error('[api] error tak terduga:', e?.status, e?.message); // jangan bocorkan ke klien
+  const err = e instanceof ApiError ? e : (firebaseError(e) || toApiError(e));
+  if (!(e instanceof ApiError)) console.error('[api] error tak terduga:', e?.code ?? e?.status, e?.message); // jangan bocorkan ke klien
   if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
   return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.retryAfter ? { retryAfter: err.retryAfter } : {}) } });
 }
