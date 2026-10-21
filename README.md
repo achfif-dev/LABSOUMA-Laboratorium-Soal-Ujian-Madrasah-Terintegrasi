@@ -207,3 +207,7 @@ src/access.js            logika murni: peran, domain, batas
 firestore.rules          aturan keamanan data
 test/                    npm test (tanpa kunci, tanpa internet)
 ```
+
+## Draf otomatis
+
+Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/LAPORAN-AUDIT.md` bagian 9. Kodenya di `public/draft.js`.

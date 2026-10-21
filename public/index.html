@@ -98,7 +98,7 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.Draft = D;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
@@ -159,6 +159,49 @@ const emptyForm = () => ({
   opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '',
   ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
 });
+
+/* ---------- Draf otomatis (public/draft.js) ---------- */
+// Isian yang belum disimpan ke server dititipkan di localStorage per akun, supaya selamat dari muat ulang halaman.
+// Rahasia (kunci API) tidak pernah dititipkan.
+const DRAFT_NOOP = { read: () => null, save() {}, saveNow: () => false, remove() {}, clearAll() {}, flush: () => true, setUser() {}, onStatus: () => () => {}, tersedia: false };
+const Draft = new Proxy({}, { get: (_, k) => (window.Draft || DRAFT_NOOP)[k] });
+// Titipkan `nilai` sebagai draf `nama`; bila `bersih`, hapus drafnya. `nilai` harus stabil antar render (useMemo) agar tidak menulis berulang.
+function useDraftSync(nama, nilai, bersih) {
+  useEffect(() => { if (bersih) Draft.remove(nama); else Draft.save(nama, nilai); }, [nama, nilai, bersih]);
+}
+// Baca pengaturan kecil (filter, format): hanya kunci yang dikenal dan bertipe sama yang dipakai; selebihnya nilai awal.
+const bacaPref = (nama, awal) => {
+  const s = Draft.read(nama); if (!s || typeof s !== 'object') return awal;
+  const o = { ...awal }; for (const k of Object.keys(awal)) if (typeof s[k] === typeof awal[k]) o[k] = s[k];
+  return o;
+};
+// Bentuk form dari draf yang dibaca: total (tidak pernah melempar) dan hanya menerima string pada tempatnya, supaya draf rusak tidak membuat halaman gagal tampil.
+const normalForm = (src) => {
+  const base = emptyForm(); const x = src && typeof src === 'object' ? src : {};
+  const str = (v, d) => (typeof v === 'string' ? v : d);
+  const o = { ...base };
+  for (const k of FIELDS) if (k !== 'opsi' && k !== 'ai' && typeof x[k] === 'string') o[k] = x[k];
+  const so = x.opsi && typeof x.opsi === 'object' ? x.opsi : {};
+  o.opsi = Object.fromEntries(KEYS.map((k) => [k, str(so[k], '')]));
+  if (!KEYS.includes(o.kunci)) o.kunci = '';
+  const sa = x.ai && typeof x.ai === 'object' ? x.ai : {};
+  o.ai = { dibuat: sa.dibuat === true, model: str(sa.model, '').slice(0, 60), verifikasi: str(sa.verifikasi, ''), buta: str(sa.buta, '') };
+  return o;
+};
+// Ada teks yang diketik pengguna? (dasar peringatan dan pemberitahuan pemulihan)
+const formBerisi = (f) => ['nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'kunci', 'pembahasan'].some((k) => String(f[k] || '').trim()) || KEYS.some((k) => String((f.opsi || {})[k] || '').trim());
+// Ada yang berbeda dari form kosong (termasuk pilihan tingkat/mapel/level)? Bila tidak, tidak ada yang perlu disimpan.
+const formBeda = (f) => { const e = emptyForm(); return FIELDS.some((k) => JSON.stringify(f[k]) !== JSON.stringify(e[k])); };
+// Penanda "draf otomatis tersimpan". `names` membatasi ke kunci draf tertentu; tanpa itu, semua.
+function DraftNote({ names, className = '' }) {
+  const [st, setSt] = useState(null);
+  useEffect(() => Draft.onStatus((x) => { if (!names || names.includes(x.name)) setSt(x); }), []);
+  const warn = (t) => <p role="status" className={'text-xs font-medium text-warn ' + className}>{t}</p>;
+  if (!Draft.tersedia) return warn('Browser ini memblokir penyimpanan lokal, jadi isian tidak bisa dipulihkan setelah muat ulang. Simpan sebagai draft sebelum menutup halaman.');
+  if (!st) return null;
+  if (!st.ok) return warn(st.reason === 'terlalu-besar' ? 'Isian terlalu besar untuk draf otomatis. Simpan sebagai draft sebelum menutup halaman.' : 'Draf otomatis gagal disimpan (penyimpanan browser penuh atau ditolak). Simpan sebagai draft sebelum menutup halaman.');
+  return <p role="status" className={'text-xs text-mute ' + className}>Draf otomatis tersimpan di perangkat ini · {new Date(st.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>;
+}
 
 /* ---------- Export builders ---------- */
 const optsOf = (q) => KEYS.filter((k) => (q.opsi[k] || '').trim());
@@ -663,7 +706,16 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, form.tingkat), form.mapel])];
   const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel);
   const kitabCocok = cfg.kitab.find((k) => k.nama.toLowerCase() === form.nama.trim().toLowerCase());
-  const [kManual, setKManual] = useState(false); // true: nama kitab diketik manual (di luar katalog)
+  // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
+  const [ex, setEx] = useState(() => {
+    const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
+    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true };
+  });
+  const patchEx = (p) => setEx((x) => ({ ...x, ...p }));
+  const { kUrl, kHal, kAppend, fokus, kManual } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
+  const setKUrl = (v) => patchEx({ kUrl: v }); const setKHal = (v) => patchEx({ kHal: v }); const setKAppend = (v) => patchEx({ kAppend: v });
+  const setFokus = (v) => patchEx({ fokus: v }); const setKManual = (v) => patchEx({ kManual: v });
+  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual);
   const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
   const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
   const kelasInfo = ((cfg.tingkat.find((t) => t.nama === form.tingkat) || {}).kelas || []).join(', ');
@@ -749,18 +801,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     } finally { setBusy(false); setStatus('idle'); abortRef.current = null; }
   };
 
-  const [kUrl, setKUrl] = useState(form.sumberUrl || '');
   const [kBusy, setKBusy] = useState(false);
   const [kErr, setKErr] = useState(null);
   const [kInfo, setKInfo] = useState(null);
   const [kGagal, setKGagal] = useState('');
-  const [kAppend, setKAppend] = useState(false);
-  const [kHal, setKHal] = useState('1');
   const fileRef = useRef(null);
   const [ai, setAi] = useState(null);     // {kind, loading, data, error}
   const [tl, setTl] = useState(null);     // telaah {loading, data, error}
   const [undo, setUndo] = useState(null);
-  const [fokus, setFokus] = useState('');
 
   const fetchKitab = async (url, append) => {
     setKErr(null); setKGagal(''); setKBusy(true);
@@ -1054,6 +1102,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
             <Btn kind="ghost" onClick={save}><Save size={16} />Simpan Draft</Btn>
             <Btn kind="primary" onClick={send}><Send size={16} />Kirim ke Editor</Btn>
           </div>
+          <DraftNote names={['form', 'composeEx']} className="mt-2" />
         </Section>
       </div>
     </div>
@@ -1063,7 +1112,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
 /* ---------- Tab 2: Review ---------- */
 function ReviewCard({ q, onApprove, onRevise, me }) {
   const own = q.authorUid === me.uid && me.role !== 'admin';
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(() => { const d = Draft.read('catatan:' + q.id); return typeof d === 'string' ? d.slice(0, 1000) : ''; });
+  useDraftSync('catatan:' + q.id, note, !note.trim());
   const [err, setErr] = useState(false);
   const [tl, setTl] = useState(null);
   const [errOk, setErrOk] = useState(false);
@@ -1177,7 +1227,9 @@ const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel
 
 /* ---------- Tab 3: Bank ---------- */
 function Bank({ all, onEdit, onDelete, canEdit }) {
-  const [f, setF] = useState({ mapel: '', tingkat: '', status: 'approved' });
+  const FAWAL = { mapel: '', tingkat: '', status: 'approved' };
+  const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
+  useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
   const list = applyFilter(all, f);
   return (
@@ -1220,9 +1272,14 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
 function Export({ all, toast }) {
   const cfg = useCfg();
   const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
-  const [f, setF] = useState({ mapel: '', tingkat: '' });
-  const [fmt, setFmt] = useState('gift');
-  const [picked, setPicked] = useState(null); // null = semua hasil filter
+  const EAWAL = { f: { mapel: '', tingkat: '' }, fmt: 'gift', picked: null };
+  const eAwal = useRef(null); if (eAwal.current === null) { const d = Draft.read('exportPrefs'); eAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [f, setF] = useState(() => bacaPref('exportFilter', EAWAL.f));
+  const [fmt, setFmt] = useState(() => (FORMATS.some((x) => x.id === eAwal.current.fmt) ? eAwal.current.fmt : EAWAL.fmt));
+  const [picked, setPicked] = useState(() => (Array.isArray(eAwal.current.picked) ? new Set(eAwal.current.picked.filter((x) => typeof x === 'string')) : null)); // null = semua hasil filter
+  useDraftSync('exportFilter', f, JSON.stringify(f) === JSON.stringify(EAWAL.f));
+  const ePref = useMemo(() => ({ fmt, picked: picked ? [...picked] : null }), [fmt, picked]);
+  useDraftSync('exportPrefs', ePref, fmt === EAWAL.fmt && picked === null);
   const [busy, setBusy] = useState(false);
 
   const saveFile = (filename, data) => {
@@ -1347,10 +1404,28 @@ function AiConfig({ toast }) {
   const [keys, setKeys] = useState({ gemini: '', anthropic: '' });
   const [busy, setBusy] = useState('');
   const [uji, setUji] = useState(null);
+  // Pilihan provider dan model yang belum disimpan ikut dipulihkan. Kunci API sengaja TIDAK disimpan di browser: isi ulang bila perlu.
+  const awalAi = useRef(undefined); if (awalAi.current === undefined) awalAi.current = Draft.read('aiConfig') || null;
 
   const terapkan = (d) => { setSt(d); setProv(d.aktif.provider); setModels({ ...d.models }); setKeys({ gemini: '', anthropic: '' }); };
-  const muat = async () => { try { terapkan(await callApi('/api/ai-config', { aksi: 'status' })); setErr(null); } catch (e) { setErr(apiErr(e)); } };
+  const muat = async () => {
+    try {
+      terapkan(await callApi('/api/ai-config', { aksi: 'status' })); setErr(null);
+      const a = awalAi.current; awalAi.current = null;
+      if (a && typeof a === 'object') {
+        const m = a.models && typeof a.models === 'object' ? a.models : {};
+        if (AI_PROV[a.prov]) setProv(a.prov);
+        setModels((x) => ({ gemini: typeof m.gemini === 'string' ? m.gemini.slice(0, 120) : x.gemini, anthropic: typeof m.anthropic === 'string' ? m.anthropic.slice(0, 120) : x.anthropic }));
+        toast('Pilihan provider/model yang belum disimpan dipulihkan. Kunci API tidak ikut dipulihkan, isi ulang bila perlu.');
+      }
+    } catch (e) { setErr(apiErr(e)); }
+  };
   useEffect(() => { muat(); }, []);
+  useEffect(() => {
+    if (!st) return; // tunggu status server terbaca; sebelum itu draf lama belum boleh dihapus
+    const beda = prov !== st.aktif.provider || ['gemini', 'anthropic'].some((k) => (models[k] || '') !== (st.models[k] || ''));
+    if (beda) Draft.save('aiConfig', { prov, models }); else Draft.remove('aiConfig');
+  }, [st, prov, models]);
 
   const simpan = async () => {
     setBusy('simpan'); setErr(null); setUji(null);
@@ -1471,14 +1546,34 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     mapel: c.mapel.map((m) => ({ ...m, _k: ++seq.current })),
     kitab: c.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', _k: ++seq.current })),
   });
-  const [d, setD] = useState(() => bubuhId(cfg));
+  // Draf konfigurasi yang belum disimpan dipulihkan setelah muat ulang. Bentuknya divalidasi ketat dan dibangun ulang dari daftar bidang yang dikenal.
+  const sigCfg = (c) => JSON.stringify({ tingkat: c.tingkat, mapel: c.mapel, kitab: c.kitab });
+  const normCfgDraft = (a) => {
+    if (!a || typeof a !== 'object' || !a.d || !Array.isArray(a.d.tingkat) || !Array.isArray(a.d.mapel) || !Array.isArray(a.d.kitab)) return null;
+    const S = (v) => (typeof v === 'string' ? v : ''); const B = (v) => v !== false; const A = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+    const o = (v) => (v && typeof v === 'object' ? v : {}); let maks = 0;
+    const kunci = (x) => { const k = Number(o(x)._k); if (Number.isFinite(k) && k > 0) { maks = Math.max(maks, k); return k; } return ++maks; };
+    const d = {
+      tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
+      mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
+      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
+    };
+    return { d, massal: S(a.massal).slice(0, 200000), basi: a.baseSig !== sigCfg(cfg), maks };
+  };
+  const awalCfg = useRef(undefined); if (awalCfg.current === undefined) awalCfg.current = normCfgDraft(Draft.read('cfgDraft'));
+  const [d, setD] = useState(() => { const a = awalCfg.current; if (a) { seq.current = a.maks; return a.d; } return bubuhId(cfg); });
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState('');
   const [cari, setCari] = useState('');
   const [batas, setBatas] = useState(30);
-  const [massal, setMassal] = useState('');
+  const [massal, setMassal] = useState(() => (awalCfg.current ? awalCfg.current.massal : ''));
   const [salinDari, setSalinDari] = useState({});
-  useEffect(() => { setD(bubuhId(cfg)); }, [cfg]);
+  const cfgPertama = useRef(true);
+  useEffect(() => { if (cfgPertama.current) { cfgPertama.current = false; return; } setD(bubuhId(cfg)); setMassal(''); }, [cfg]); // konfigurasi berubah (disimpan/dipulihkan): mulai dari yang baru
+  useEffect(() => {
+    const a = awalCfg.current; if (!a) return;
+    toast(a.basi ? 'Draf konfigurasi yang belum disimpan dipulihkan, tetapi konfigurasi di server berubah sejak draf dibuat. Periksa dulu sebelum menyimpan.' : 'Draf konfigurasi yang belum disimpan dipulihkan. Tekan Simpan agar berlaku.');
+  }, []);
 
   // Bentuk yang dikirim ke server: tanpa penanda UI (_k, baru, kelasTeks); nama tingkat dirapikan agar cocok dengan rujukan di mapel/kitab.
   const susun = () => ({
@@ -1487,6 +1582,8 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     kitab: d.kitab.map(({ _k, ...k }) => ({ ...k, tingkat: k.tingkat.map(rapikan) })),
   });
   const dirty = JSON.stringify(susun()) !== JSON.stringify({ tingkat: cfg.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '' })), mapel: cfg.mapel, kitab: cfg.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '' })) });
+  const cfgVal = useMemo(() => ({ d, massal, baseSig: sigCfg(cfg) }), [d, massal, cfg]);
+  useDraftSync('cfgDraft', cfgVal, !dirty && !massal.trim());
   const namaTingkat = d.tingkat.map((t) => rapikan(t.nama)).filter(Boolean);
   const tanpaNama = d.tingkat.some((t) => !rapikan(t.nama));
 
@@ -1791,7 +1888,9 @@ function PegonKamus({ onChange }) {
   const P = window.Pegon;
   const [, setTick] = useState(0);
   const [cari, setCari] = useState('');
-  const [f, setF] = useState({ lat: '', ar: '', e: '', tipe: 'keras', suf: '' });
+  const FKAMUS = { lat: '', ar: '', e: '', tipe: 'keras', suf: '' };
+  const [f, setF] = useState(() => bacaPref('pegonKamusForm', FKAMUS));
+  useDraftSync('pegonKamusForm', f, JSON.stringify(f) === JSON.stringify(FKAMUS));
   const [pesan, setPesan] = useState('');
   const sync = () => { setTick((n) => n + 1); onChange && onChange(); };
   const act = (r) => { setPesan(r && r.ok === false ? r.pesan : ''); if (!r || r.ok !== false) sync(); return !r || r.ok !== false; };
@@ -1904,9 +2003,15 @@ function PegonKamus({ onChange }) {
 
 function PegonTab({ toast }) {
   const P = window.Pegon;
-  const [mode, setMode] = useState('teks'); // teks | file | foto
-  const [latin, setLatin] = useState('');
-  const [fileInfo, setFileInfo] = useState(null); // { nama, arab }
+  // Mode dan teks Latin dipulihkan setelah muat ulang. Foto (berkas), hasil konversi, dan hasil suntingan manual tidak ikut: konversi ulang dengan satu klik.
+  const pgAwal = useRef(undefined); if (pgAwal.current === undefined) { const d = Draft.read('pegonTab'); pgAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [mode, setMode] = useState(() => (['teks', 'file', 'foto'].includes(pgAwal.current.mode) ? pgAwal.current.mode : 'teks')); // teks | file | foto
+  const [latin, setLatin] = useState(() => (typeof pgAwal.current.latin === 'string' ? pgAwal.current.latin : ''));
+  const [fileInfo, setFileInfo] = useState(() => { const x = pgAwal.current.fileInfo; return x && typeof x === 'object' && typeof x.nama === 'string' ? { nama: x.nama.slice(0, 200), arab: x.arab === true } : null; }); // { nama, arab }
+  useEffect(() => {
+    if (latin === 'Mengekstrak teks…') return; // keadaan sementara saat membaca berkas
+    if (!latin.trim()) Draft.remove('pegonTab'); else Draft.save('pegonTab', { mode, latin, fileInfo });
+  }, [mode, latin, fileInfo]);
   const [foto, setFoto] = useState(null);         // File
   const [hasil, setHasil] = useState(null);       // { id, html, details, tag, latin }
   const [warns, setWarns] = useState([]);
@@ -2070,6 +2175,8 @@ function App({ user, profile }) {
   const col = db.collection('soal');
   const ts = () => firebase.firestore.FieldValue.serverTimestamp();
   const me = { uid: user.uid, role: profile.role };
+  // Draf otomatis dipisah per akun. Dijalankan sebelum state di bawah dibaca, dan sekali per akun.
+  const drafUid = useRef(null); if (drafUid.current !== user.uid) { Draft.setUser(user.uid); drafUid.current = user.uid; }
   const displayName = user.displayName || user.email;
   const isAdmin = profile.role === 'admin';
   const canReview = profile.role === 'editor' || isAdmin;
@@ -2083,8 +2190,10 @@ function App({ user, profile }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const keluar = () => {
-    const belumTersimpan = [form.teks, form.pertanyaan, form.stimulus].some((v) => String(v || '').trim());
-    if (belumTersimpan && !window.confirm('Ada isian soal yang belum disimpan. Jika keluar sekarang, isian itu hilang. Tetap keluar?')) return;
+    // Isian yang belum disimpan tidak hilang: tetap ada sebagai draf di perangkat ini untuk akun Anda dan muncul lagi saat Anda masuk.
+    // Di komputer bersama, kosongkan form dulu (tombol Kosongkan) bila isiannya tidak boleh terlihat orang lain.
+    if (formBerisi(form) && !window.confirm('Isian soal yang belum disimpan akan tetap tersimpan sebagai draf di perangkat ini dan muncul lagi saat Anda masuk. Di komputer bersama, tekan Batal lalu klik Kosongkan terlebih dahulu. Tetap keluar?')) return;
+    Draft.flush();
     setMenuOpen(false); firebase.auth().signOut();
   };
   const pilihTab = (id) => { setTab(id); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -2097,17 +2206,33 @@ function App({ user, profile }) {
   }, [menuOpen]);
   const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
   const [cfgInfo, setCfgInfo] = useState({ kustom: false });
-  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom }); };
-  useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { /* tetap memakai cadangan bawaan */ }); }, []);
+  const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
+  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom }); setCfgReady(true); };
+  useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
   const [qs, setQs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState('');
-  const [form, setForm] = useState(emptyForm());
-  const [editingId, setEditingId] = useState(null);
+  // Form soal dipulihkan dari draf otomatis bila ada (muat ulang halaman, tab tertutup).
+  const awalForm = useRef(undefined); if (awalForm.current === undefined) awalForm.current = Draft.read('form') || null;
+  const [form, setForm] = useState(() => (awalForm.current && awalForm.current.form ? normalForm(awalForm.current.form) : emptyForm()));
+  const [editingId, setEditingId] = useState(() => (awalForm.current && typeof awalForm.current.editingId === 'string' && awalForm.current.editingId ? awalForm.current.editingId : null));
+  const formDraf = useMemo(() => ({ form, editingId }), [form, editingId]);
+  useDraftSync('form', formDraf, !editingId && !formBeda(form));
+  // Bila browser memblokir penyimpanan lokal (mode privat tertentu), draf tidak bisa diselamatkan: setidaknya tanyakan sebelum tab ditutup atau dimuat ulang.
+  const berisi = formBerisi(form);
+  useEffect(() => {
+    if (Draft.tersedia || !berisi) return undefined;
+    const tanya = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', tanya); return () => window.removeEventListener('beforeunload', tanya);
+  }, [berisi]);
   const [composeKey, setComposeKey] = useState(0); // naik tiap form dikosongkan/disimpan, supaya state lokal Compose (tautan, hasil AI) ikut bersih
   const [msg, setMsg] = useState('');
   const timer = useRef(null);
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 3500); };
+  useEffect(() => {
+    const a = awalForm.current; if (!a || !a.form) return;
+    if (formBerisi(normalForm(a.form))) toast(a.editingId ? 'Draf perbaikan soal dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.' : 'Draf soal yang belum disimpan dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.');
+  }, []);
 
   useEffect(() => col.orderBy('updatedAt', 'desc').limit(300).onSnapshot(
     (snap) => { setQs(snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))); setLoaded(true); setLoadErr(''); },
@@ -2155,25 +2280,31 @@ function App({ user, profile }) {
     return { dibuat: !!a.dibuat, model: String(a.model || '').slice(0, 60), verifikasi: v, buta: a.buta || '' };
   };
   const content = () => ({ ...Object.fromEntries(FIELDS.map((k) => [k, form[k]])), ai: aiMeta() });
+  // Hapus form dan semua draf terkait (dipanggil setelah berhasil disimpan ke server, atau saat pengguna mengosongkan form).
+  const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
   const commit = async (status) => {
     try {
       if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
       else await col.add({ ...content(), status, catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
-      setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1);
+      kosongkanForm();
       return true;
-    } catch (e) { toast(failMsg(e)); return false; }
+    } catch (e) { toast(failMsg(e)); return false; } // gagal: isian dan drafnya tetap ada
   };
   const saveDraft = async () => { if (await commit('draft')) toast('Draft tersimpan (status Draft). Cari di tab Bank Soal.'); };
   const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
   const review = async (id, status, note, okMsg) => {
     try {
       await col.doc(id).update({ status, catatan: note, reviewerUid: user.uid, reviewerName: displayName, reviewedAt: ts(), updatedAt: ts() });
+      Draft.remove('catatan:' + id); // catatan sudah tersimpan bersama soal
       toast(okMsg);
     } catch (e) { toast(failMsg(e)); }
   };
   const approve = (id, note = '') => review(id, 'approved', note, 'Soal disetujui dan masuk Bank Soal.');
   const revise = (id, note) => review(id, 'revision', note, 'Permintaan revisi dikirim ke penyusun.');
   const edit = (q) => {
+    // Memuat soal lain ke form menimpa isian di form; jangan diam-diam membuang isian yang belum disimpan.
+    if (editingId !== q.id && formBerisi(form) && !window.confirm('Form Penyusunan Soal berisi isian yang belum disimpan. Mengedit soal ini akan menggantinya. Lanjutkan?')) return;
+    Draft.remove('composeEx'); setComposeKey((n) => n + 1);
     const base = emptyForm();
     setForm({ ...base, ...Object.fromEntries(FIELDS.map((k) => [k, q[k] ?? base[k]])), opsi: { ...base.opsi, ...q.opsi }, ai: { ...base.ai, ...(q.ai || {}) } });
     setEditingId(q.id); setTab('compose');
@@ -2255,14 +2386,14 @@ function App({ user, profile }) {
         <KamusCtx.Provider value={kamusCtx}>
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
-          onReset={() => { setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); }} toast={toast} />}
+          onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
-        {tab === 'cfg' && isAdmin && <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} />}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </KamusCtx.Provider>
         </AppCfgCtx.Provider>
