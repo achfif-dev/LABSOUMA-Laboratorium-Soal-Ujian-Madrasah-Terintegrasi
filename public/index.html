@@ -740,7 +740,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
                       <input id={'kunci-' + k} type="radio" name="kunci" className="h-4 w-4 accent-[var(--brand)]" checked={form.kunci === k} onChange={() => set('kunci', k)} />
                       <span className="w-4 text-sm font-bold">{k}</span>
                     </label>
-                    <input id={'opsi-' + k} aria-label={`Opsi ${k}`} className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-mute focus:outline-none" placeholder={`Opsi ${k}`} value={form.opsi[k]} onChange={(e) => setOpt(k, e.target.value)} />
+                    <input id={'opsi-' + k} aria-label={`Opsi ${k}`} className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-mute focus:outline-none" placeholder={`Opsi ${k}`} maxLength={1000} value={form.opsi[k]} onChange={(e) => setOpt(k, e.target.value)} />
                   </div>
                 ))}
               </div>
@@ -1059,6 +1059,7 @@ function AiConfig({ toast }) {
         Aktif sekarang: <b className="text-ink">{AI_PROV[st.aktif.provider]}</b>, model <b className="text-ink">{st.aktif.model}</b>,
         kunci dari <b className="text-ink">{st.aktif.sumberKunci === 'konfigurasi' ? 'menu ini' : st.aktif.sumberKunci === 'environment' ? 'environment variable' : 'belum ada'}</b>.
         {st.aktif.peringatan && <p className="mt-2 font-semibold text-warn">{st.aktif.peringatan}</p>}
+        {st.enkripsi && st.enkripsi.sumber === 'turunan' && <p className="mt-2 text-xs leading-relaxed text-mute">Kunci enkripsi masih diturunkan dari kunci akun layanan Firebase, jadi bila akun layanan bocor, kunci AI ikut terbuka. Isi <code>CONFIG_ENCRYPTION_KEY</code> di Vercel (lihat README), redeploy, lalu masukkan ulang kunci AI.</p>}
         <p className="mt-2">Kunci disimpan terenkripsi di server dan <b className="text-ink">tidak pernah ditampilkan lagi</b>; hanya 4 karakter terakhir yang terlihat. Perubahan berlaku dalam sekitar satu menit.</p>
       </div>
 
@@ -1087,7 +1088,17 @@ function AiConfig({ toast }) {
               <input id={'key-' + k} type="password" autoComplete="off" spellCheck={false} className="field" placeholder={kk.tersimpan ? `••••${kk.last4}` : 'Tempel kunci di sini'}
                 value={keys[k]} onChange={(e) => setKeys((x) => ({ ...x, [k]: e.target.value }))} /></div>
             <div><Label htmlFor={'model-' + k} hint="(kosongkan untuk bawaan)">Model</Label>
-              <input id={'model-' + k} className="field" placeholder={st.modelBawaan[k]} value={models[k] || ''} onChange={(e) => setModels((x) => ({ ...x, [k]: e.target.value }))} /></div>
+              <input id={'model-' + k} className="field" placeholder={st.modelBawaan[k]} value={models[k] || ''} onChange={(e) => setModels((x) => ({ ...x, [k]: e.target.value }))} />
+              {((st.modelPilihan && st.modelPilihan[k]) || []).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {st.modelPilihan[k].map((m) => (
+                    <button key={m.id} type="button" title={m.catatan} onClick={() => setModels((x) => ({ ...x, [k]: m.id }))}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${(models[k] || st.modelBawaan[k]) === m.id ? 'border-brand bg-soft text-soft-ink' : 'border-line text-mute'}`}>{m.label}</button>
+                  ))}
+                </div>
+              )}
+              {(() => { const pm = ((st.modelPilihan && st.modelPilihan[k]) || []).find((x) => x.id === (models[k] || st.modelBawaan[k])); return pm && pm.peringatan ? <p className="mt-1 text-xs leading-relaxed text-mute">{pm.peringatan}</p> : null; })()}
+            </div>
             {kk.tersimpan && <Btn kind="danger" onClick={() => hapusKunci(k)} disabled={!!busy}><Trash2 size={14} />Hapus kunci tersimpan</Btn>}
           </div>
         );
