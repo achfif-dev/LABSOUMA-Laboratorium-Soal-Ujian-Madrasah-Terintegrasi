@@ -17,6 +17,22 @@ export const setRuntimeAi = (r) => { runtime = r || null; };
 
 export const provider = () => String((runtime && runtime.provider) || process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
 export const DEFAULT_MODELS = { gemini: 'gemini-3.8-flash', anthropic: 'claude-sonnet-5-5' };
+// Pilihan cepat di menu Pengaturan AI. Nama model lain tetap bisa diketik manual.
+// `peringatan` tampil di menu saat model itu dipilih. Harga sengaja tidak ditulis di sini karena sering berubah.
+export const MODEL_PRESETS = {
+  gemini: [
+    { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', catatan: 'Bawaan; seimbang antara mutu dan biaya.' },
+    { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', catatan: 'Lebih hemat dan cepat.',
+      peringatan: 'Flash-Lite lebih hemat dan cepat, tetapi uji dulu mutu soal dan terjemahan Arab dengan tombol Uji dan beberapa soal contoh sebelum dipakai luas.' },
+    { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (preview)', catatan: 'Paling cermat; berbayar.',
+      peringatan: 'Model Pro masih berstatus preview: berbayar sejak panggilan pertama (butuh billing aktif), batasnya lebih ketat, dan bisa berubah. Dipakai bila mutu soal HOTS atau telaah perlu paling cermat.' },
+  ],
+  anthropic: [
+    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', catatan: 'Lebih cermat; biaya lebih tinggi.' },
+    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', catatan: 'Jauh lebih hemat.',
+      peringatan: 'Haiku jauh lebih hemat, tetapi uji dulu mutu soal dan terjemahan Arab dengan tombol Uji dan beberapa soal contoh sebelum dipakai luas.' },
+  ],
+};
 export const getModel = () => (runtime && runtime.model) || process.env.AI_MODEL || DEFAULT_MODELS[provider()] || DEFAULT_MODELS.gemini;
 
 /* ---------------------------------------------------------------- Validasi */
