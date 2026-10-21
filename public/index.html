@@ -119,11 +119,11 @@ const useCfg = () => React.useContext(AppCfgCtx);
 const tingkatAktif = (cfg) => cfg.tingkat.filter((t) => t.aktif);
 const labelTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).label) || nama;
 const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingkat || m.tingkat.includes(tingkat))).map((m) => m.nama);
-const kitabUntuk = (cfg, tingkat, mapel) => {
-  const aktif = cfg.kitab.filter((k) => k.aktif);
-  const cocok = aktif.filter((k) => (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || k.mapel === mapel));
-  return cocok.length ? cocok : aktif;
-};
+// Kitab di dropdown = kitab aktif di Konfigurasi untuk tingkat dan mapel terpilih. Kitab "(tanpa mapel)" berlaku untuk semua mapel.
+// Tanpa cadangan: kalau tidak ada yang cocok, daftar kosong (pengguna bisa memilih "Lainnya").
+const kitabUntuk = (cfg, tingkat, mapel) =>
+  cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel));
+const KITAB_LAIN = '__lain__';
 const LEVEL = [
   { v: 'L1', label: 'L1 – Ingatan' },
   { v: 'L2', label: 'L2 – Aplikasi' },
@@ -553,6 +553,9 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, form.tingkat), form.mapel])];
   const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel);
   const kitabCocok = cfg.kitab.find((k) => k.nama.toLowerCase() === form.nama.trim().toLowerCase());
+  const [kManual, setKManual] = useState(false); // true: nama kitab diketik manual (di luar katalog)
+  const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
+  const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
   const kelasInfo = ((cfg.tingkat.find((t) => t.nama === form.tingkat) || {}).kelas || []).join(', ');
   // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
   useEffect(() => {
@@ -678,6 +681,15 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     r.readAsText(file, 'utf-8');
   };
   const cleanText = () => setForm((f) => ({ ...f, teks: cleanArabic(f.teks) }));
+  // Reset Rujukan Kitab: nama, juz, halaman, teks, tautan sumber, dan semua keadaan pengambilan. Naskah soal (pertanyaan, opsi, dst.) tidak disentuh.
+  const rujukanTerisi = !!(form.nama || form.juz || form.hal || form.teks || form.sumberUrl || kUrl || kInfo || kErr || ai || fokus);
+  const resetRujukan = () => {
+    if (form.teks.trim() && !window.confirm('Kosongkan Rujukan Kitab (nama kitab, juz, halaman, teks, dan tautan sumber)? Naskah soal tidak ikut dihapus.')) return;
+    setForm((f) => ({ ...f, nama: '', juz: '', hal: '', teks: '', sumberUrl: '', ai: { ...f.ai, buta: '' } }));
+    setKUrl(''); setKErr(null); setKInfo(null); setKGagal(''); setKAppend(false); setKHal('1'); setKManual(false);
+    setAi(null); setFokus(''); setApiError(null);
+    toast('Rujukan kitab dikosongkan.');
+  };
 
   const runAssist = async (kind) => {
     const bad = arabicProblem(form.teks.trim());
@@ -743,7 +755,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
           </div>
         </Section>
 
-        <Section title="Rujukan Kitab" icon={BookOpen}>
+        <Section title="Rujukan Kitab" icon={BookOpen}
+          action={<button type="button" onClick={resetRujukan} disabled={kBusy || !rujukanTerisi} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw size={13} />Reset</button>}>
           <div className="space-y-3">
             <div className="space-y-2 rounded-xl border border-line bg-bg p-3">
               {kitabCocok && kitabCocok.tautan && (
@@ -793,10 +806,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               <p className="text-xs leading-relaxed text-mute">Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p>
             </div>
             <div><Label htmlFor="nama">Nama Kitab</Label>
-              <input id="nama" className="field" list="kitab-list" placeholder="Fathul Qarib, Kifayatul Akhyar, ..." value={form.nama} onChange={(e) => set('nama', e.target.value)} />
-              <datalist id="kitab-list">
-                {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{k.pengarang}</option>)}
-              </datalist>
+              <Select id="nama" value={kManual ? KITAB_LAIN : form.nama} onChange={pilihKitab}>
+                <option value="">{kitabOpsi.length ? '— Pilih kitab —' : '— Belum ada kitab untuk tingkat dan mapel ini —'}</option>
+                {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{k.pengarang ? `${k.nama} · ${k.pengarang}` : k.nama}</option>)}
+                {!kManual && form.nama && !namaDiKatalog && <option value={form.nama}>{form.nama} (di luar katalog)</option>}
+                <option value={KITAB_LAIN}>Lainnya (ketik manual)…</option>
+              </Select>
+              {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
+              {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab untuk {labelTingkat(cfg, form.tingkat)} · {form.mapel} di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
               {kitabCocok && kitabCocok.pengarang && <p className="mt-1 text-xs text-mute">Pengarang: {kitabCocok.pengarang}</p>}</div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label htmlFor="juz">Juz / Volume</Label><input id="juz" className="field" placeholder="1" value={form.juz} onChange={(e) => set('juz', e.target.value)} /></div>
@@ -1843,6 +1860,7 @@ function App({ user, profile }) {
   const [loadErr, setLoadErr] = useState('');
   const [form, setForm] = useState(emptyForm());
   const [editingId, setEditingId] = useState(null);
+  const [composeKey, setComposeKey] = useState(0); // naik tiap form dikosongkan/disimpan, supaya state lokal Compose (tautan, hasil AI) ikut bersih
   const [msg, setMsg] = useState('');
   const timer = useRef(null);
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 3500); };
@@ -1868,7 +1886,7 @@ function App({ user, profile }) {
     try {
       if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
       else await col.add({ ...content(), status, catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
-      setForm(emptyForm()); setEditingId(null);
+      setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1);
       return true;
     } catch (e) { toast(failMsg(e)); return false; }
   };
@@ -1962,8 +1980,8 @@ function App({ user, profile }) {
       <main className="mx-auto max-w-6xl py-6 sm:py-8">
         <AppCfgCtx.Provider value={appCfg}>
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
-        {tab === 'compose' && <Compose form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
-          onReset={() => { setForm(emptyForm()); setEditingId(null); }} toast={toast} />}
+        {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
+          onReset={() => { setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); }} toast={toast} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
