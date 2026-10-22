@@ -98,7 +98,7 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; import * as V from '/drive.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D; window.LabDrive = V;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; import * as V from '/drive.js'; import * as U from '/ujian.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D; window.LabDrive = V; window.Ujian = U;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
@@ -117,6 +117,10 @@ const FALLBACK_CFG = {
   kitab: ['Fathul Qarib', 'Kifayatul Akhyar', 'Safinatun Naja', 'Taqrib (Matan Abu Syuja)', "Arba'in Nawawi", 'Riyadhus Shalihin', "Ta'lim al-Muta'allim", 'Aqidatul Awam']
     .map((n) => ({ nama: n, pengarang: '', mapel: '', tingkat: TINGKAT, aktif: true })),
 };
+// Kelas, sistem ujian, dan penempatan kitab: fungsi murni dari public/ujian.js (window.Ujian). Bila modul belum/tidak termuat, fitur kelas dan ujian diam (tidak merusak halaman).
+// PENTING: dinamai Uj, bukan Ujian, agar tidak bentrok dengan window.Ujian (const tingkat atas oleh Babel menjadi var global).
+const UJ_NOOP = { daftarSistem: () => [], kelasUntuk: () => [], periodeUntuk: () => [], sistemUntuk: () => null, labelPeriode: (c, t, k) => k || '', labelSistem: () => '', kitabCocok: () => true, cakupanKitab: () => '', ringkasPenempatan: () => [], penempatanYatim: () => [], penempatanKitab: () => [] };
+const Uj = new Proxy({}, { get: (_, k) => (window.Ujian || UJ_NOOP)[k] });
 const AppCfgCtx = React.createContext(FALLBACK_CFG);
 const useCfg = () => React.useContext(AppCfgCtx);
 // Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
@@ -127,8 +131,9 @@ const labelTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) |
 const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingkat || m.tingkat.includes(tingkat))).map((m) => m.nama);
 // Kitab di dropdown = kitab aktif di Konfigurasi untuk tingkat dan mapel terpilih. Kitab "(tanpa mapel)" berlaku untuk semua mapel.
 // Tanpa cadangan: kalau tidak ada yang cocok, daftar kosong (pengguna bisa memilih "Lainnya").
-const kitabUntuk = (cfg, tingkat, mapel) =>
-  cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel));
+// Kelas dan periode ujian (opsional) mempersempit lagi lewat penempatan kitab per kelas (public/ujian.js).
+const kitabUntuk = (cfg, tingkat, mapel, kelas = '', periode = '') =>
+  cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel) && Uj.kitabCocok(k, { tingkat, kelas, periode }));
 const KITAB_LAIN = '__lain__';
 const cariKitab = (cfg, nama) => cfg.kitab.find((k) => k.nama.toLowerCase() === String(nama || '').trim().toLowerCase());
 const namaArabKitab = (cfg, nama) => (cariKitab(cfg, nama) || {}).namaArab || '';
@@ -150,10 +155,11 @@ const STATUS = {
   revision: { label: 'Perlu Revisi',   cls: 'bg-bad-bg text-bad' },
 };
 const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', nonaktif: 'Nonaktif' };
-const FIELDS = ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan'];
+const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan'];
 
 const emptyForm = () => ({
   tingkat: 'Aliyah', mapel: 'Fiqih', level: 'L3',
+  kelas: '', periode: '', // opsional: kelas dan kode periode ujian (label periode diatur di Konfigurasi)
   nama: '', juz: '', hal: '', teks: '',
   stimulus: '', pertanyaan: '', indikator: '', sumberUrl: '',
   opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '',
@@ -218,7 +224,7 @@ const buildGift = (qs) =>
   '// LABSOUMA, format Moodle GIFT\n\n' +
   qs.map((q, i) => {
     const o = optsOf(q);
-    return `// ${q.mapel} | ${q.tingkat} | ${levelLabel(q.level)} | ${q.nama || '-'} hal. ${q.hal || '-'}\n` +
+    return `// ${q.mapel} | ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? ' | ' + q.ujian : ''} | ${levelLabel(q.level)} | ${q.nama || '-'} hal. ${q.hal || '-'}\n` +
       `::Soal ${i + 1} ${q.mapel}::${giftEsc(fullQ(q))}{\n` +
       o.map((k) => `${k === q.kunci ? '=' : '~'}${giftEsc(q.opsi[k])}`).join('\n') +
       `\n####${giftEsc(q.pembahasan)}\n}`;
@@ -239,8 +245,8 @@ const buildCsvForms = (qs) =>
   qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildCsvRdm = (qs) =>
-  '﻿' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator'].map(csvEsc).join(',') + '\n' +
-  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator].map(csvEsc).join(',')).join('\n') + '\n';
+  '﻿' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian'].map(csvEsc).join(',') + '\n' +
+  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), q.kunci, q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildDocx = async (qs, mode) => {
   const D = window.docx;
@@ -334,7 +340,7 @@ const buildDocx = async (qs, mode) => {
     qs.forEach((q, i) => {
       const cell = (children, shade) => new TableCell({ borders, margins: { top: 100, bottom: 100, left: 160, right: 160 }, width: { size: 100, type: WidthType.PERCENTAGE }, shading: shade ? { fill: shade } : undefined, children });
       const rows = [
-        new TableRow({ children: [cell([P(T(`No. ${i + 1}  |  ${q.mapel}  |  ${q.tingkat}  |  ${levelLabel(q.level)}`, { bold: true, color: 'FFFFFF' }))], '0F6B4F')] }),
+        new TableRow({ children: [cell([P(T(`No. ${i + 1}  |  ${q.mapel}  |  ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? '  |  ' + q.ujian : ''}  |  ${levelLabel(q.level)}`, { bold: true, color: 'FFFFFF' }))], '0F6B4F')] }),
         new TableRow({ children: [cell([
           ...(q.stimulus ? [P(T(q.stimulus, { italics: true }))] : []),
           P(T(q.pertanyaan, { bold: true })),
@@ -482,7 +488,7 @@ const Meta = ({ q }) => {
   const cfg = useCfg();
   return (
   <div className="flex flex-wrap gap-1.5">
-    <Chip>{q.mapel}</Chip><Chip>{labelTingkat(cfg, q.tingkat)}</Chip><Chip>{levelLabel(q.level)}</Chip>
+    <Chip>{q.mapel}</Chip><Chip>{labelTingkat(cfg, q.tingkat)}</Chip>{q.kelas && <Chip>Kelas {q.kelas}</Chip>}{q.periode && <Chip>{Uj.labelPeriode(cfg, q.tingkat, q.periode)}</Chip>}<Chip>{levelLabel(q.level)}</Chip>
     {q.contoh && <Chip>Contoh data</Chip>}
     {q.ai && q.ai.dibuat && <Chip>Dibuat AI{q.ai.model ? ` · ${q.ai.model}` : ''}</Chip>}
   </div>
@@ -745,11 +751,20 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v, ...(AFFECT.includes(k) ? { ai: { ...f.ai, buta: '' } } : {}) }));
   const setOpt = (k, v) => setForm((f) => ({ ...f, opsi: { ...f.opsi, [k]: v }, ai: { ...f.ai, buta: '' } }));
   // Mapel mengikuti tingkat: ganti tingkat, mapel yang tidak berlaku di tingkat itu diganti mapel pertama yang berlaku.
-  const pilihTingkat = (v) => setForm((f) => { const l = mapelUntuk(cfg, v); return { ...f, tingkat: v, mapel: l.includes(f.mapel) || !l.length ? f.mapel : l[0] }; });
+  // Kelas dan periode ujian juga mengikuti tingkat: yang tidak berlaku di tingkat baru dikosongkan.
+  const pilihTingkat = (v) => setForm((f) => {
+    const l = mapelUntuk(cfg, v);
+    return { ...f, tingkat: v, mapel: l.includes(f.mapel) || !l.length ? f.mapel : l[0],
+      kelas: Uj.kelasUntuk(cfg, v).includes(f.kelas) ? f.kelas : '', periode: Uj.periodeUntuk(cfg, v).some((x) => x.kode === f.periode) ? f.periode : '' };
+  });
   const tingkatOpsi = [...new Set([...tingkatAktif(cfg).map((t) => t.nama), form.tingkat])];
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, form.tingkat), form.mapel])];
-  const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel);
+  const kelasOpsi = [...new Set([...Uj.kelasUntuk(cfg, form.tingkat), form.kelas].filter(Boolean))];
+  const periodeOpsi = Uj.periodeUntuk(cfg, form.tingkat).map((x) => ({ kode: x.kode, label: x.label }));
+  if (form.periode && !periodeOpsi.some((x) => x.kode === form.periode)) periodeOpsi.push({ kode: form.periode, label: Uj.labelPeriode(cfg, form.tingkat, form.periode) + ' (tidak ada di sistem ujian tingkat ini)' });
+  const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel, form.kelas, form.periode);
   const kitabCocok = cfg.kitab.find((k) => k.nama.toLowerCase() === form.nama.trim().toLowerCase());
+  const cakupanTerpilih = kitabCocok && form.kelas && form.periode ? Uj.cakupanKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : '';
   // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
   const [ex, setEx] = useState(() => {
     const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
@@ -762,7 +777,6 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual);
   const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
   const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
-  const kelasInfo = ((cfg.tingkat.find((t) => t.nama === form.tingkat) || {}).kelas || []).join(', ');
   // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
   useEffect(() => {
     if (editingId) return;
@@ -819,7 +833,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     try {
       const res = await fetch('/api/generate', {
         method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
-        body: JSON.stringify({ teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, fokus }),
+        body: JSON.stringify({ teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, fokus }),
       });
       let data = null;
       try { data = await res.json(); } catch (e) {}
@@ -950,12 +964,23 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
             <div><Label htmlFor="tingkat">Tingkat</Label>
               <Select id="tingkat" value={form.tingkat} onChange={pilihTingkat}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select>
-              {(kelasInfo || labelArabTingkat(cfg, form.tingkat)) && <p className="mt-1 text-xs text-mute">{kelasInfo && `Kelas ${kelasInfo}`}{kelasInfo && labelArabTingkat(cfg, form.tingkat) ? ' · ' : ''}<ArNama>{labelArabTingkat(cfg, form.tingkat)}</ArNama></p>}</div>
+              {labelArabTingkat(cfg, form.tingkat) && <p className="mt-1 text-xs text-mute"><ArNama>{labelArabTingkat(cfg, form.tingkat)}</ArNama></p>}</div>
             <div><Label htmlFor="mapel">Mata Pelajaran</Label>
               <Select id="mapel" value={form.mapel} onChange={(v) => set('mapel', v)}>{mapelOpsi.map((t) => <option key={t}>{t}</option>)}</Select></div>
             <div><Label htmlFor="level">Tingkat Kesukaran</Label>
               <Select id="level" value={form.level} onChange={(v) => set('level', v)}>{LEVEL.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}</Select></div>
           </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div><Label htmlFor="kelas" hint="(opsional)">Kelas</Label>
+              <Select id="kelas" value={form.kelas} onChange={(v) => set('kelas', v)}>
+                <option value="">{kelasOpsi.length ? '— Belum dipilih —' : '— Belum ada kelas di Konfigurasi —'}</option>
+                {kelasOpsi.map((k) => <option key={k} value={k}>Kelas {k}</option>)}</Select></div>
+            <div><Label htmlFor="periode" hint={Uj.labelSistem(cfg, form.tingkat) ? `(${Uj.labelSistem(cfg, form.tingkat)})` : '(opsional)'}>Ujian</Label>
+              <Select id="periode" value={form.periode} onChange={(v) => set('periode', v)}>
+                <option value="">{periodeOpsi.length ? '— Belum dipilih —' : '— Belum ada periode ujian —'}</option>
+                {periodeOpsi.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+          </div>
+          <p className="mt-2 text-xs text-mute">Kelas dan ujian menyaring pilihan kitab di bawah sesuai pemetaan di menu Konfigurasi, dan ikut tersimpan pada soal.</p>
         </Section>
 
         <Section title="Rujukan Kitab" icon={BookOpen}
@@ -1010,13 +1035,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
             </div>
             <div><Label htmlFor="nama">Nama Kitab</Label>
               <Select id="nama" value={kManual ? KITAB_LAIN : form.nama} onChange={pilihKitab}>
-                <option value="">{kitabOpsi.length ? '— Pilih kitab —' : '— Belum ada kitab untuk tingkat dan mapel ini —'}</option>
+                <option value="">{kitabOpsi.length ? '— Pilih kitab —' : '— Belum ada kitab untuk pilihan tingkat, kelas, ujian, dan mapel ini —'}</option>
                 {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{[k.pengarang ? `${k.nama} · ${k.pengarang}` : k.nama, k.namaArab].filter(Boolean).join(' — ')}</option>)}
                 {!kManual && form.nama && !namaDiKatalog && <option value={form.nama}>{form.nama} (di luar katalog)</option>}
                 <option value={KITAB_LAIN}>Lainnya (ketik manual)…</option>
               </Select>
               {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
-              {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab untuk {labelTingkat(cfg, form.tingkat)} · {form.mapel} di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
+              {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab, atau memetakannya ke {labelTingkat(cfg, form.tingkat)}{form.kelas ? ` kelas ${form.kelas}` : ''} · {form.mapel}, di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
+              {cakupanTerpilih && <p className="mt-1 text-xs text-soft-ink">Cakupan materi kitab ini pada kelas {form.kelas} · {Uj.labelPeriode(cfg, form.tingkat, form.periode)}: {cakupanTerpilih}</p>}
               {kitabCocok && (kitabCocok.namaArab || kitabCocok.pengarangArab) && (
                 <div className="mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">
                   {kitabCocok.namaArab && <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal">{kitabCocok.namaArab}</p>}
@@ -1251,13 +1277,25 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
   const cfg = useCfg();
   // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, f.tingkat), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.mapel).filter(Boolean)])];
+  // Kelas dan ujian: milik tingkat terpilih; tanpa tingkat, gabungan semua tingkat plus yang sudah dipakai soal tersimpan (soal lama tetap bisa difilter).
+  const kelasOpsiFilter = [...new Set([...(f.tingkat ? Uj.kelasUntuk(cfg, f.tingkat) : cfg.tingkat.flatMap((t) => Uj.kelasUntuk(cfg, t.nama))), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.kelas).filter(Boolean)])];
+  const periodeOpsiFilter = (() => {
+    const m = new Map(); const tambah = (x) => { if (!m.has(x.kode)) m.set(x.kode, x.label); };
+    if (f.tingkat) Uj.periodeUntuk(cfg, f.tingkat).forEach(tambah); else cfg.tingkat.forEach((t) => Uj.periodeUntuk(cfg, t.nama).forEach(tambah));
+    qs.filter((q) => q.periode && (!f.tingkat || q.tingkat === f.tingkat)).forEach((q) => tambah({ kode: q.periode, label: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
+    return [...m].map(([kode, label]) => ({ kode, label }));
+  })();
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
       <Filter size={16} className="mb-2.5 text-mute" />
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-mapel' + (withStatus ? 'b' : 'e')}>Mata Pelajaran</Label>
         <Select id={'f-mapel' + (withStatus ? 'b' : 'e')} value={f.mapel} onChange={(v) => setF({ ...f, mapel: v })}><option value="">Semua</option>{mapelOpsi.map((m) => <option key={m}>{m}</option>)}</Select></div>
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-tingkat' + (withStatus ? 'b' : 'e')}>Tingkat</Label>
-        <Select id={'f-tingkat' + (withStatus ? 'b' : 'e')} value={f.tingkat} onChange={(v) => setF({ ...f, tingkat: v })}><option value="">Semua</option>{cfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.label}</option>)}</Select></div>
+        <Select id={'f-tingkat' + (withStatus ? 'b' : 'e')} value={f.tingkat} onChange={(v) => setF({ ...f, tingkat: v, kelas: '', periode: '' })}><option value="">Semua</option>{cfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.label}</option>)}</Select></div>
+      <div className="min-w-[110px] flex-1"><Label htmlFor={'f-kelas' + (withStatus ? 'b' : 'e')}>Kelas</Label>
+        <Select id={'f-kelas' + (withStatus ? 'b' : 'e')} value={f.kelas || ''} onChange={(v) => setF({ ...f, kelas: v })}><option value="">Semua</option>{kelasOpsiFilter.map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-periode' + (withStatus ? 'b' : 'e')}>Ujian</Label>
+        <Select id={'f-periode' + (withStatus ? 'b' : 'e')} value={f.periode || ''} onChange={(v) => setF({ ...f, periode: v })}><option value="">Semua</option>{periodeOpsiFilter.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
       {withStatus && (
         <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
           <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
@@ -1267,11 +1305,11 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
     </div>
   );
 }
-const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.status || q.status === f.status));
+const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.status || q.status === f.status));
 
 /* ---------- Tab 3: Bank ---------- */
 function Bank({ all, onEdit, onDelete, canEdit }) {
-  const FAWAL = { mapel: '', tingkat: '', status: 'approved' };
+  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
@@ -1316,7 +1354,7 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
 function Export({ all, toast }) {
   const cfg = useCfg();
   const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
-  const EAWAL = { f: { mapel: '', tingkat: '' }, fmt: 'gift', picked: null };
+  const EAWAL = { f: { mapel: '', tingkat: '', kelas: '', periode: '' }, fmt: 'gift', picked: null };
   const eAwal = useRef(null); if (eAwal.current === null) { const d = Draft.read('exportPrefs'); eAwal.current = d && typeof d === 'object' ? d : {}; }
   const [f, setF] = useState(() => bacaPref('exportFilter', EAWAL.f));
   const [fmt, setFmt] = useState(() => (FORMATS.some((x) => x.id === eAwal.current.fmt) ? eAwal.current.fmt : EAWAL.fmt));
@@ -1337,7 +1375,7 @@ function Export({ all, toast }) {
 
   const list = applyFilter(approved, f);
   // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
-  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama) }));
+  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
   const format = FORMATS.find((x) => x.id === fmt);
   const isText = !!format.build;
   const text = isText ? format.build(chosen) : '';
@@ -1384,7 +1422,7 @@ function Export({ all, toast }) {
                         <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(q.id)} />
                         <span className="min-w-0">
                           <span className="block break-words font-medium">{q.pertanyaan}</span>
-                          <span className="mt-1 block text-xs text-mute">{q.mapel} · {q.tingkat} · {q.level}</span>
+                          <span className="mt-1 block text-xs text-mute">{q.mapel} · {q.tingkat}{q.kelas ? ` · Kelas ${q.kelas}` : ''}{q.periode ? ` · ${Uj.labelPeriode(cfg, q.tingkat, q.periode)}` : ''} · {q.level}</span>
                         </span>
                       </label>
                     </li>
@@ -1587,21 +1625,27 @@ const AktifCek = ({ checked, onChange }) => (
 function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   const seq = useRef(0);
   const bubuhId = (c) => ({
-    tingkat: c.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', kelasTeks: (t.kelas || []).join(', '), _k: ++seq.current })),
+    sistemUjian: Uj.daftarSistem(c).map((x) => ({ ...x, periode: x.periode.map((p) => ({ ...p, _k: ++seq.current })), _k: ++seq.current })),
+    tingkat: c.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', kelasTeks: (t.kelas || []).join(', '), sistemUjian: t.sistemUjian || '', _k: ++seq.current })),
     mapel: c.mapel.map((m) => ({ ...m, _k: ++seq.current })),
-    kitab: c.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', _k: ++seq.current })),
+    kitab: c.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', penempatan: (k.penempatan || []).map((x) => ({ ...x, periode: (x.periode || []).map((y) => ({ ...y })) })), _k: ++seq.current })),
   });
   // Draf konfigurasi yang belum disimpan dipulihkan setelah muat ulang. Bentuknya divalidasi ketat dan dibangun ulang dari daftar bidang yang dikenal.
-  const sigCfg = (c) => JSON.stringify({ tingkat: c.tingkat, mapel: c.mapel, kitab: c.kitab });
+  const sigCfg = (c) => JSON.stringify({ sistemUjian: c.sistemUjian || [], tingkat: c.tingkat, mapel: c.mapel, kitab: c.kitab });
+  // Bandingkan konfigurasi tanpa bergantung pada urutan kunci objek (bentuk dari server dan bentuk hasil susun() bisa berbeda urutannya).
+  const kanon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
   const normCfgDraft = (a) => {
     if (!a || typeof a !== 'object' || !a.d || !Array.isArray(a.d.tingkat) || !Array.isArray(a.d.mapel) || !Array.isArray(a.d.kitab)) return null;
     const S = (v) => (typeof v === 'string' ? v : ''); const B = (v) => v !== false; const A = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
     const o = (v) => (v && typeof v === 'object' ? v : {}); let maks = 0;
     const kunci = (x) => { const k = Number(o(x)._k); if (Number.isFinite(k) && k > 0) { maks = Math.max(maks, k); return k; } return ++maks; };
+    const P = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').map((x) => ({ tingkat: S(x.tingkat), kelas: S(x.kelas), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), cakupan: S(y.cakupan) })) })) : []);
+    const SU = (v) => (Array.isArray(v) && v.length ? v.filter((x) => x && typeof x === 'object').map((x) => ({ id: S(x.id), label: S(x.label), ...(x.baru === true ? { baru: true } : {}), _k: kunci(x), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), label: S(y.label), ...(y.baru === true ? { baru: true } : {}), _k: kunci(y) })) })) : null);
     const d = {
-      tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
+      sistemUjian: SU(a.d.sistemUjian) || SU(Uj.daftarSistem(cfg)) || [],
+      tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), sistemUjian: S(o(x).sistemUjian), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
       mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
-      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
+      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), penempatan: P(o(x).penempatan), aktif: B(o(x).aktif), _k: kunci(x) })),
     };
     return { d, massal: S(a.massal).slice(0, 200000), basi: a.baseSig !== sigCfg(cfg), maks };
   };
@@ -1621,12 +1665,28 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   }, []);
 
   // Bentuk yang dikirim ke server: tanpa penanda UI (_k, baru, kelasTeks); nama tingkat dirapikan agar cocok dengan rujukan di mapel/kitab.
+  const kelasDari = (t) => t.kelasTeks.split(/[,،]/).map((x) => x.trim()).filter(Boolean);
+  // Urutan yang sama dengan server (src/appConfig.js sanitizePenempatan): tingkat, lalu kelas, lalu periode menurut urutan di konfigurasi.
+  const urutPen = (pen) => {
+    const tn = d.tingkat.map((t) => rapikan(t.nama));
+    const kelasT = (n) => { const t = d.tingkat.find((x) => rapikan(x.nama) === n); return t ? kelasDari(t) : []; };
+    const kodeT = (n) => { const t = d.tingkat.find((x) => rapikan(x.nama) === n); const sis = t && (d.sistemUjian.find((y) => y.id === t.sistemUjian) || d.sistemUjian[0]); return sis ? sis.periode.map((y) => y.kode) : []; };
+    return pen.map((x) => ({ ...x, tingkat: rapikan(x.tingkat), periode: [...(x.periode || [])].sort((a, b) => kodeT(rapikan(x.tingkat)).indexOf(a.kode) - kodeT(rapikan(x.tingkat)).indexOf(b.kode)) }))
+      .sort((a, b) => tn.indexOf(a.tingkat) - tn.indexOf(b.tingkat) || kelasT(a.tingkat).indexOf(a.kelas) - kelasT(b.tingkat).indexOf(b.kelas));
+  };
   const susun = () => ({
-    tingkat: d.tingkat.filter((t) => rapikan(t.nama)).map(({ _k, baru, kelasTeks, ...t }) => ({ ...t, nama: rapikan(t.nama), kelas: kelasTeks.split(/[,،]/).map((x) => x.trim()).filter(Boolean) })),
+    sistemUjian: d.sistemUjian.map(({ _k, baru, periode, ...x }) => ({ ...x, label: rapikan(x.label), periode: periode.map(({ _k: _p, baru: _b, ...y }) => ({ ...y, label: rapikan(y.label) })) })),
+    tingkat: d.tingkat.filter((t) => rapikan(t.nama)).map(({ _k, baru, kelasTeks, ...t }) => ({ ...t, nama: rapikan(t.nama), kelas: kelasDari({ kelasTeks }), sistemUjian: t.sistemUjian || (d.sistemUjian[0] || {}).id || '' })),
     mapel: d.mapel.map(({ _k, ...m }) => ({ ...m, tingkat: m.tingkat.map(rapikan) })),
-    kitab: d.kitab.map(({ _k, ...k }) => ({ ...k, tingkat: k.tingkat.map(rapikan) })),
+    kitab: d.kitab.map(({ _k, ...k }) => ({ ...k, tingkat: k.tingkat.map(rapikan), penempatan: urutPen(k.penempatan || []) })),
   });
-  const dirty = JSON.stringify(susun()) !== JSON.stringify({ tingkat: cfg.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '' })), mapel: cfg.mapel, kitab: cfg.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '' })) });
+  const cur = susun(); // bentuk yang akan dikirim; juga dasar ringkasan penempatan dan peringatan rujukan yatim
+  const dirty = kanon(cur) !== kanon({
+    sistemUjian: Uj.daftarSistem(cfg),
+    tingkat: cfg.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', sistemUjian: t.sistemUjian || (Uj.daftarSistem(cfg)[0] || {}).id || '' })),
+    mapel: cfg.mapel,
+    kitab: cfg.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', penempatan: k.penempatan || [] })),
+  });
   const cfgVal = useMemo(() => ({ d, massal, baseSig: sigCfg(cfg) }), [d, massal, cfg]);
   useDraftSync('cfgDraft', cfgVal, !dirty && !massal.trim());
   const namaTingkat = d.tingkat.map((t) => rapikan(t.nama)).filter(Boolean);
@@ -1638,11 +1698,16 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     let { mapel, kitab } = x;
     if (patch.nama !== undefined && rapikan(lama.nama)) {
       const ganti = (arr) => arr.map((n) => (n === rapikan(lama.nama) ? rapikan(patch.nama) : n));
-      mapel = mapel.map((m) => ({ ...m, tingkat: ganti(m.tingkat) })); kitab = kitab.map((b) => ({ ...b, tingkat: ganti(b.tingkat) }));
+      mapel = mapel.map((m) => ({ ...m, tingkat: ganti(m.tingkat) }));
+      kitab = kitab.map((b) => ({ ...b, tingkat: ganti(b.tingkat), penempatan: (b.penempatan || []).map((p) => (p.tingkat === rapikan(lama.nama) ? { ...p, tingkat: rapikan(patch.nama) } : p)) }));
+    }
+    // Ganti sistem ujian tingkat: kode periode lama tidak berlaku lagi, jadi pembagian periode kitab di tingkat ini dikosongkan (kelasnya tetap).
+    if (patch.sistemUjian !== undefined && patch.sistemUjian !== lama.sistemUjian && rapikan(lama.nama)) {
+      kitab = kitab.map((b) => ({ ...b, penempatan: (b.penempatan || []).map((p) => (p.tingkat === rapikan(lama.nama) ? { ...p, periode: [] } : p)) }));
     }
     return { ...x, mapel, kitab, tingkat: x.tingkat.map((t) => (t._k === k ? { ...t, ...patch } : t)) };
   });
-  const tambahT = () => setD((x) => ({ ...x, tingkat: [...x.tingkat, { nama: '', label: '', labelArab: '', singkat: '', kelas: [], kelasTeks: '', aktif: true, baru: true, _k: ++seq.current }] }));
+  const tambahT = () => setD((x) => ({ ...x, tingkat: [...x.tingkat, { nama: '', label: '', labelArab: '', singkat: '', kelas: [], kelasTeks: '', sistemUjian: (x.sistemUjian[0] || {}).id || '', aktif: true, baru: true, _k: ++seq.current }] }));
   const geserT = (k, arah) => setD((x) => {
     const i = x.tingkat.findIndex((t) => t._k === k); const j = i + arah;
     if (i < 0 || j < 0 || j >= x.tingkat.length) return x;
@@ -1653,7 +1718,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     if (d.tingkat.length <= 1) { toast('Minimal satu tingkat harus ada.'); return; }
     if (!t.baru && !window.confirm(`Hapus tingkat "${t.label || t.nama}"? Soal lama dengan tingkat ini tetap tersimpan, tetapi tidak bisa difilter lagi. Menonaktifkan biasanya lebih aman.`)) return;
     const n = rapikan(t.nama);
-    setD((x) => ({ ...x, tingkat: x.tingkat.filter((y) => y._k !== k), mapel: x.mapel.map((m) => ({ ...m, tingkat: m.tingkat.filter((y) => y !== n) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: b.tingkat.filter((y) => y !== n) })) }));
+    setD((x) => ({ ...x, tingkat: x.tingkat.filter((y) => y._k !== k), mapel: x.mapel.map((m) => ({ ...m, tingkat: m.tingkat.filter((y) => y !== n) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: b.tingkat.filter((y) => y !== n), penempatan: (b.penempatan || []).filter((p) => p.tingkat !== n) })) }));
   };
   // Tingkat baru belum punya mapel/kitab: salin cakupan dari tingkat lain agar tidak mencentang satu per satu.
   const salinCakupan = (k) => {
@@ -1664,6 +1729,53 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     toast(`Mapel dan kitab milik ${dari} ditambahkan juga ke ${n}. Tekan Simpan agar berlaku.`);
   };
 
+  // Sistem ujian. ID sistem dan kode periode dibuat otomatis dan tetap (dipakai soal); yang diubah admin adalah nama/label.
+  const kodeBaru = (awal) => { const pakai = new Set([...d.sistemUjian.map((x) => x.id), ...d.sistemUjian.flatMap((x) => x.periode.map((y) => y.kode))]); let k; do { k = awal + Math.random().toString(36).slice(2, 8); } while (pakai.has(k)); return k; };
+  const setS = (k, patch) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === k ? { ...y, ...patch } : y)) }));
+  const tambahS = () => setD((x) => ({ ...x, sistemUjian: [...x.sistemUjian, { id: kodeBaru('s'), label: '', baru: true, _k: ++seq.current, periode: [{ kode: kodeBaru('p'), label: '', baru: true, _k: ++seq.current }] }] }));
+  const hapusS = (k) => {
+    const sis = d.sistemUjian.find((y) => y._k === k); if (!sis) return;
+    if (d.sistemUjian.length <= 1) { toast('Minimal satu sistem ujian harus ada.'); return; }
+    if (d.tingkat.some((t) => (t.sistemUjian || d.sistemUjian[0].id) === sis.id)) { toast('Sistem ujian ini masih dipakai tingkat. Pindahkan tingkatnya ke sistem lain dulu.'); return; }
+    setD((x) => ({ ...x, sistemUjian: x.sistemUjian.filter((y) => y._k !== k) }));
+  };
+  const tambahP = (ks) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks && y.periode.length < 6 ? { ...y, periode: [...y.periode, { kode: kodeBaru('p'), label: '', baru: true, _k: ++seq.current }] } : y)) }));
+  const setP = (ks, kp, patch) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks ? { ...y, periode: y.periode.map((z) => (z._k === kp ? { ...z, ...patch } : z)) } : y)) }));
+  const geserP = (ks, kp, arah) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => {
+    if (y._k !== ks) return y;
+    const i = y.periode.findIndex((z) => z._k === kp); const j = i + arah; if (i < 0 || j < 0 || j >= y.periode.length) return y;
+    const l = [...y.periode]; [l[i], l[j]] = [l[j], l[i]]; return { ...y, periode: l };
+  }) }));
+  const hapusP = (ks, kp) => {
+    const sis = d.sistemUjian.find((y) => y._k === ks); const per = sis && sis.periode.find((z) => z._k === kp); if (!per) return;
+    if (sis.periode.length <= 1) { toast('Satu sistem ujian minimal punya satu periode.'); return; }
+    if (!per.baru && !window.confirm(`Hapus periode \"${per.label || per.kode}\"? Pemetaan kitab ke periode ini ikut dibuang. Soal lama tetap menyimpan periodenya, tetapi namanya tidak tampil lagi. Mengganti nama biasanya lebih aman.`)) return;
+    setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks ? { ...y, periode: y.periode.filter((z) => z._k !== kp) } : y)),
+      kitab: x.kitab.map((b) => ({ ...b, penempatan: (b.penempatan || []).map((p) => ({ ...p, periode: p.periode.filter((z) => z.kode !== per.kode) })) })) }));
+  };
+  // Penempatan kitab ke kelas dan periode. Kelas tanpa daftar periode = semua periode (bentuk lama); di sini kelas yang dicentang selalu memuat daftar periode eksplisit.
+  const periodeTingkat = (t) => { const sis = d.sistemUjian.find((y) => y.id === t.sistemUjian) || d.sistemUjian[0]; return sis ? sis.periode : []; };
+  const ubahPen = (kk, tn, fn) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === kk ? { ...b, penempatan: fn((b.penempatan || []).filter((p) => p.tingkat === tn)).concat((b.penempatan || []).filter((p) => p.tingkat !== tn)) } : b)) }));
+  const semuaPeriode = (t) => periodeTingkat(t).map((y) => ({ kode: y.kode, cakupan: '' }));
+  const toggleKelas = (kk, t, kelas, on) => ubahPen(kk, rapikan(t.nama), (pet) => (on ? [...pet.filter((p) => p.kelas !== kelas), { tingkat: rapikan(t.nama), kelas, periode: semuaPeriode(t) }] : pet.filter((p) => p.kelas !== kelas)));
+  const semuaKelas = (kk, t) => ubahPen(kk, rapikan(t.nama), (pet) => kelasDari(t).map((kls) => pet.find((p) => p.kelas === kls) || { tingkat: rapikan(t.nama), kelas: kls, periode: semuaPeriode(t) }));
+  const kosongkanPen = (kk, t) => ubahPen(kk, rapikan(t.nama), () => []);
+  const aktifPeriode = (p, kode) => p.periode.length === 0 || p.periode.some((y) => y.kode === kode);
+  const togglePeriode = (kk, t, kelas, kode) => {
+    const urut = periodeTingkat(t).map((y) => y.kode); let ditolak = false;
+    ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => {
+      if (p.kelas !== kelas) return p;
+      const dasar = p.periode.length ? p.periode : semuaPeriode(t);
+      const ada = dasar.some((y) => y.kode === kode);
+      const next = ada ? dasar.filter((y) => y.kode !== kode) : [...dasar, { kode, cakupan: '' }];
+      if (!next.length) { ditolak = true; return p; }
+      return { ...p, periode: next.sort((a, b) => urut.indexOf(a.kode) - urut.indexOf(b.kode)) };
+    }));
+    if (ditolak) toast('Minimal satu periode. Hapus centang kelas bila kitab tidak dipakai di kelas ini.');
+  };
+  const setCakupan = (kk, t, kelas, kode, v) => ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => (p.kelas === kelas ? { ...p, periode: (p.periode.length ? p.periode : semuaPeriode(t)).map((y) => (y.kode === kode ? { ...y, cakupan: v } : y)) } : p)));
+  const [bukaPeta, setBukaPeta] = useState({}); // kitab yang editor penempatannya sedang dibuka (dirender hanya bila dibuka, supaya katalog besar tetap ringan)
+
   const setM = (k, patch) => setD((x) => {
     const lama = x.mapel.find((m) => m._k === k);
     const ganti = patch.nama !== undefined && lama ? lama.nama : null; // mengganti nama mapel ikut mengubah kitab yang menunjuk ke nama lama
@@ -1673,7 +1785,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current }] }));
   const setK = (k, patch) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === k ? { ...b, ...patch } : b)) }));
   const hapusK = (k) => setD((x) => ({ ...x, kitab: x.kitab.filter((b) => b._k !== k) }));
-  const kitabBaru = (o = {}) => ({ nama: '', namaArab: '', pengarang: '', pengarangArab: '', mapel: '', tautan: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current, ...o });
+  const kitabBaru = (o = {}) => ({ nama: '', namaArab: '', pengarang: '', pengarangArab: '', mapel: '', tautan: '', tingkat: [...namaTingkat], penempatan: [], aktif: true, _k: ++seq.current, ...o });
   const tambahK = () => { setCari(''); setD((x) => ({ ...x, kitab: [kitabBaru({ mapel: (x.mapel[0] || {}).nama || '' }), ...x.kitab] })); };
   const tambahMassal = () => {
     const ada = new Set(d.kitab.map((b) => b.nama.toLowerCase())); let baru = 0; let lewat = 0; const isi = [];
@@ -1695,7 +1807,7 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
     catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
   const pulihkan = async () => {
-    if (!window.confirm('Pulihkan tingkatan, mata pelajaran, dan katalog kitab ke bawaan aplikasi? Perubahan Anda akan hilang. Soal yang sudah tersimpan tidak terpengaruh.')) return;
+    if (!window.confirm('Pulihkan tingkatan, kelas, sistem ujian, mata pelajaran, dan katalog kitab (termasuk pemetaan kelas) ke bawaan aplikasi? Perubahan Anda akan hilang. Soal yang sudah tersimpan tidak terpengaruh.')) return;
     setBusy('reset'); setErr(null);
     try { const r = await callApi('/api/app-config', { aksi: 'reset' }); onSaved(r); toast('Konfigurasi dipulihkan ke bawaan.'); }
     catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
@@ -1713,7 +1825,9 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
           <li>Tingkatan bisa ditambah, diurutkan, dinonaktifkan, atau dihapus. <b>Kunci</b> tingkat dipakai pada setiap soal, jadi tidak bisa diubah setelah disimpan; yang bisa diubah kapan saja adalah label, singkatan, label Arab, dan kelas.</li>
           <li>Tingkat baru belum punya mapel dan kitab: pakai tombol <b>Salin mapel &amp; kitab dari…</b> atau centang per mapel/kitab di bawah.</li>
           <li>Mengganti nama mapel tidak mengubah soal lama. Soal lama tetap muncul di filter dengan nama lamanya.</li>
-          <li>Kelas hanya tampil sebagai keterangan di form; tidak disimpan pada soal.</li>
+          <li><b>Kelas</b> adalah turunan tingkat. Kelas dipakai di form soal (tersimpan pada soal), filter, dan pemetaan kitab. Mengganti nama kelas memutus pemetaan kitab lama ke kelas itu; pemetaannya perlu diatur ulang.</li>
+          <li><b>Sistem ujian</b>: tiap tingkat memakai satu sistem (bawaan: Semester 4 ujian dan Catur Wulan 3 ujian). Nama sistem dan nama tiap ujian bebas diubah, ditambah, atau diurutkan ulang. Soal menyimpan kode periodenya, jadi mengganti nama tidak memutus soal lama.</li>
+          <li><b>Pemetaan kitab</b>: pada tiap kitab, buka <i>Kelas &amp; ujian</i> untuk menentukan kitab itu dipakai di kelas dan periode ujian mana. Kitab tanpa pemetaan berlaku untuk semua kelas dan periode di tingkatnya.</li>
           <li>Nama Arab kitab dan pengarang tampil di pilihan kitab, daftar soal, dan ekspor (DOCX/CSV). Tulis dengan huruf Arab; harakat boleh.</li>
           <li>Daftar kitab dan nama Arab bawaan adalah usulan. Periksa bersama ustadz atau guru mapel.</li>
         </ul>
@@ -1733,7 +1847,11 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
                 <div className="sm:col-span-4"><Label htmlFor={'tl-' + t._k}>Label</Label><input id={'tl-' + t._k} className="field" maxLength={40} placeholder="Nama yang tampil" value={t.label} onChange={(e) => setT(t._k, { label: e.target.value })} /></div>
                 <div className="sm:col-span-3"><Label htmlFor={'ta-' + t._k} hint="(Arab)">Label Arab</Label><input id={'ta-' + t._k} dir="rtl" lang="ar" className="field ar-input" maxLength={40} placeholder="المرحلة" value={t.labelArab} onChange={(e) => setT(t._k, { labelArab: e.target.value })} /></div>
                 <div className="sm:col-span-2"><Label htmlFor={'ts-' + t._k}>Singkatan</Label><input id={'ts-' + t._k} className="field" maxLength={10} value={t.singkat} onChange={(e) => setT(t._k, { singkat: e.target.value })} /></div>
-                <div className="sm:col-span-12"><Label htmlFor={'tk-' + t._k} hint="(turunan tingkat, pisahkan koma; maks. 12)">Kelas</Label><input id={'tk-' + t._k} className="field" placeholder="mis. X, XI, XII" value={t.kelasTeks} onChange={(e) => setT(t._k, { kelasTeks: e.target.value })} /></div>
+                <div className="sm:col-span-8"><Label htmlFor={'tk-' + t._k} hint="(turunan tingkat, pisahkan koma; maks. 12)">Kelas</Label><input id={'tk-' + t._k} className="field" placeholder="mis. X, XI, XII" value={t.kelasTeks} onChange={(e) => setT(t._k, { kelasTeks: e.target.value })} /></div>
+                <div className="sm:col-span-4"><Label htmlFor={'tu-' + t._k}>Sistem ujian</Label>
+                  <select id={'tu-' + t._k} className="field" value={t.sistemUjian || (d.sistemUjian[0] || {}).id || ''} onChange={(e) => { setT(t._k, { sistemUjian: e.target.value }); if (!t.baru) toast('Sistem ujian diganti: pembagian periode kitab di tingkat ini dikosongkan (pemetaan kelas tetap). Tekan Simpan agar berlaku.'); }}>
+                    {d.sistemUjian.map((y) => <option key={y._k} value={y.id}>{y.label || '(sistem baru)'} · {y.periode.length} ujian</option>)}
+                  </select></div>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <AktifCek checked={t.aktif} onChange={(v) => setT(t._k, { aktif: v })} />
@@ -1752,6 +1870,35 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
               </div>
             </div>
           ))}
+        </div>
+      </Section>
+
+      <Section title={`Sistem Ujian (${d.sistemUjian.length})`} icon={ClipboardCheck} action={<Btn kind="soft" onClick={tambahS} disabled={d.sistemUjian.length >= 4}>Tambah sistem</Btn>}>
+        <div className="space-y-3">
+          {d.sistemUjian.map((sis) => {
+            const dipakai = d.tingkat.filter((t) => rapikan(t.nama) && (t.sistemUjian || d.sistemUjian[0].id) === sis.id).map((t) => t.singkat || t.label || t.nama);
+            return (
+              <div key={sis._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[200px] flex-1"><Label htmlFor={'su-' + sis._k} hint="(mis. Semester, Catur Wulan)">Nama sistem</Label><input id={'su-' + sis._k} className="field" maxLength={40} placeholder="Nama sistem ujian" value={sis.label} onChange={(e) => setS(sis._k, { label: e.target.value })} /></div>
+                  <p className="pb-2 text-xs text-mute">{dipakai.length ? `Dipakai: ${dipakai.join(', ')}` : 'Belum dipakai tingkat mana pun'}</p>
+                  <button type="button" aria-label={'Hapus sistem ' + (sis.label || 'ujian')} className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={d.sistemUjian.length <= 1} onClick={() => hapusS(sis._k)}><Trash2 size={16} /></button>
+                </div>
+                <ol className="space-y-1.5">
+                  {sis.periode.map((per, i) => (
+                    <li key={per._k} className="flex items-center gap-2">
+                      <span className="w-6 text-right text-xs font-semibold text-mute">{i + 1}.</span>
+                      <input aria-label={`Nama ujian ke-${i + 1} sistem ${sis.label || 'baru'}`} className="field min-w-0 flex-1" maxLength={60} placeholder="mis. UTS Semester 1 (Ganjil)" value={per.label} onChange={(e) => setP(sis._k, per._k, { label: e.target.value })} />
+                      <button type="button" aria-label="Naikkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === 0} onClick={() => geserP(sis._k, per._k, -1)}>↑</button>
+                      <button type="button" aria-label="Turunkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === sis.periode.length - 1} onClick={() => geserP(sis._k, per._k, 1)}>↓</button>
+                      <button type="button" aria-label={'Hapus ' + (per.label || 'periode')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusP(sis._k, per._k)}><Trash2 size={16} /></button>
+                    </li>
+                  ))}
+                </ol>
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => tambahP(sis._k)} disabled={sis.periode.length >= 6}>Tambah ujian ({sis.periode.length}/6)</Btn>
+              </div>
+            );
+          })}
         </div>
       </Section>
 
@@ -1789,6 +1936,62 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
                   <TingkatChecks daftar={d.tingkat} value={b.tingkat} onChange={(v) => setK(b._k, { tingkat: v })} />
                   <AktifCek checked={b.aktif} onChange={(v) => setK(b._k, { aktif: v })} />
                   <button type="button" aria-label={'Hapus ' + (b.nama || 'kitab')} className="ml-auto rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusK(b._k)}><Trash2 size={16} /></button>
+                </div>
+                <div className="rounded-lg bg-soft p-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-0.5 text-xs text-soft-ink">
+                      <p className="font-semibold">Kelas &amp; ujian</p>
+                      {Uj.ringkasPenempatan(cur, b).map((r, i) => <p key={i} className="break-words">{r}</p>)}
+                      {Uj.penempatanYatim(cur, b).length > 0 && <p className="font-semibold text-warn">{Uj.penempatanYatim(cur, b).length} pemetaan merujuk kelas atau ujian yang sudah tidak ada; akan dibuang saat disimpan.</p>}
+                    </div>
+                    <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => setBukaPeta((x) => ({ ...x, [b._k]: !x[b._k] }))} disabled={!b.tingkat.length}>{bukaPeta[b._k] ? 'Tutup' : 'Atur kelas & ujian'}</Btn>
+                  </div>
+                  {bukaPeta[b._k] && (
+                    <div className="mt-3 space-y-3">
+                      {d.tingkat.filter((t) => rapikan(t.nama) && b.tingkat.includes(rapikan(t.nama))).map((t) => {
+                        const n = rapikan(t.nama); const kls = kelasDari(t); const per = periodeTingkat(t); const pet = (b.penempatan || []).filter((p) => p.tingkat === n);
+                        return (
+                          <div key={t._k} className="space-y-2 rounded-lg border border-line bg-surface p-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-xs font-bold">{t.label || t.nama}</p>
+                              <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => semuaKelas(b._k, t)} disabled={!kls.length}>Centang semua kelas</Btn>
+                              <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => kosongkanPen(b._k, t)} disabled={!pet.length}>Kosongkan (berlaku semua)</Btn>
+                            </div>
+                            {!kls.length && <p className="text-xs text-mute">Tingkat ini belum punya kelas. Isi kolom Kelas pada Tingkatan di atas.</p>}
+                            {!pet.length && kls.length > 0 && <p className="text-xs text-mute">Belum ada kelas dicentang: kitab berlaku untuk semua kelas dan ujian tingkat ini.</p>}
+                            {kls.map((k) => {
+                              const p = pet.find((x) => x.kelas === k); const terisi = p ? p.periode.filter((y) => y.cakupan).length : 0;
+                              return (
+                                <div key={k} className="space-y-1.5 border-t border-line pt-2 first:border-t-0 first:pt-0">
+                                  <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={!!p} onChange={(e) => toggleKelas(b._k, t, k, e.target.checked)} />Kelas {k}</label>
+                                  {p && (
+                                    <div className="space-y-1.5 pl-6">
+                                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                        {per.map((y) => (
+                                          <label key={y.kode} className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={aktifPeriode(p, y.kode)} onChange={() => togglePeriode(b._k, t, k, y.kode)} />{y.label || '(tanpa nama)'}</label>
+                                        ))}
+                                      </div>
+                                      <details>
+                                        <summary className="cursor-pointer text-xs font-semibold text-soft-ink">Cakupan materi per ujian (opsional){terisi ? ` · ${terisi} terisi` : ''}</summary>
+                                        <div className="mt-1.5 space-y-1.5">
+                                          {per.filter((y) => aktifPeriode(p, y.kode)).map((y) => (
+                                            <div key={y.kode} className="flex flex-wrap items-center gap-2">
+                                              <span className="w-full text-xs text-mute sm:w-56">{y.label || '(tanpa nama)'}</span>
+                                              <input aria-label={`Cakupan ${b.nama || 'kitab'} kelas ${k} ${y.label}`} className="field min-w-0 flex-1 !py-1.5" maxLength={120} placeholder="mis. Kitab Thaharah, bab wudhu sampai tayammum" value={((p.periode.find((z) => z.kode === y.kode) || {}).cakupan) || ''} onChange={(e) => setCakupan(b._k, t, k, y.kode, e.target.value)} />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </details>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -2324,7 +2527,12 @@ function App({ user, profile }) {
     if (K && form.teks && form.pembahasan) { try { v = K.periksaKutipan(K.bidangDariSoal(form), form.teks).status; } catch (e) { v = ''; } }
     return { dibuat: !!a.dibuat, model: String(a.model || '').slice(0, 60), verifikasi: v, buta: a.buta || '' };
   };
-  const content = () => ({ ...Object.fromEntries(FIELDS.map((k) => [k, form[k]])), ai: aiMeta() });
+  const content = () => {
+    const c = Object.fromEntries(FIELDS.map((k) => [k, form[k]]));
+    const lama = editingId ? (qs.find((x) => x.id === editingId) || {}) : {};
+    for (const k of ['kelas', 'periode']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
+    return { ...c, ai: aiMeta() };
+  };
   // Hapus form dan semua draf terkait (dipanggil setelah berhasil disimpan ke server, atau saat pengguna mengosongkan form).
   const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
   const commit = async (status) => {
@@ -2603,7 +2811,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
   };
   const pulihkan = () => jalan('pulih', async () => {
     if (!pilih) return;
-    if (!window.confirm(`Pulihkan ${pilih.soal.length} soal${pulihKitab ? ' dan katalog kitab (menimpa katalog saat ini)' : ''} dari "${pilih.nama}"?\n\n` + (mode === 'timpa' ? 'Soal dengan ID yang sama akan DITIMPA isi cadangan.' : 'Soal yang sudah ada dibiarkan.'))) return;
+    if (!window.confirm(`Pulihkan ${pilih.soal.length} soal${pulihKitab ? ' dan katalog kitab beserta kelas dan sistem ujian (menimpa pengaturan saat ini)' : ''} dari "${pilih.nama}"?\n\n` + (mode === 'timpa' ? 'Soal dengan ID yang sama akan DITIMPA isi cadangan.' : 'Soal yang sudah ada dibiarkan.'))) return;
     const tot = { ditulis: 0, dilewati: 0, ditolak: [] }; let n = 0;
     for (const b of Drv.potong(pilih.soal, 100)) {
       setStatus(`Memulihkan soal: ${n} / ${pilih.soal.length}...`);
@@ -2696,7 +2904,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
             </div>
             <label className="flex items-start gap-2 self-end text-sm">
               <input type="checkbox" checked={pulihKitab} disabled={!pilih.konfigurasi} onChange={(e) => setPulihKitab(e.target.checked)} className="mt-1" />
-              <span>Pulihkan juga katalog kitab, mapel, dan tingkat <span className="text-mute">(menimpa pengaturan saat ini{pilih.konfigurasi ? '' : '; cadangan ini tidak memuatnya'})</span></span>
+              <span>Pulihkan juga katalog kitab, mapel, tingkat, kelas, dan sistem ujian <span className="text-mute">(menimpa pengaturan saat ini{pilih.konfigurasi ? '' : '; cadangan ini tidak memuatnya'})</span></span>
             </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">

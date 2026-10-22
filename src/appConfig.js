@@ -1,19 +1,23 @@
-// Konfigurasi aplikasi yang bisa diubah admin dari menu "Konfigurasi": tingkatan, mata pelajaran, dan katalog kitab.
+// Konfigurasi aplikasi yang bisa diubah admin dari menu "Konfigurasi": tingkatan, kelas, sistem ujian, mata pelajaran, dan katalog kitab.
 // Disimpan di Firestore config/app (klien tidak boleh membaca langsung; lihat firestore.rules). Klien membacanya lewat /api/app-config.
 // Urutan prioritas: pengaturan admin -> bawaan kode (DEFAULT_APP_CONFIG di bawah).
 //
 // Catatan desain: tingkatan dan turunannya (kelas) sepenuhnya bisa diatur admin: tambah, ubah label, urutkan, nonaktifkan, hapus.
 // Field `nama` pada tingkat adalah KUNCI yang disimpan di setiap soal (soal.tingkat), jadi tidak diubah setelah dibuat; yang diubah
 // admin adalah `label` (tampilan). Tiga tingkat bawaan memakai kunci lama (Ibtidaiyah, Tsanawiyah, Aliyah) agar soal lama tetap cocok.
+// Kelas (versi 3): kelas adalah data tersendiri milik tingkat, dipakai soal (soal.kelas) dan penempatan kitab. Sistem ujian (semester 4 kali atau
+// catur wulan 3 kali, nama dan periodenya bisa diubah) dipilih per tingkat; kode periode (soal.periode) bersifat tetap, labelnya boleh diganti.
+// Penempatan kitab (kitab.penempatan) menentukan kitab itu dipakai di kelas dan periode ujian mana; aturannya ada di public/ujian.js.
 // Nama Arab: kitab punya `namaArab` dan `pengarangArab`; tingkat punya `labelArab`. Semuanya opsional dan harus berisi huruf Arab.
 import { ApiError, cleanLine, daftarkanTingkat } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { DEFAULT_HOSTS, hostAllowed, normalisasiUrl } from './kitabFetch.js';
+import { BATAS_UJIAN, KODE_OK, DEFAULT_SISTEM_UJIAN } from './ujian.js';
 
 export const TINGKAT_NAMA = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah']; // kunci tingkat bawaan (dipakai soal lama)
 const DOC = 'config/app';
 const TTL_MS = 60_000;
-export const BATAS = { mapel: 60, kitab: 400, kelas: 12, tingkat: 8, namaTingkat: 40 };
+export const BATAS = { mapel: 60, kitab: 400, kelas: 12, tingkat: 8, namaTingkat: 40, namaKelas: 20, ukuranByte: 800_000 }; // ukuranByte: jauh di bawah batas dokumen Firestore 1 MiB
 // Huruf Arab (termasuk Arabic Supplement dan bentuk presentasi) untuk memvalidasi isian nama Arab.
 const HURUF_ARAB = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 
@@ -77,14 +81,16 @@ const ARAB = {
   'Jauhar al-Maknun': ['الجوهر المكنون', 'عبد الرحمن الأخضري'],
   'As-Sullam al-Munawraq': ['السلم المنورق', 'عبد الرحمن الأخضري'],
 };
-const KA = (k) => { const [namaArab = '', pengarangArab = ''] = ARAB[k.nama] || []; return { ...k, namaArab, pengarangArab }; };
+const KA = (k) => { const [namaArab = '', pengarangArab = ''] = ARAB[k.nama] || []; return { ...k, namaArab, pengarangArab, penempatan: [] }; };
 
 export const DEFAULT_APP_CONFIG = {
-  versi: 2,
+  versi: 3,
+  // Sistem ujian bawaan: semester (4 ujian) dan catur wulan (3 ujian). Tiap tingkat memilih salah satu; nama dan periodenya bisa diubah.
+  sistemUjian: DEFAULT_SISTEM_UJIAN.map((s) => ({ ...s, periode: s.periode.map((p) => ({ ...p })) })),
   tingkat: [
-    { nama: MI, label: 'Ibtidaiyah (MI)', labelArab: 'المدرسة الابتدائية', singkat: 'MI', kelas: ['I', 'II', 'III', 'IV', 'V', 'VI'], aktif: true },
-    { nama: MTS, label: 'Tsanawiyah (MTs)', labelArab: 'المدرسة الثانوية', singkat: 'MTs', kelas: ['VII', 'VIII', 'IX'], aktif: true },
-    { nama: MA, label: 'Aliyah (MA)', labelArab: 'المدرسة العالية', singkat: 'MA', kelas: ['X', 'XI', 'XII'], aktif: true },
+    { nama: MI, label: 'Ibtidaiyah (MI)', labelArab: 'المدرسة الابتدائية', singkat: 'MI', kelas: ['I', 'II', 'III', 'IV', 'V', 'VI'], sistemUjian: 'semester', aktif: true },
+    { nama: MTS, label: 'Tsanawiyah (MTs)', labelArab: 'المدرسة الثانوية', singkat: 'MTs', kelas: ['VII', 'VIII', 'IX'], sistemUjian: 'semester', aktif: true },
+    { nama: MA, label: 'Aliyah (MA)', labelArab: 'المدرسة العالية', singkat: 'MA', kelas: ['X', 'XI', 'XII'], sistemUjian: 'semester', aktif: true },
   ],
   mapel: [
     M('Fiqih'), M('Akidah'), M('Akhlak'), M('Tarikh (SKI)'), M("Qur'an Hadits"), M('Bahasa Arab'), M('Tajwid'),
@@ -164,6 +170,64 @@ const teksArab = (raw, max, konteks) => {
 };
 const arabSerupa = (k) => (k || '').normalize('NFKC');
 
+/** Sistem ujian: 1-4 sistem, tiap sistem 1-6 periode berurutan. ID sistem dan kode periode bersifat tetap (dipakai soal), label bebas. Kosong -> bawaan. */
+export function sanitizeSistemUjian(raw) {
+  const list = arr(raw).filter((x) => x && typeof x === 'object');
+  if (!list.length) return salin(DEFAULT_SISTEM_UJIAN);
+  if (list.length > BATAS_UJIAN.sistem) throw bad(`Sistem ujian maksimal ${BATAS_UJIAN.sistem}.`);
+  const ids = new Set(); const kodeSemua = new Set();
+  return list.map((s) => {
+    const id = cleanLine(s.id, BATAS_UJIAN.kode).toLowerCase();
+    if (!KODE_OK.test(id)) throw bad(`ID sistem ujian \"${id}\" tidak valid (huruf kecil, angka, tanda hubung; maks. ${BATAS_UJIAN.kode} karakter).`);
+    if (ids.has(id)) throw bad(`Sistem ujian \"${id}\" tercatat dua kali.`);
+    ids.add(id);
+    const label = cleanLine(s.label, BATAS_UJIAN.labelSistem);
+    if (!label) throw bad(`Sistem ujian \"${id}\" belum diberi nama.`);
+    const per = arr(s.periode).filter((x) => x && typeof x === 'object');
+    if (!per.length) throw bad(`Sistem ujian \"${label}\" minimal punya satu periode ujian.`);
+    if (per.length > BATAS_UJIAN.periode) throw bad(`Sistem ujian \"${label}\" maksimal ${BATAS_UJIAN.periode} periode.`);
+    const periode = per.map((p) => {
+      const kode = cleanLine(p.kode, BATAS_UJIAN.kode).toLowerCase();
+      if (!KODE_OK.test(kode)) throw bad(`Kode periode \"${kode}\" pada sistem \"${label}\" tidak valid (huruf kecil, angka, tanda hubung).`);
+      if (kodeSemua.has(kode)) throw bad(`Kode periode \"${kode}\" dipakai dua kali. Setiap kode harus unik di seluruh sistem ujian.`);
+      kodeSemua.add(kode);
+      const pl = cleanLine(p.label, BATAS_UJIAN.labelPeriode);
+      if (!pl) throw bad(`Ada periode ujian tanpa nama pada sistem \"${label}\".`);
+      return { kode, label: pl };
+    });
+    return { id, label, periode };
+  });
+}
+
+/**
+ * Penempatan kitab: kelas dan periode ujian tempat kitab dipakai. Rujukan yang sudah tidak ada (tingkat dihapus, kelas diganti nama, periode dihapus)
+ * dibuang diam-diam, sama seperti rujukan tingkat pada mapel dan kitab. Hasil berurutan mengikuti urutan tingkat, kelas, dan periode di konfigurasi.
+ */
+export function sanitizePenempatan(raw, tingkatKitab, tingkatList, sistemList) {
+  const pen = []; const dilihat = new Set();
+  for (const p of arr(raw)) {
+    if (!p || typeof p !== 'object') continue;
+    const tn = cleanLine(p.tingkat, BATAS.namaTingkat); const kelas = cleanLine(p.kelas, BATAS.namaKelas);
+    const t = tingkatList.find((x) => x.nama === tn);
+    if (!t || !tingkatKitab.includes(tn) || !t.kelas.includes(kelas)) continue;
+    const kunci = `${tn}\u0000${kelas}`; if (dilihat.has(kunci)) continue; dilihat.add(kunci);
+    const urutan = (sistemList.find((s) => s.id === t.sistemUjian) || sistemList[0]).periode.map((x) => x.kode);
+    const kodeLihat = new Set(); const periode = [];
+    for (const x of arr(p.periode)) {
+      const kode = cleanLine(typeof x === 'string' ? x : x && x.kode, BATAS_UJIAN.kode).toLowerCase();
+      if (!urutan.includes(kode) || kodeLihat.has(kode)) continue;
+      kodeLihat.add(kode);
+      periode.push({ kode, cakupan: typeof x === 'object' ? cleanLine(x.cakupan, BATAS_UJIAN.cakupan) : '' });
+    }
+    periode.sort((a, b) => urutan.indexOf(a.kode) - urutan.indexOf(b.kode));
+    pen.push({ tingkat: tn, kelas, periode });
+  }
+  const ti = (n) => tingkatList.findIndex((x) => x.nama === n);
+  pen.sort((a, b) => ti(a.tingkat) - ti(b.tingkat) || tingkatList[ti(a.tingkat)].kelas.indexOf(a.kelas) - tingkatList[ti(a.tingkat)].kelas.indexOf(b.kelas));
+  if (pen.length > BATAS_UJIAN.penempatan) throw bad(`Penempatan satu kitab maksimal ${BATAS_UJIAN.penempatan} kelas.`);
+  return pen;
+}
+
 /** Logika murni: periksa dan bersihkan konfigurasi dari klien. Melempar ApiError 422 berisi pesan yang menunjuk bagian yang salah. */
 export function sanitizeAppConfig(input) {
   if (!input || typeof input !== 'object') throw bad('Isi konfigurasi tidak valid.');
@@ -171,6 +235,8 @@ export function sanitizeAppConfig(input) {
   // Tingkatan: daftar bebas (maks. BATAS.tingkat), urutan mengikuti masukan. Tanpa daftar sama sekali -> bawaan.
   const tingkatIn = arr(input.tingkat).filter((x) => x && typeof x === 'object');
   if (tingkatIn.length > BATAS.tingkat) throw bad(`Tingkatan maksimal ${BATAS.tingkat}.`);
+  const sistemUjian = sanitizeSistemUjian(input.sistemUjian);
+  const sistemId = new Set(sistemUjian.map((x) => x.id));
   const tdilihat = new Set();
   const tingkat = (tingkatIn.length ? tingkatIn : DEFAULT_APP_CONFIG.tingkat).map((t) => {
     const nama = cleanLine(t.nama, BATAS.namaTingkat);
@@ -182,12 +248,16 @@ export function sanitizeAppConfig(input) {
     for (const k of arr(t.kelas)) { const v = cleanLine(k, 20); if (v && !kelas.some((x) => x.toLowerCase() === v.toLowerCase())) kelas.push(v); }
     if (kelas.length > BATAS.kelas) throw bad(`Kelas untuk ${nama} maksimal ${BATAS.kelas}.`);
     const label = cleanLine(t.label, BATAS.namaTingkat) || (bawaan ? bawaan.label : nama);
+    const sistemIn = cleanLine(t.sistemUjian, BATAS_UJIAN.kode).toLowerCase();
+    if (sistemIn && !sistemId.has(sistemIn)) throw bad(`Tingkat \"${label}\" memakai sistem ujian \"${sistemIn}\" yang tidak ada. Pilih sistem ujian lain.`);
+    const sistemDipilih = sistemIn || sistemUjian[0].id;
     return {
       nama,
       label,
       labelArab: teksArab(t.labelArab, BATAS.namaTingkat, `Label Arab tingkat ${label}`),
       singkat: cleanLine(t.singkat, 10) || (bawaan ? bawaan.singkat : ''),
       kelas,
+      sistemUjian: sistemDipilih,
       aktif: t.aktif !== false,
     };
   });
@@ -231,11 +301,17 @@ export function sanitizeAppConfig(input) {
       mapel: cleanLine(k.mapel, BATAS.mapel),
       tautan: tautanAman(k.tautan),
       tingkat: tk.length ? tk : [...semuaNama],
+      penempatan: [],
       aktif: k.aktif !== false,
     };
   });
+  // Penempatan butuh tingkat (beserta kelas dan sistem ujiannya) yang sudah bersih, jadi dihitung sesudah kitab.
+  kitab.forEach((b, i) => { b.penempatan = sanitizePenempatan(kitabIn[i] && kitabIn[i].penempatan, b.tingkat, tingkat, sistemUjian); });
 
-  return { versi: 2, tingkat, mapel, kitab };
+  const hasil = { versi: 3, sistemUjian, tingkat, mapel, kitab };
+  // config/app satu dokumen Firestore (maks. 1 MiB). Pemetaan kelas dan cakupan materi bisa membuatnya membengkak; tolak dengan pesan jelas, bukan galat 500 saat menulis.
+  if (Buffer.byteLength(JSON.stringify(hasil), 'utf8') > BATAS.ukuranByte) throw bad('Konfigurasi terlalu besar untuk disimpan. Kurangi cakupan materi, pemetaan kelas, atau jumlah kitab.');
+  return hasil;
 }
 
 /** Logika murni: dokumen Firestore -> konfigurasi aktif. Dokumen rusak/kosong jatuh ke bawaan agar aplikasi tidak pernah macet. */

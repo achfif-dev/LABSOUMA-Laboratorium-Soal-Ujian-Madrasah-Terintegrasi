@@ -33,6 +33,8 @@ service cloud.firestore {
         return d().tingkat is string && d().tingkat.size() > 0 && d().tingkat.size() <= 40
           && d().level in ['L1', 'L2', 'L3']
           && d().mapel is string && d().mapel.size() <= 60
+          && (!('kelas' in d()) || (d().kelas is string && d().kelas.size() <= 20))
+          && (!('periode' in d()) || (d().periode is string && d().periode.size() <= 20))
           && d().nama is string && d().nama.size() <= 120
           && d().juz is string && d().juz.size() <= 20
           && d().hal is string && d().hal.size() <= 20
@@ -87,6 +89,8 @@ service cloud.firestore {
         return ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                 'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai', 'updatedAt'];
       }
+      // Kelas dan kode periode ujian: OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap).
+      function opsiKeys() { return ['kelas', 'periode']; }
       function reviewKeys() {
         return ['status', 'catatan', 'reviewerUid', 'reviewerName', 'reviewedAt', 'updatedAt'];
       }
@@ -94,7 +98,7 @@ service cloud.firestore {
       allow read: if isStaff();
 
       allow create: if isStaff()
-        && d().keys().hasOnly(createKeys())
+        && d().keys().hasOnly(createKeys().concat(opsiKeys()))
         && d().keys().hasAll(createKeys())
         && d().authorUid == request.auth.uid
         && d().authorName is string && d().authorName.size() <= 120
@@ -109,7 +113,7 @@ service cloud.firestore {
         ( resource.data.authorUid == request.auth.uid
           && resource.data.status in ['draft', 'revision']
           && d().status in ['draft', 'pending']
-          && changed().hasOnly(authorKeys())
+          && changed().hasOnly(authorKeys().concat(opsiKeys()))
           && validContent() )
         ||
         // 2) Editor/admin menyetujui atau meminta revisi soal pending.
@@ -130,7 +134,7 @@ service cloud.firestore {
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                               'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
-                              'reviewerUid', 'reviewerName', 'reviewedAt'])
+                              'reviewerUid', 'reviewerName', 'reviewedAt', 'kelas', 'periode'])
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']

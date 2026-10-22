@@ -178,3 +178,48 @@ Keluhan: isian form soal yang belum disimpan hilang saat halaman dimuat ulang, b
 **Tidak diubah (belum terbukti):** font `Traditional Arabic` (bawaan Office Windows; di Android atau macOS akan diganti, cakupan huruf Pegon tidak bisa diverifikasi di sandbox), dan keluhan "tidak bisa diedit": XML tidak memuat pengaman dokumen, jadi dugaan utama adalah Protected View atau aplikasi penampil. Perlu info aplikasi dan perangkat pembuka file.
 
 **Diuji:** 147 tes lulus; DOCX mode `pegon`, `pegonlatin`, `daftar`, `kartu` dibangun dengan kode `index.html` yang sebenarnya; XML diperiksa (komentar, tidak ada teks HTML bocor, angka utuh); render LibreOffice. **Belum diuji:** pustaka `docx@8.5.0` dari CDN (sandbox tanpa internet; kode memakai pemeriksaan keberadaan API komentar), dan pembukaan di Word/WPS/Google Docs sungguhan.
+
+## 13. Audit konfigurasi dan fitur: kelas terpisah, sistem ujian, penempatan kitab (22 Oktober 2026)
+
+Cakupan: alur konfigurasi tingkatan, kelas, kitab (`src/appConfig.js`, menu Konfigurasi, form soal, filter, ekspor, cadangan, `firestore.rules`).
+Bagian lain aplikasi tidak diaudit ulang di sini (lihat bagian 2 sampai 12).
+
+### Temuan
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| T1 | Tinggi (fungsi) | Kelas hanya teks keterangan (`kelas` pada tingkat), tidak tersimpan pada soal dan tidak bisa difilter. Kitab hanya dipetakan ke **tingkat**, sehingga tidak bisa dinyatakan kitab itu untuk kelas berapa. | **Diperbaiki:** `soal.kelas`, filter kelas, `kitab.penempatan` per kelas. |
+| T2 | Tinggi (fungsi) | Tidak ada konsep periode ujian (catur wulan atau semester). | **Diperbaiki:** `sistemUjian` (Semester 4 ujian, Catur Wulan 3 ujian; nama dan periode bisa diubah), dipilih per tingkat, `soal.periode`. |
+| T3 | Sedang | Penanda "ada perubahan belum disimpan" membandingkan `JSON.stringify` yang bergantung urutan kunci objek. Menambah field baru mudah membuat tombol Simpan aktif palsu atau mati. | **Diperbaiki:** pembanding kanonik (kunci diurutkan); susunan pemetaan diurutkan seperti server. |
+| T4 | Sedang | Pemulihan draf konfigurasi setelah refresh membangun ulang objek dari daftar bidang yang dikenal, jadi field baru akan **diam-diam hilang** (pemetaan kelas yang belum disimpan lenyap saat halaman dimuat ulang). | **Diperbaiki:** `normCfgDraft` ikut memuat sistem ujian, sistem per tingkat, dan penempatan. |
+| T5 | Sedang | Mengganti kunci atau menghapus tingkat, atau menghapus periode, tidak membersihkan rujukan di data turunan. | **Diperbaiki** di UI dan di server (rujukan yang sudah tidak ada dibuang saat simpan; ada peringatan di kartu kitab sebelum disimpan). |
+| T6 | Sedang (risiko) | `config/app` adalah satu dokumen Firestore (maks. 1 MiB). Pemetaan kelas plus cakupan materi di banyak kitab bisa melewatinya dan gagal dengan galat 500. | **Diperbaiki:** batas 800.000 byte dengan pesan 422 yang jelas (ada tes). |
+| T7 | Sedang (kompatibilitas) | `createKeys()` di `firestore.rules` mewajibkan seluruh kunci. Menambah `kelas` dan `periode` sebagai kunci wajib akan menolak klien lama dan membuat soal lama tak bisa diedit. | **Dihindari:** keduanya opsional (`opsiKeys()`). Klien baru tidak mengirim kunci itu bila kosong dan soal belum pernah memilikinya. |
+
+Temuan lama yang **masih terbuka** (tidak disentuh di sini): B1 tanpa `package-lock.json` (CI memakai `npm install`), B2 CSP masih *Report-Only* dengan `unsafe-inline`/`unsafe-eval`, B3 skrip CDN tanpa SRI.
+Catatan kebersihan: `kamus-bersama-pegonkan.patch` (43 KB, tidak dirujuk kode mana pun) tertinggal di akar repositori dan sebaiknya dihapus dari repo; nama paket di `package.json` masih `bank-soal-madrasah`.
+
+### Keputusan desain yang perlu Anda ketahui
+
+1. **Sistem ujian dipilih per tingkat**, bukan satu untuk seluruh madrasah. Bila semua tingkat memakai sistem yang sama, pilih sistem yang sama di tiap tingkat.
+2. **Kitab tanpa pemetaan tetap berlaku untuk semua kelas dan ujian di tingkatnya.** Ini menjaga konfigurasi lama. Konsekuensinya: Anda yang harus memetakan kitab satu per satu; tidak ada pemetaan otomatis. Begitu satu kelas dicentang pada suatu tingkat, hanya kelas yang dicentang yang berlaku di tingkat itu.
+3. **Kelas yang dicentang menyimpan daftar ujian eksplisit** (default: semua ujian kelas itu). Pembagian "kitab dibagi 4 per kelas" dinyatakan lewat ujian mana yang dicentang dan, bila perlu, kolom **cakupan materi** (teks bebas; tidak diperiksa terhadap halaman kitab).
+4. **Soal lama tidak diisi kelas dan ujiannya secara otomatis.** Soal lama muncul di filter bila Kelas/Ujian = Semua dan tidak muncul bila salah satunya dipilih. Mengisinya perlu dilakukan per soal (edit) atau lewat skrip tersendiri.
+5. **Mengganti nama sistem atau ujian aman** (soal menyimpan kode). **Menghapus ujian** membuat soal lama menampilkan kodenya, bukan namanya. **Mengganti nama kelas** memutus pemetaan kitab lama ke kelas itu.
+6. Daftar kitab bawaan hanyalah usulan: mis. *Fathul Mu'in* bawaan hanya di Aliyah. Madrasah Anda memakainya di Tsanawiyah, jadi atur di Konfigurasi.
+7. Ekspor: kolom **Kelas** dan **Ujian** ditambahkan di **akhir** CSV lengkap agar urutan kolom lama tidak berubah bagi yang mengimpornya. Format Moodle XML dan CSV Forms tidak berubah. Telaah AI dan uji jawab buta belum menerima kelas (hanya penyusunan soal yang mengirim kelas ke AI).
+8. Memulihkan **cadangan lama** (sebelum pembaruan ini) dengan opsi "pulihkan katalog" menimpa pemetaan kelas dengan keadaan kosong dan sistem ujian dengan bawaan.
+
+### Cara memverifikasi
+
+```bash
+npm install
+npm test     # 162 tes (147 lama + 15 baru di test/ujian.test.js)
+```
+
+Urutan rilis: (1) tempel `firestore.rules` di Firebase Console dan **Publish**, (2) deploy aplikasi, (3) buka Konfigurasi: pilih sistem ujian tiap tingkat, periksa kelas, lalu petakan kitab (**Atur kelas & ujian**).
+
+### Yang BELUM saya uji (jujur)
+
+Diuji: logika murni (`public/ujian.js`), validasi dan pembersihan server (`sanitizeAppConfig`, penempatan, batas ukuran, konfigurasi lama), validasi cadangan, isi prompt AI, kesesuaian teks `firestore.rules`, dan sintaks JSX seluruh blok `text/babel` beserta pemeriksaan nama yang tidak terdefinisi.
+**Belum diuji:** tampilan dan interaksi di browser sungguhan (tidak ada browser atau React di sandbox), yaitu editor Sistem Ujian, matriks kelas dan ujian, pemulihan draf konfigurasi, filter, dan unduhan ekspor. Aturan Firestore diuji hanya lewat pencocokan teks, bukan di emulator. Cek sekali di browser: ubah nama ujian, petakan satu kitab ke dua kelas, simpan, muat ulang halaman, lalu susun satu soal dan ekspor CSV.

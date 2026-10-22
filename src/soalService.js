@@ -111,6 +111,7 @@ export function validateInput(body) {
     teks,
     tingkat,
     level,
+    kelas: cleanLine(body.kelas, 20),
     nama: cleanLine(body.nama, 120),
     juz: cleanLine(body.juz, 20),
     hal: cleanLine(body.hal, 20),
@@ -147,7 +148,7 @@ export function buildUserPrompt(input, targetKey) {
   return `Susun satu soal dengan data berikut.
 
 <metadata>
-Jenjang: ${input.tingkat}
+Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
 Rujukan kitab: ${rujukan}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}

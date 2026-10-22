@@ -122,7 +122,19 @@ Tab **Konfigurasi** mengatur pilihan yang muncul di form penyusunan soal dan fil
   label, label Arab, singkatan, dan daftar kelas (maks. 12). **Kunci** adalah nilai yang disimpan pada setiap soal (`soal.tingkat`), jadi
   tidak bisa diubah setelah disimpan; label dan lainnya bisa diubah kapan saja. Tiga tingkat bawaan memakai kunci lama (`Ibtidaiyah`,
   `Tsanawiyah`, `Aliyah`) agar soal lama tetap cocok. Tingkat baru belum punya mapel/kitab: pakai tombol **Salin mapel & kitab dari…**.
-  Kelas hanya keterangan di form dan tidak disimpan pada soal.
+  **Kelas** adalah data tersendiri: dipakai di form soal (`soal.kelas`), filter Bank Soal dan Ekspor, serta pemetaan kitab (lihat di bawah).
+  Mengganti nama kelas memutus pemetaan kitab lama ke kelas itu; pemetaannya perlu diatur ulang.
+- **Sistem ujian:** tiap tingkat memakai satu sistem. Bawaan: **Semester** (4 ujian: UTS dan UAS Semester 1, UTS dan UAS Semester 2) dan
+  **Catur Wulan** (3 ujian). Nama sistem dan nama tiap ujian bebas diubah, ditambah (maks. 4 sistem, 6 ujian per sistem), dan diurutkan ulang.
+  Tiap ujian punya *kode* otomatis yang tetap (dipakai `soal.periode`), jadi mengganti nama tidak memutus soal lama. Mengganti sistem
+  ujian suatu tingkat mengosongkan pembagian periode kitab di tingkat itu (kelasnya tetap).
+- **Pemetaan kitab ke kelas dan ujian:** pada tiap kitab, tombol **Atur kelas & ujian**. Centang kelas tempat kitab dipakai, lalu centang
+  ujian mana saja di kelas itu; tiap ujian boleh diberi **cakupan materi** (teks bebas, mis. "Kitab Thaharah"). Contoh: Fathul Mu'in di
+  Tsanawiyah kelas VII hanya UTS dan UAS Semester 1, kelas VIII semua ujian, kelas IX tidak. Aturannya: kitab tanpa pemetaan tetap berlaku
+  untuk semua kelas dan ujian di tingkatnya (kompatibel dengan konfigurasi lama); begitu ada kelas dicentang, hanya kelas itu yang berlaku.
+  Di form soal, pilihan **Kelas** dan **Ujian** menyaring daftar kitab, dan cakupan materi tampil bila kitab, kelas, dan ujian sudah dipilih.
+  Kelas dan ujian tersimpan pada soal (opsional; soal lama tidak punya dan tetap sah), tampil di daftar soal, filter, dan ekspor
+  (kolom **Kelas** dan **Ujian** di akhir CSV lengkap, komentar GIFT, dan judul kartu DOCX).
 - **Mata pelajaran:** nama, berlaku di tingkat mana (mengikuti daftar tingkat di atas), aktif atau tidak. Mapel di form mengikuti tingkat yang dipilih.
 - **Katalog kitab:** nama Latin, **nama Arab**, pengarang, **pengarang Arab**, mapel, tingkat, tautan. Muncul sebagai pilihan di kolom Nama Kitab
   (disaring menurut tingkat dan mapel). Nama Arab tampil dengan font Amiri di form (kartu di bawah pilihan kitab), daftar soal, dan ekspor
@@ -130,8 +142,9 @@ Tab **Konfigurasi** mengatur pilihan yang muncul di form penyusunan soal dan fil
   berdasarkan nama kitab, jadi mengubah nama Latin kitab memutus kaitannya untuk soal lama. 52 kitab bawaan sudah berisi nama Arab usulan: tinjau bersama ustadz.
   Kolom **Tempel banyak kitab** menerima `Nama | Pengarang | Mapel | Tautan | Nama Arab | Pengarang Arab` (kolom 4 sampai 6 opsional).
 
-> **Penting saat memperbarui dari versi lama:** aturan Firestore untuk `soal` tidak lagi membatasi `tingkat` pada tiga nama tetap. Tempel ulang
-> `firestore.rules` dan **Publish** (atau `firebase deploy --only firestore:rules`); tanpa itu soal dengan tingkat baru ditolak database.
+> **Penting saat memperbarui dari versi lama:** aturan Firestore untuk `soal` tidak lagi membatasi `tingkat` pada tiga nama tetap, dan kini
+> menerima dua field opsional `kelas` dan `periode`. Tempel ulang `firestore.rules` dan **Publish** (atau `firebase deploy --only firestore:rules`)
+> **sebelum** memakai versi baru; tanpa itu soal dengan tingkat baru, atau soal yang diberi kelas/ujian, ditolak database.
 
 Disimpan di Firestore `config/app` (klien tidak boleh mengaksesnya; lewat `/api/app-config`, baca untuk semua pengguna aktif, ubah khusus admin).
 Bila belum pernah diubah, aplikasi memakai `DEFAULT_APP_CONFIG` di `src/appConfig.js`. Daftar kitab bawaan hanyalah usulan awal: tinjau
@@ -224,7 +237,8 @@ src/assistService.js     terjemah, analisis, telaah soal
 src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
 src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
 src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
-src/appConfig.js         konfigurasi aplikasi: tingkatan, mata pelajaran, katalog kitab
+src/appConfig.js         konfigurasi aplikasi: tingkatan, kelas, sistem ujian, mata pelajaran, katalog kitab (dan pemetaannya)
+public/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
 src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
 src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)
