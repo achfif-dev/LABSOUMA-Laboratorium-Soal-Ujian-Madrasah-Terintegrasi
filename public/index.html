@@ -98,14 +98,14 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D;</script>
+<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; import * as V from '/drive.js'; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D; window.LabDrive = V;</script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
 const L = new Proxy(window.LucideReact || window.lucideReact || window['lucide-react'] || {}, { get: (t, k) => t[k] || (() => null) });
 const { BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy,
         Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw,
-        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu } = L;
+        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload } = L;
 
 /* ---------- Data & constants ---------- */
 const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
@@ -481,6 +481,9 @@ const ERR_TITLES = {
   AI_KEY_MISSING: 'Kunci API belum ada', AI_TEST_KEY: 'Kunci API ditolak', AI_MODEL_NOT_FOUND: 'Model tidak ditemukan', AI_TEST_REJECTED: 'Permintaan uji ditolak',
   AI_UNREACHABLE: 'Layanan AI tidak terjangkau', AI_REQUEST_REJECTED: 'Permintaan ke AI ditolak', SERVER_AUTH: 'Kunci API server ditolak',
   SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', CONFIG_READ_FAILED: 'Pengaturan tidak bisa dibaca', CONFIG_INVALID: 'Isian tidak valid',
+  BACKUP_INVALID: 'Cadangan tidak bisa dipakai', DRIVE_BELUM_DIATUR: 'Backup belum diatur', DRIVE_IZIN: 'Izin Google Drive diperlukan', DRIVE_TOKEN: 'Izin Google Drive berakhir',
+  DRIVE_API_OFF: 'Google Drive API belum aktif', DRIVE_PENUH: 'Google Drive penuh', DRIVE_RATE: 'Terlalu banyak permintaan', DRIVE_DITOLAK: 'Google Drive menolak',
+  DRIVE_TIDAK_ADA: 'Tidak ditemukan di Drive', DRIVE_VERIFIKASI: 'Cadangan gagal diverifikasi', DRIVE_ERROR: 'Galat Google Drive',
 };
 const ErrorBox = ({ e }) => (
   <div role="alert" className="rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">
@@ -2187,7 +2190,7 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'review', 'bank', 'export', 'pegon'].includes(h) || (isAdmin && ['users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'review', 'bank', 'export', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
   });
   const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
@@ -2324,6 +2327,7 @@ function App({ user, profile }) {
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
+    ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
     ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export';
@@ -2395,6 +2399,7 @@ function App({ user, profile }) {
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
+        {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
         {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
@@ -2406,6 +2411,269 @@ function App({ user, profile }) {
         <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
       </footer>
       <Toast t={msg} />
+    </div>
+  );
+}
+
+/* ---------- Backup ke Google Drive (editor dan admin) ---------- */
+// Soal dibaca dari Firestore di browser, diunggah ke Drive milik akun Google yang dipilih pengguna (izin drive.file), lalu diunduh kembali dan
+// dibandingkan; cadangan baru dianggap berhasil bila isinya identik. Soal hanya boleh dihapus dari Firestore (arsip, khusus admin) setelah itu.
+// Logika murninya ada di public/drive.js (tes: test/backup.test.js). Pemulihan lewat /api/backup (Admin SDK).
+const GIS_SRC = 'https://accounts.google.com/gsi/client';
+function muatGis() {
+  if (window.google && window.google.accounts && window.google.accounts.oauth2) return Promise.resolve();
+  if (window.__gisJanji) return window.__gisJanji;
+  window.__gisJanji = new Promise((selesai, gagal) => {
+    const s = document.createElement('script'); s.src = GIS_SRC; s.async = true;
+    s.onload = () => selesai();
+    s.onerror = () => { window.__gisJanji = null; gagal(new Error('Skrip Google tidak bisa dimuat. Periksa koneksi internet atau pemblokir iklan.')); };
+    document.head.appendChild(s);
+  });
+  return window.__gisJanji;
+}
+const ukuranBerkas = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+const waktuLokal = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }); };
+const tautanDriveAman = (u) => (/^https:\/\/(drive|docs)\.google\.com\//.test(String(u || '')) ? u : '');
+
+function BackupTab({ user, isAdmin, toast, onCfg }) {
+  const Drv = window.LabDrive;
+  const [info, setInfo] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [status, setStatus] = useState('');
+  const [hasil, setHasil] = useState(null);      // cadangan terakhir yang sudah terverifikasi di Drive (soalnya dipakai untuk arsip)
+  const [hari, setHari] = useState('180');
+  const [arsipRes, setArsipRes] = useState(null);
+  const [files, setFiles] = useState(null);
+  const [pilih, setPilih] = useState(null);      // cadangan yang akan dipulihkan
+  const [mode, setMode] = useState('lewati');
+  const [pulihKitab, setPulihKitab] = useState(false);
+  const [pulihRes, setPulihRes] = useState(null);
+  const tokenRef = useRef({ v: '', exp: 0 });
+  useEffect(() => {
+    muatGis().catch(() => {}); // dimuat lebih awal supaya jendela izin tidak terblokir saat tombol diklik
+    callApi('/api/backup', { aksi: 'info' }).then(setInfo).catch((e) => setErr(apiErr(e)));
+  }, []);
+  if (!Drv) return <ErrorBox e={{ code: 'DRIVE_ERROR', message: 'Modul Drive tidak termuat. Muat ulang halaman dengan Ctrl+Shift+R.' }} />;
+
+  // Token hanya di memori (hilang saat halaman ditutup, kedaluwarsa sekitar satu jam), tidak pernah ke localStorage atau server.
+  const ambilToken = async () => {
+    const t = tokenRef.current;
+    if (t.v && Date.now() < t.exp - 60000) return t.v;
+    if (!info || !info.driveClientId) throw new Drv.DriveError('DRIVE_BELUM_DIATUR', 'Client ID Google Drive belum diisi di server (GOOGLE_DRIVE_CLIENT_ID). Lihat README, bagian Backup.');
+    await muatGis();
+    return new Promise((selesai, gagal) => {
+      const klien = window.google.accounts.oauth2.initTokenClient({
+        client_id: info.driveClientId, scope: Drv.SCOPE, login_hint: user.email || undefined,
+        callback: (r) => {
+          if (r && r.access_token) { tokenRef.current = { v: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; selesai(r.access_token); }
+          else gagal(new Drv.DriveError('DRIVE_IZIN', 'Izin Google Drive tidak diberikan.'));
+        },
+        error_callback: (e) => gagal(new Drv.DriveError('DRIVE_IZIN', e && e.type === 'popup_closed' ? 'Jendela izin ditutup sebelum selesai.' : e && e.type === 'popup_failed_to_open' ? 'Browser memblokir jendela izin. Izinkan pop-up untuk situs ini lalu ulangi.' : 'Izin Google Drive gagal diminta.')),
+      });
+      klien.requestAccessToken({ prompt: '' });
+    });
+  };
+  const jalan = async (nama, fn) => {
+    setErr(null); setBusy(nama);
+    try { await fn(); }
+    catch (e) { if (e && e.code === 'DRIVE_TOKEN') tokenRef.current = { v: '', exp: 0 }; setErr(apiErr(e)); }
+    finally { setBusy(''); setStatus(''); }
+  };
+
+  const bacaSemuaSoal = async () => {
+    const db = firebase.firestore(); const out = []; let akhir = null;
+    for (;;) {
+      let q = db.collection('soal').orderBy(firebase.firestore.FieldPath.documentId()).limit(300);
+      if (akhir) q = q.startAfter(akhir);
+      const snap = await q.get({ source: 'server' }); // paksa server: salinan lokal yang usang tidak boleh masuk cadangan
+      snap.docs.forEach((d) => out.push(Drv.serialisasiSoal(d.id, d.data())));
+      setStatus(`Membaca soal dari Firestore: ${out.length}...`);
+      if (snap.docs.length < 300) break;
+      akhir = snap.docs[snap.docs.length - 1];
+      if (out.length >= 50000) throw { code: 'BACKUP_INVALID', message: 'Jumlah soal melebihi 50.000; cadangan dihentikan.' };
+    }
+    return out;
+  };
+
+  const cadangkan = () => jalan('backup', async () => {
+    setHasil(null); setArsipRes(null);
+    setStatus('Meminta izin Google Drive...');
+    await ambilToken(); // pertama, supaya jendela izin muncul dari klik pengguna
+    const drive = Drv.buatDrive({ ambilToken });
+    const soal = await bacaSemuaSoal();
+    setStatus('Membaca katalog kitab...');
+    const cfg = await callApi('/api/app-config', { aksi: 'baca' });
+    const cad = Drv.buatBackup({ soal, config: cfg.config, kustom: cfg.kustom, oleh: user.email || user.uid });
+    const isi = JSON.stringify(cad); const nama = Drv.namaBerkas();
+    setStatus('Mengunggah ke Google Drive...');
+    const f = await drive.unggah(await drive.siapkanFolder(), nama, isi);
+    setStatus('Memeriksa berkas di Google Drive...');
+    if ((await drive.unduh(f.id)) !== isi) throw new Drv.DriveError('DRIVE_VERIFIKASI', 'Berkas di Google Drive tidak sama dengan data yang dikirim, jadi cadangan tidak dianggap berhasil dan tidak ada soal yang dihapus. Coba lagi.');
+    setHasil({ nama, link: f.webViewLink || '', soal: cad.soal, jumlah: cad.jumlah, ukuran: new Blob([isi]).size, waktu: cad.dibuat });
+    setFiles(null);
+    toast('Cadangan tersimpan dan terverifikasi di Google Drive.');
+  });
+
+  // ---- Arsip (admin): hapus dari Firestore soal Disetujui yang lama tidak berubah, hanya yang ada di cadangan terverifikasi ----
+  const kand = hasil && isAdmin ? Drv.kandidatArsip(hasil.soal, { hari: Number(hari) }) : [];
+  const arsipkan = () => jalan('arsip', async () => {
+    if (!kand.length) return;
+    if (!window.confirm(`Hapus ${kand.length} soal berstatus Disetujui (terakhir diubah lebih dari ${hari} hari lalu) dari Firestore?\n\nSalinannya ada di "${hasil.nama}" di Google Drive. Soal itu tidak akan tampil di Bank Soal dan Export sampai dipulihkan dari cadangan.`)) return;
+    const db = firebase.firestore(); let dihapus = 0; let berubah = 0;
+    for (const bagian of Drv.potong(kand, 100)) {
+      setStatus(`Menghapus dari Firestore: ${dihapus + berubah} / ${kand.length}...`);
+      // Transaksi: soal yang diubah sejak cadangan dibuat (updatedAt berbeda) tidak dihapus, supaya suntingan terbaru tidak hilang.
+      const r = await db.runTransaction(async (tx) => {
+        const snaps = await Promise.all(bagian.map((q) => tx.get(db.collection('soal').doc(q.id))));
+        let d = 0; let b = 0;
+        snaps.forEach((s, j) => {
+          if (!s.exists) return;
+          const t = s.data().updatedAt;
+          const sama = s.data().status === 'approved' && t && typeof t.toMillis === 'function' && new Date(t.toMillis()).toISOString() === bagian[j].updatedAt;
+          if (sama) { tx.delete(s.ref); d++; } else b++;
+        });
+        return { d, b };
+      });
+      dihapus += r.d; berubah += r.b;
+    }
+    setArsipRes({ dihapus, berubah });
+    toast(`${dihapus} soal dihapus dari Firestore.`);
+  });
+
+  // ---- Daftar cadangan di Drive dan pemulihan ----
+  const muatDaftar = () => jalan('daftar', async () => {
+    setStatus('Meminta izin Google Drive...'); await ambilToken();
+    const drive = Drv.buatDrive({ ambilToken });
+    setStatus('Membaca daftar cadangan...');
+    setFiles(await drive.daftar(await drive.siapkanFolder()));
+  });
+  const bacaCadangan = (teks, nama) => {
+    let obj; try { obj = JSON.parse(teks); } catch (e) { throw { code: 'BACKUP_INVALID', message: 'Berkas bukan JSON yang valid.' }; }
+    let r; try { r = Drv.periksaBackup(obj); } catch (e) { throw { code: 'BACKUP_INVALID', message: e.message }; }
+    setPilih({ nama, ...r }); setPulihRes(null); setPulihKitab(false); setMode('lewati');
+  };
+  const pilihDariDrive = (f) => jalan('baca', async () => { setStatus('Mengunduh cadangan...'); bacaCadangan(await Drv.buatDrive({ ambilToken }).unduh(f.id), f.name); });
+  const pilihLokal = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    jalan('baca', async () => {
+      if (f.size > 40 * 1048576) throw { code: 'BACKUP_INVALID', message: 'Berkas terlalu besar (maks. 40 MB).' };
+      bacaCadangan(await f.text(), f.name);
+    });
+  };
+  const pulihkan = () => jalan('pulih', async () => {
+    if (!pilih) return;
+    if (!window.confirm(`Pulihkan ${pilih.soal.length} soal${pulihKitab ? ' dan katalog kitab (menimpa katalog saat ini)' : ''} dari "${pilih.nama}"?\n\n` + (mode === 'timpa' ? 'Soal dengan ID yang sama akan DITIMPA isi cadangan.' : 'Soal yang sudah ada dibiarkan.'))) return;
+    const tot = { ditulis: 0, dilewati: 0, ditolak: [] }; let n = 0;
+    for (const b of Drv.potong(pilih.soal, 100)) {
+      setStatus(`Memulihkan soal: ${n} / ${pilih.soal.length}...`);
+      const r = await callApi('/api/backup', { aksi: 'pulihkan', mode, soal: b });
+      tot.ditulis += r.ditulis; tot.dilewati += r.dilewati; tot.ditolak.push(...r.ditolak); n += b.length;
+    }
+    let kitabOk = false;
+    if (pulihKitab && pilih.konfigurasi) { setStatus('Memulihkan katalog kitab...'); onCfg(await callApi('/api/app-config', { aksi: 'simpan', config: pilih.konfigurasi })); kitabOk = true; }
+    setPulihRes({ ...tot, kitabOk });
+    toast('Pemulihan selesai.');
+  });
+
+  const siap = !!(info && info.driveClientId);
+  const sibuk = !!busy;
+  return (
+    <div className="fade-in space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
+        Semua soal (termasuk draf) dan katalog kitab disimpan sebagai satu berkas JSON ke <b className="text-ink">Google Drive</b> akun yang Anda pilih di jendela izin, dalam folder “LABSOUMA Backup”.
+        Aplikasi hanya melihat berkas yang dibuatnya sendiri. Gunakan akun Google madrasah, bukan akun pribadi, supaya cadangan tidak ikut hilang saat pengelola berganti.
+        <p className="mt-2">Satu cadangan membaca seluruh soal dari Firestore: satu dokumen sama dengan satu bacaan dari jatah gratis harian. Cadangan sendiri tidak mengosongkan Firestore; untuk itu pakai <b className="text-ink">Arsipkan</b> (khusus admin) setelah cadangan terverifikasi.</p>
+      </div>
+      {err && <ErrorBox e={err} />}
+      {info && !siap && (
+        <p role="alert" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+          Backup ke Google Drive belum diatur: Client ID OAuth belum diisi di server. {isAdmin ? 'Isi' : 'Minta admin mengisi'} variabel <code>GOOGLE_DRIVE_CLIENT_ID</code> di Vercel lalu Redeploy (langkahnya ada di README, bagian Backup).
+        </p>
+      )}
+
+      <Section title="Cadangkan sekarang" icon={CloudUpload}>
+        <Btn kind="primary" onClick={cadangkan} disabled={sibuk || !siap}>{busy === 'backup' ? <Loader2 size={16} className="spin" /> : <CloudUpload size={16} />}Cadangkan ke Google Drive</Btn>
+        {busy && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+        {hasil && (
+          <div className="mt-4 rounded-xl bg-ok-bg px-4 py-3 text-sm text-ok">
+            <p className="flex items-center gap-2 font-bold"><CheckCircle2 size={16} className="shrink-0" />Tersimpan dan terverifikasi di Google Drive</p>
+            <p className="mt-1 leading-relaxed">{hasil.nama} · {hasil.jumlah.soal} soal, {hasil.jumlah.kitab} kitab · {ukuranBerkas(hasil.ukuran)}
+              {tautanDriveAman(hasil.link) && <> · <a href={tautanDriveAman(hasil.link)} target="_blank" rel="noopener noreferrer" className="underline">Buka di Drive</a></>}</p>
+          </div>
+        )}
+      </Section>
+
+      {hasil && isAdmin && (
+        <Section title="Arsipkan dari Firestore (admin)" icon={Trash2}>
+          <p className="text-sm leading-relaxed text-mute">
+            Hapus dari Firestore soal berstatus <b className="text-ink">Disetujui</b> yang terakhir diubah lebih dari
+            {' '}<span className="inline-block w-28 align-middle"><Select id="arsip-hari" value={hari} onChange={setHari}><option value="90">90 hari</option><option value="180">180 hari</option><option value="365">365 hari</option></Select></span>{' '}lalu.
+            Draf, soal menunggu review, dan soal perlu revisi tidak pernah dihapus. Soal yang diarsipkan hilang dari Bank Soal dan Export sampai dipulihkan dari cadangan.
+            Pemeriksaan ulang tiap soal sebelum dihapus memakai satu bacaan lagi per soal.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Btn kind="danger" onClick={arsipkan} disabled={sibuk || !kand.length}>{busy === 'arsip' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}Hapus {kand.length} soal dari Firestore</Btn>
+            {!kand.length && <span className="text-sm text-mute">Tidak ada soal yang memenuhi syarat.</span>}
+          </div>
+          {arsipRes && <p role="status" className="mt-3 text-sm text-ink">{arsipRes.dihapus} soal dihapus dari Firestore{arsipRes.berubah > 0 ? `; ${arsipRes.berubah} soal dilewati karena berubah sejak cadangan dibuat` : ''}.</p>}
+        </Section>
+      )}
+
+      <Section title="Cadangan di Google Drive" icon={Library} action={<Btn kind="ghost" onClick={muatDaftar} disabled={sibuk || !siap}>{busy === 'daftar' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Muat daftar</Btn>}>
+        {files === null && <p className="text-sm text-mute">Klik “Muat daftar” untuk melihat cadangan yang tersimpan di Drive.</p>}
+        {files && !files.length && <p className="text-sm text-mute">Belum ada cadangan di folder “LABSOUMA Backup”.</p>}
+        {files && files.length > 0 && (
+          <ul className="divide-y divide-line text-sm">
+            {files.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <div className="min-w-0"><p className="truncate font-semibold">{f.name}</p><p className="text-xs text-mute">{waktuLokal(f.modifiedTime)} · {ukuranBerkas(Number(f.size) || 0)}</p></div>
+                {isAdmin && <Btn kind="soft" onClick={() => pilihDariDrive(f)} disabled={sibuk}>Pulihkan…</Btn>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!isAdmin && <p className="mt-3 text-xs text-mute">Pemulihan hanya dapat dilakukan admin.</p>}
+        {isAdmin && (
+          <div className="mt-4 border-t border-line pt-4">
+            <Label htmlFor="cad-lokal" hint="(alternatif: berkas .json yang sudah diunduh dari Drive)">Pulihkan dari berkas di komputer</Label>
+            <input id="cad-lokal" type="file" accept=".json,application/json" onChange={pilihLokal} disabled={sibuk} className="block w-full text-sm" />
+          </div>
+        )}
+        {busy === 'baca' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Membaca...'}</p>}
+      </Section>
+
+      {isAdmin && pilih && (
+        <Section title="Pulihkan dari cadangan" icon={RotateCcw}>
+          <p className="text-sm leading-relaxed">
+            <b>{pilih.nama}</b><br />
+            <span className="text-mute">Dibuat {pilih.dibuat ? waktuLokal(pilih.dibuat) : '-'}{pilih.oleh ? ' oleh ' + pilih.oleh : ''} · {pilih.soal.length} soal · {pilih.jumlahKitab} kitab</span>
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="pulih-mode">Bila soal dengan ID yang sama sudah ada</Label>
+              <Select id="pulih-mode" value={mode} onChange={setMode}><option value="lewati">Lewati (aman, bisa diulang)</option><option value="timpa">Timpa dengan isi cadangan</option></Select>
+            </div>
+            <label className="flex items-start gap-2 self-end text-sm">
+              <input type="checkbox" checked={pulihKitab} disabled={!pilih.konfigurasi} onChange={(e) => setPulihKitab(e.target.checked)} className="mt-1" />
+              <span>Pulihkan juga katalog kitab, mapel, dan tingkat <span className="text-mute">(menimpa pengaturan saat ini{pilih.konfigurasi ? '' : '; cadangan ini tidak memuatnya'})</span></span>
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Btn kind="primary" onClick={pulihkan} disabled={sibuk}>{busy === 'pulih' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Pulihkan</Btn>
+            <Btn kind="ghost" onClick={() => { setPilih(null); setPulihRes(null); }} disabled={sibuk}>Batal</Btn>
+          </div>
+          {busy === 'pulih' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+          {pulihRes && (
+            <div role="status" className="mt-4 rounded-xl bg-soft px-4 py-3 text-sm">
+              <p className="font-bold">{pulihRes.ditulis} soal ditulis, {pulihRes.dilewati} dilewati (sudah ada), {pulihRes.ditolak.length} ditolak{pulihRes.kitabOk ? ', katalog kitab dipulihkan' : ''}.</p>
+              {pulihRes.ditolak.slice(0, 10).map((x, i) => <p key={i} className="mt-1 text-xs text-bad">{x.id}: {x.alasan}</p>)}
+              {pulihRes.ditolak.length > 10 && <p className="mt-1 text-xs text-mute">...dan {pulihRes.ditolak.length - 10} lainnya.</p>}
+            </div>
+          )}
+        </Section>
+      )}
     </div>
   );
 }

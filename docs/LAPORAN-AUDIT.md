@@ -139,3 +139,25 @@ Keluhan: isian form soal yang belum disimpan hilang saat halaman dimuat ulang, b
 **Pengujian.** Di Chromium sungguhan: kode lama mereproduksi `RangeError: Maximum call stack size exceeded`; kode baru memuat normal, dan draf yang ditulis dengan `Draft.save` bertahan setelah refresh langsung (lewat `pagehide`), tidak terbaca oleh akun lain. Sintaks seluruh blok `text/babel` bersih, `node --test`: 134 lulus. **Belum diuji:** seluruh aplikasi di bawah Babel-standalone dari CDN (sandbox tanpa internet); uji dengan membuka situs setelah deploy, tab Penyusunan Soal, ketik, refresh.
 
 **Bila masih blank setelah deploy:** hard refresh (Ctrl+Shift+R) agar `index.html` lama tidak dipakai dari cache browser, lalu kirim galat konsol yang baru.
+
+## 11. Fitur: backup soal dan kitab ke Google Drive (22 Oktober 2026)
+
+**Kebutuhan.** Editor dan admin dapat mencadangkan soal dan kitab ke Google Drive agar data Firestore gratis tidak cepat penuh.
+
+**Analisis model data yang mendasari rancangan.**
+- Soal ada di koleksi `soal`; staf boleh membaca semuanya. Katalog kitab, mapel, dan tingkat ada di satu dokumen `config/app` yang klien tidak boleh akses (hanya lewat `/api/app-config`).
+- Aturan Firestore melarang klien membuat soal atas nama penyusun lain atau berstatus Disetujui. Jadi **pemulihan harus lewat server (Admin SDK)**, dengan validasi yang mencerminkan `validContent()`.
+- Fungsi Vercel dibatasi sekitar 4,5 MB per permintaan/respons. Jadi soal dibaca **langsung di browser** (per 300 dokumen, `source: 'server'`) dan dipulihkan per 100 soal.
+- Token Drive milik pengguna (Google Identity Services, scope `drive.file`) hanya di memori browser: tidak ada rahasia baru di server, hanya `GOOGLE_DRIVE_CLIENT_ID`.
+
+| # | Bagian | Keterangan |
+|---|---|---|
+| B1 | Cadangan | Baca semua soal, tambah katalog kitab, unggah multipart, **unduh ulang dan bandingkan**; gagal verifikasi = tidak dianggap berhasil |
+| B2 | Arsip (admin) | Hapus dari Firestore hanya soal Disetujui, lama tidak berubah, dan ada di cadangan terverifikasi; transaksi per 100 melewati soal yang `updatedAt`-nya berubah |
+| B3 | Pulihkan (admin) | `/api/backup` aksi `pulihkan`: validasi ketat per entri, mode lewati/timpa, entri buruk dilaporkan tanpa menggagalkan sisanya; katalog kitab lewat `/api/app-config` |
+| B4 | Hak akses | `info`: editor dan admin. `pulihkan` dan arsip: admin. Aturan Firestore **tidak diubah** |
+| B5 | CSP | Skrip dan gaya `accounts.google.com` ditambahkan (mode report-only) |
+
+**Pengujian.** `test/backup.test.js` (11 tes: format, kandidat arsip, klien Drive dengan fetch tiruan, pemetaan galat, validasi entri terhadap `firestore.rules`, pemulihan dengan Firestore tiruan, hak akses endpoint). Uji Chromium atas komponen asli (`BackupTab` dan `drive.js`; Firestore, Google, Drive, dan `/api/*` ditiru): 24 pemeriksaan, termasuk 650 soal tiga halaman baca, arsip dengan soal yang diubah di tengah jalan, verifikasi gagal, peran editor, pemulihan 7 permintaan, dan izin ditolak. Dijalankan enam kali berturut-turut tanpa gagal.
+
+**Belum diuji.** Terhadap Google Drive dan jendela izin Google yang sungguhan (sandbox tanpa internet): pemasangan OAuth di Cloud Console, perilaku pop-up di browser tertentu, dan unggahan berkas di atas sekitar 5 MB. Uji sekali setelah deploy dengan akun editor dan admin sebelum memakai Arsip pada data penting. Mulailah dengan cadangan, cek berkasnya di Drive, lalu coba arsip 365 hari dulu.

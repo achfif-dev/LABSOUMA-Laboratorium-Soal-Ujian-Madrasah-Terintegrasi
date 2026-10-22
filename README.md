@@ -185,11 +185,34 @@ Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model d
 - **Terjemahkan**, **Analisis teks** (ide soal per level, calon pengecoh), dan **Telaah & Perbaiki** (editor punya **Telaah AI** di tab Review). Semuanya berdasar teks Arab yang diberikan, dengan konteks Ahlussunnah wal Jamaah yang moderat. Hasil AI perlu ditelaah manusia.
 - Pastikan pemakaian teks sesuai ketentuan situs sumber dan hak cipta edisi kitabnya.
 
+## Backup ke Google Drive
+
+Menu **Backup Drive** (editor dan admin) menyalin semua soal, termasuk draf, dan katalog kitab, mapel, serta tingkat ke satu berkas JSON di folder "LABSOUMA Backup" pada Google Drive akun yang dipilih di jendela izin. Gunakan akun Google madrasah, bukan akun pribadi.
+
+- **Cadangan terverifikasi.** Setelah diunggah, berkas diunduh lagi dan harus identik dengan yang dikirim. Hanya setelah itu cadangan dianggap berhasil.
+- **Arsipkan (khusus admin).** Setelah cadangan terverifikasi, admin dapat menghapus dari Firestore soal berstatus Disetujui yang terakhir diubah lebih dari 90/180/365 hari. Draf, soal menunggu review, dan soal perlu revisi tidak pernah dihapus. Soal yang berubah sejak cadangan dibuat dilewati.
+- **Pulihkan (khusus admin).** Dari daftar Drive atau berkas `.json` di komputer. Mode "lewati" tidak menyentuh soal yang ID-nya sudah ada, jadi aman diulang. Katalog kitab hanya dipulihkan bila dicentang.
+- **Izin minimal.** Aplikasi meminta scope `drive.file`: hanya berkas buatan aplikasi ini yang terlihat, bukan seluruh Drive. Token hanya di memori browser dan tidak disimpan.
+
+Yang perlu dipahami: cadangan **tidak mengosongkan Firestore**. Penyimpanan Spark 1 GiB sulit penuh oleh teks soal; yang lebih sering habis adalah kuota baca/tulis harian. Satu cadangan membaca semua soal (satu dokumen = satu bacaan), dan arsip membaca sekali lagi tiap soal yang dihapus. Jalankan di luar jam ramai, dan perhatikan Firebase Console > Usage.
+
+### Pemasangan (sekali, oleh admin)
+
+1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan pilih **proyek yang sama dengan Firebase**.
+2. **APIs & Services > Library**: aktifkan **Google Drive API**.
+3. **APIs & Services > OAuth consent screen**: isi nama aplikasi dan email dukungan. Scope `drive.file` tidak sensitif, jadi tidak perlu verifikasi Google. Selama status "Testing", tambahkan email editor dan admin sebagai **Test users**; atau ubah ke "In production".
+4. **APIs & Services > Credentials > Create credentials > OAuth client ID**, jenis **Web application**. Pada **Authorized JavaScript origins** isi alamat situs (mis. `https://nama-anda.vercel.app`, tanpa garis miring akhir; tambahkan `http://localhost:3000` bila perlu).
+5. Salin **Client ID**, isi di Vercel sebagai `GOOGLE_DRIVE_CLIENT_ID`, lalu **Redeploy**.
+
+Nama menu Google Cloud dapat berubah; yang pasti dibutuhkan: Drive API aktif, OAuth Client ID jenis Web, dan origin situs terdaftar. Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mismatch* (langkah 4), dan *access_denied* (email belum menjadi Test user, langkah 3). Cadangan yang sangat besar (di atas sekitar 5 MB) diunggah sekali jalan; bila gagal, verifikasi menolaknya dan tidak ada soal yang dihapus.
+
 ## Struktur
 
 ```
 public/index.html        frontend React (satu file)
-api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config
+public/drive.js          cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
+api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, backup
+src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
 src/gemini.js            adapter Gemini (tanpa dependensi)
 src/soalService.js       validasi, system prompt, pemilihan penyedia AI
 src/assistService.js     terjemah, analisis, telaah soal

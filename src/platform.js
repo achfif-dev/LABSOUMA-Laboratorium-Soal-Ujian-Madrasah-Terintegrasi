@@ -73,6 +73,17 @@ export async function authenticateAdmin(req) {
   return u;
 }
 
+/** Login valid DAN peran editor atau admin (peninjau). */
+export async function authenticateReviewer(req) {
+  const u = await authenticate(req);
+  const { db } = await firebase();
+  const snap = await db.doc(`users/${u.uid}`).get();
+  if (!snap.exists || !['editor', 'admin'].includes(snap.data().role)) {
+    throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk editor dan admin.');
+  }
+  return u;
+}
+
 /** Membuat/menyegarkan dokumen users/{uid}. Admin pertama berasal dari ADMIN_EMAILS. */
 export async function ensureProfile(u) {
   if (!u.email || !u.email_verified) throw new ApiError(403, 'EMAIL_NOT_VERIFIED', 'Email akun Google Anda belum terverifikasi.');
