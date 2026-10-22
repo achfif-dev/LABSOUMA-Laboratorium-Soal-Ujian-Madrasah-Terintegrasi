@@ -154,3 +154,22 @@ test('jenisPerbaikan: mengenali catatan mesin yang bisa dibereskan lewat kamus',
     assert.ok(jenisPerbaikan(d.note) || /^ke$/i.test(d.latin), `${d.latin}: ${d.note}`);
   }
 });
+
+test('mesin Pegon: angka desimal, nominal, URL, email, dan kode tidak ikut dialihaksarakan', () => {
+  const { pegon } = convertText('Zakat 2,5% dari Rp1.000.000,00, lihat www.contoh.com atau a@b.co.id, level C2.');
+  assert.ok(pegon.includes('2,5%'), 'koma desimal tetap koma Latin');
+  assert.ok(pegon.includes('Rp1.000.000,00'), 'nominal utuh');
+  assert.ok(pegon.includes('www.contoh.com'), 'URL utuh');
+  assert.ok(pegon.includes('a@b.co.id'), 'email utuh');
+  assert.ok(pegon.includes('C2'), 'kode utuh');
+  assert.ok(!pegon.includes('2،5'), 'tidak ada koma Arab di dalam angka');
+});
+
+test('mesin Pegon: koma antarkata tetap diarabkan dan teks sekitar terlindung tetap dialihaksarakan', () => {
+  const { pegon, html } = convertText('suci, lalu Rp5.000 ya?');
+  assert.ok(pegon.includes('،'), 'koma kalimat diarabkan');
+  assert.ok(pegon.includes('Rp5.000'));
+  assert.ok(pegon.includes('؟'));
+  assert.match(pegon, /[\u0600-\u06FF]/);
+  assert.ok(!/<span/.test(html.replace(/<span class="flag"[^>]*>.*?<\/span>/g, '')), 'html tidak bocor');
+});

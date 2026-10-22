@@ -161,3 +161,20 @@ Keluhan: isian form soal yang belum disimpan hilang saat halaman dimuat ulang, b
 **Pengujian.** `test/backup.test.js` (11 tes: format, kandidat arsip, klien Drive dengan fetch tiruan, pemetaan galat, validasi entri terhadap `firestore.rules`, pemulihan dengan Firestore tiruan, hak akses endpoint). Uji Chromium atas komponen asli (`BackupTab` dan `drive.js`; Firestore, Google, Drive, dan `/api/*` ditiru): 24 pemeriksaan, termasuk 650 soal tiga halaman baca, arsip dengan soal yang diubah di tengah jalan, verifikasi gagal, peran editor, pemulihan 7 permintaan, dan izin ditolak. Dijalankan enam kali berturut-turut tanpa gagal.
 
 **Belum diuji.** Terhadap Google Drive dan jendela izin Google yang sungguhan (sandbox tanpa internet): pemasangan OAuth di Cloud Console, perilaku pop-up di browser tertentu, dan unggahan berkas di atas sekitar 5 MB. Uji sekali setelah deploy dengan akun editor dan admin sebelum memakai Arsip pada data penting. Mulailah dengan cadangan, cek berkasnya di Drive, lalu coba arsip 365 hari dulu.
+
+## 12. Perbaikan 22 Oktober 2026: ekspor Soal Pegon (DOCX)
+
+**Keluhan.** Teks di DOCX Pegon tampak amburadul dan filenya dirasa tidak bisa diedit. Berkas DOCX asli pengguna tidak tersedia; audit dilakukan dengan membangun ulang DOCX dari kode (mesin Pegon asli, pustaka `docx` 9.6.1), memeriksa XML, dan merender di LibreOffice.
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| F1 | Sedang | Koma desimal menjadi koma Arab (`2,5%` menjadi `2،5%`); `Rp` ikut dipegonkan; URL dan email menjadi huruf acak; kode seperti `C2` terpecah. | **Diperbaiki** di `public/pegon.js` (`convertText` melindungi URL, email, nominal, kode huruf+angka, angka bersambung pemisah). 2 tes baru. |
+| F2 | Sedang | Stimulus dan pertanyaan digabung satu paragraf; semua baris baru diratakan menjadi spasi. | **Diperbaiki:** tiap baris sumber menjadi paragraf sendiri. |
+| F3 | Sedang | Rujukan kitab, nama Arab kitab, indikator, dan teks sumber tidak ikut di mode Pegon (ada di mode Word biasa). | **Diperbaiki:** ditulis di bagian kunci dan pembahasan. |
+| F4 | Rendah | Alasan sorotan kuning hilang di DOCX. | **Diperbaiki:** tiap kata bersorot mendapat komentar Word berisi alasannya (dilewati bila pustaka tidak punya API komentar). |
+| F5 | Sedang | DOCX hanya berisi Pegon, tanpa pembanding Latin, sehingga sulit diperiksa dan disunting. | **Ditambah** format **Soal Pegon + Latin (DOCX)**: baris Latin asli (abu-abu) di bawah tiap paragraf Pegon. |
+| F6 | Rendah | Judul bagian kunci memuat `&` Latin. | Diganti "dan". |
+
+**Tidak diubah (belum terbukti):** font `Traditional Arabic` (bawaan Office Windows; di Android atau macOS akan diganti, cakupan huruf Pegon tidak bisa diverifikasi di sandbox), dan keluhan "tidak bisa diedit": XML tidak memuat pengaman dokumen, jadi dugaan utama adalah Protected View atau aplikasi penampil. Perlu info aplikasi dan perangkat pembuka file.
+
+**Diuji:** 147 tes lulus; DOCX mode `pegon`, `pegonlatin`, `daftar`, `kartu` dibangun dengan kode `index.html` yang sebenarnya; XML diperiksa (komentar, tidak ada teks HTML bocor, angka utuh); render LibreOffice. **Belum diuji:** pustaka `docx@8.5.0` dari CDN (sandbox tanpa internet; kode memakai pemeriksaan keberadaan API komentar), dan pembukaan di Word/WPS/Google Docs sungguhan.

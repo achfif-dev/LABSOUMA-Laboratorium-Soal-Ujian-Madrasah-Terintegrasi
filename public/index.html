@@ -250,36 +250,73 @@ const buildDocx = async (qs, mode) => {
   const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
   const AR = (text, size = 40) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children: [new TextRun({ text: String(text || ''), font: 'Traditional Arabic', size, rightToLeft: true })] });
   const kids = [];
+  const komen = []; // komentar Word (hanya mode Pegon)
   const date = new Date().toLocaleDateString('id-ID', { dateStyle: 'long' });
   kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(mode === 'kartu' ? 'KARTU SOAL' : 'NASKAH SOAL', { bold: true, size: 32 })] }));
   kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date}`, { size: 20, color: '555555' })] }));
   const border = { style: BorderStyle.SINGLE, size: 6, color: '0F6B4F' };
   const borders = { top: border, bottom: border, left: border, right: border };
 
-  if (mode === 'pegon') {
-    // Teks soal dialihaksarakan dengan mesin Pegon (aksara Arab di dalam teks tidak diubah). Kata yang diragukan mesin disorot kuning.
-    const un = (h) => h.replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  if (mode === 'pegon' || mode === 'pegonlatin') {
+    // Teks soal dialihaksarakan dengan mesin Pegon (aksara Arab, angka, nominal, URL tidak diubah). Kata yang diragukan
+    // mesin disorot kuning dan, bila pustaka mendukung, diberi komentar Word berisi alasannya.
+    // 'pegonlatin' menambahkan baris Latin asli (abu-abu) di bawah tiap paragraf Pegon agar mudah diperiksa.
+    const dua = mode === 'pegonlatin';
+    const FONT = 'Traditional Arabic';
+    const un = (h) => String(h || '').replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const bisaKomen = !!(D.CommentRangeStart && D.CommentRangeEnd && D.CommentReference);
     const runs = (text, o = {}) => {
-      const { html } = window.Pegon.convertText(String(text || '').replace(/\n/g, ' '));
-      const out = []; const re = /<span class="flag"[^>]*>(.*?)<\/span>/g; let last = 0, m;
-      const push = (t, flag) => { if (t) out.push(new TextRun({ text: un(t), font: 'Traditional Arabic', size: 32, rightToLeft: true, ...(flag ? { highlight: 'yellow' } : {}), ...o })); };
-      while ((m = re.exec(html))) { push(html.slice(last, m.index)); push(m[1], true); last = re.lastIndex; }
+      const { html } = window.Pegon.convertText(String(text || '').replace(/\s*\n+\s*/g, ' '));
+      const out = []; const re = /<span class="flag"(?: title="([^"]*)")?[^>]*>(.*?)<\/span>/g; let last = 0, m;
+      const push = (t, flag, note) => {
+        if (!t) return;
+        const run = new TextRun({ text: un(t), font: FONT, size: 32, rightToLeft: true, ...(flag ? { highlight: 'yellow' } : {}), ...o });
+        if (flag && bisaKomen) {
+          const id = komen.length;
+          komen.push({ id, author: 'Pegonizer', initials: 'PG', date: new Date(), children: [new Paragraph({ children: [new TextRun({ text: un(note) || 'perlu diperiksa' })] })] });
+          out.push(new D.CommentRangeStart(id), run, new D.CommentRangeEnd(id), new TextRun({ children: [new D.CommentReference(id)] }));
+        } else out.push(run);
+      };
+      while ((m = re.exec(html))) { push(html.slice(last, m.index)); push(m[2], true, m[1]); last = re.lastIndex; }
       push(html.slice(last));
       return out;
     };
     const RP = (children, o = {}) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children, ...o });
+    const LP = (t, o = {}) => new Paragraph({ spacing: { after: 120 }, children: [T(t, { size: 20, color: '777777', italics: true })], ...o });
+    const adaLatin = (t) => /[A-Za-z]/.test(t); // baris Arab murni tidak perlu diulang
+    const baris = (t) => String(t || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
     const HURUF = { A: 'أ', B: 'ب', C: 'ج', D: 'د', E: 'ه' };
+    const NUM = (t, o = {}) => new TextRun({ text: t, font: FONT, size: 32, rightToLeft: true, ...o });
+    // Satu entri per baris sumber: stimulus dan pertanyaan tetap paragraf terpisah, baris baru dipertahankan.
+    const blok = (items, awalan, o = {}, oLatin = {}) => {
+      items.forEach((ln, idx) => {
+        kids.push(RP([...(idx === 0 && awalan ? [awalan] : []), ...runs(ln)], o));
+        if (dua && adaLatin(ln)) kids.push(LP(ln, oLatin));
+      });
+    };
     kids.length = 0;
-    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T('NASKAH SOAL (PEGON)', { bold: true, size: 32 })] }));
-    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date} · kata bersorot kuning perlu diperiksa`, { size: 20, color: '555555' })] }));
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(dua ? 'NASKAH SOAL (PEGON + LATIN)' : 'NASKAH SOAL (PEGON)', { bold: true, size: 32 })] }));
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date} · kata bersorot kuning perlu diperiksa${bisaKomen ? ' (lihat komentar)' : ''}`, { size: 20, color: '555555' })] }));
     qs.forEach((q, i) => {
-      kids.push(RP([new TextRun({ text: `${i + 1}. `, font: 'Traditional Arabic', size: 32, bold: true, rightToLeft: true }), ...runs(fullQ(q))], { keepNext: true }));
-      optsOf(q).forEach((k) => kids.push(RP([new TextRun({ text: `${HURUF[k]}. `, font: 'Traditional Arabic', size: 32, rightToLeft: true }), ...runs(q.opsi[k])], { indent: { start: 400 } })));
+      const items = [...baris(q.stimulus), ...baris(q.pertanyaan)];
+      blok(items, NUM(`${i + 1}. `, { bold: true }), { keepNext: true });
+      optsOf(q).forEach((k) => {
+        kids.push(RP([NUM(`${HURUF[k]}. `), ...runs(q.opsi[k])], { indent: { start: 400 } }));
+        if (dua) kids.push(LP(`${k}. ${q.opsi[k]}`, { indent: { left: 400 } }));
+      });
       kids.push(P(T('')));
     });
-    kids.push(new Paragraph({ pageBreakBefore: true, bidirectional: true, spacing: { after: 160 }, children: runs('Kunci jawaban & pembahasan', { bold: true }) }));
+    kids.push(new Paragraph({ pageBreakBefore: true, bidirectional: true, spacing: { after: 160 }, children: runs('Kunci jawaban dan pembahasan', { bold: true }) }));
     qs.forEach((q, i) => {
-      kids.push(RP([new TextRun({ text: `${i + 1}. ${HURUF[q.kunci] || q.kunci}  `, font: 'Traditional Arabic', size: 32, bold: true, rightToLeft: true }), ...runs(q.pembahasan)]));
+      const lines = baris(q.pembahasan);
+      kids.push(RP([NUM(`${i + 1}. ${HURUF[q.kunci] || q.kunci}  `, { bold: true }), ...(lines[0] ? runs(lines[0]) : [])]));
+      if (dua && lines[0] && adaLatin(lines[0])) kids.push(LP(lines[0]));
+      lines.slice(1).forEach((ln) => { kids.push(RP(runs(ln), { indent: { start: 400 } })); if (dua && adaLatin(ln)) kids.push(LP(ln, { indent: { left: 400 } })); });
+      const kecil = { size: 26, color: '555555' };
+      if (q.nama) kids.push(RP(runs(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, kecil), { indent: { start: 400 } }));
+      if (q.namaArab) kids.push(AR(q.namaArab, 28));
+      if (q.indikator) kids.push(RP(runs(`Indikator: ${q.indikator}`, kecil), { indent: { start: 400 } }));
+      if (q.teks) kids.push(AR(q.teks));
     });
   } else if (mode === 'daftar') {
     qs.forEach((q, i) => {
@@ -318,12 +355,13 @@ const buildDocx = async (qs, mode) => {
       kids.push(P(T('')));
     });
   }
-  const doc = new Document({ sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: kids }] });
+  const doc = new Document({ ...(komen.length ? { comments: { children: komen } } : {}), sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: kids }] });
   return Packer.toBlob(doc);
 };
 
 const FORMATS = [
   { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
+  { id: 'pegonlatin', label: 'Soal Pegon + Latin (DOCX)', sub: 'Pegon dengan baris Latin asli di bawahnya, untuk diperiksa', icon: Languages, ext: 'docx' },
   { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
   { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
   { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
@@ -1308,7 +1346,8 @@ function Export({ all, toast }) {
     cur.has(id) ? cur.delete(id) : cur.add(id);
     setPicked(cur);
   };
-  const pv = (t) => (fmt === 'pegon' && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
+  const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
+  const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
   const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
 
   const copy = async () => {
@@ -1319,7 +1358,7 @@ function Export({ all, toast }) {
     if (!chosen.length) return;
     setBusy(true);
     try {
-      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : 'daftar');
+      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar');
       saveFile(fname, data);
       toast('File diunduh.');
     } catch (e) {
@@ -1383,8 +1422,8 @@ function Export({ all, toast }) {
                 <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl bg-bg p-4">
                   {chosen.map((q, i) => (
                     <div key={q.id} className="text-sm">
-                      <p className={`font-semibold ${fmt === 'pegon' ? 'ar-sm' : ''}`} dir={fmt === 'pegon' ? 'rtl' : undefined}>{i + 1}. {pv(fullQ(q))}</p>
-                      <ul className="ml-4 mt-1" dir={fmt === 'pegon' ? 'rtl' : undefined}>{optsOf(q).map((k) => <li key={k} className={fmt === 'pegon' ? 'ar-sm' : ''}>{k}. {pv(q.opsi[k])}</li>)}</ul>
+                      <p className={`font-semibold ${isPegon ? 'ar-sm' : ''}`} dir={isPegon ? 'rtl' : undefined}>{i + 1}. {pv(fullQ(q))}</p>
+                      <ul className="ml-4 mt-1" dir={isPegon ? 'rtl' : undefined}>{optsOf(q).map((k) => <li key={k} className={isPegon ? 'ar-sm' : ''}>{k}. {pv(q.opsi[k])}</li>)}</ul>
                       {fmt === 'kartu' && <>
                         <p className="mt-1 text-soft-ink">Kunci: <b>{q.kunci}</b></p>
                         {q.teks && <p dir="rtl" lang="ar" className="ar ar-sm">{q.teks}</p>}

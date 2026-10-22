@@ -516,7 +516,7 @@ function arabizePunctuation(s){
   return s.replace(/,/g, '،').replace(/;/g, '؛').replace(/\?/g, '؟');
 }
 
-function convertText(text){
+function convertSegmen(text){
   const tokenRe = /[A-Za-z\u00C0-\u024F]+(?:[-'\u2019\u2018\u02bc\u02bb`\u00b4][A-Za-z\u00C0-\u024F]+)*/g;
   let lastIndex = 0;
   let outPegon = '';
@@ -546,6 +546,32 @@ function convertText(text){
   outPegon += tailGap;
   outHtml += escapeHtml(tailGap).replace(/\n/g, '<br>');
   return { pegon: outPegon, html: outHtml, details };
+}
+
+// [TERPADU] Bagian yang TIDAK boleh dialihaksarakan: URL, email, nominal (Rp1.000,00), kode huruf+angka (C2, PG5),
+// dan angka bersambung pemisah (2,5 / 1.000). Tanpa ini koma desimal berubah menjadi koma Arab ("2،5"), "Rp" dan
+// alamat web ikut dipegonkan menjadi huruf acak. Bagian terlindung dilewatkan apa adanya; sisanya lewat mesin asli.
+const LINDUNG_SRC = String.raw`https?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]]|www\.[^\s<>"]*[^\s<>".,;:!?)\]]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\bRp\.?\s?\d+(?:[.,]\d+)*|\b[A-Za-z]{1,4}\d+\b|\d+(?:[.,]\d+)+`;
+
+function convertText(text){
+  const s = String(text == null ? '' : text);
+  const re = new RegExp(LINDUNG_SRC, 'gi');
+  let last = 0, pegon = '', html = '';
+  const details = [];
+  const tambah = (seg) => {
+    if (!seg) return;
+    const r = convertSegmen(seg);
+    pegon += r.pegon; html += r.html; details.push(...r.details);
+  };
+  let m;
+  while ((m = re.exec(s)) !== null){
+    tambah(s.slice(last, m.index));
+    pegon += m[0];
+    html += escapeHtml(m[0]);
+    last = re.lastIndex;
+  }
+  tambah(s.slice(last));
+  return { pegon, html, details };
 }
 
 /* ============================ [TERPADU] FASAD ============================ */
