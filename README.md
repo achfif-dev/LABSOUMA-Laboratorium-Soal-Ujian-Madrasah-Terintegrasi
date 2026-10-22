@@ -198,13 +198,18 @@ Yang perlu dipahami: cadangan **tidak mengosongkan Firestore**. Penyimpanan Spar
 
 ### Pemasangan (sekali, oleh admin)
 
-1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan pilih **proyek yang sama dengan Firebase**.
-2. **APIs & Services > Library**: aktifkan **Google Drive API**.
-3. **APIs & Services > OAuth consent screen**: isi nama aplikasi dan email dukungan. Scope `drive.file` tidak sensitif, jadi tidak perlu verifikasi Google. Selama status "Testing", tambahkan email editor dan admin sebagai **Test users**; atau ubah ke "In production".
-4. **APIs & Services > Credentials > Create credentials > OAuth client ID**, jenis **Web application**. Pada **Authorized JavaScript origins** isi alamat situs (mis. `https://nama-anda.vercel.app`, tanpa garis miring akhir; tambahkan `http://localhost:3000` bila perlu).
-5. Salin **Client ID**, isi di Vercel sebagai `GOOGLE_DRIVE_CLIENT_ID`, lalu **Redeploy**.
+Nama menu mengikuti tampilan Google Cloud saat ini ("Google Auth Platform"). Bila Google mengubahnya lagi, yang pasti dibutuhkan: Drive API aktif, OAuth Client ID jenis Web, dan origin situs terdaftar.
 
-Nama menu Google Cloud dapat berubah; yang pasti dibutuhkan: Drive API aktif, OAuth Client ID jenis Web, dan origin situs terdaftar. Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mismatch* (langkah 4), dan *access_denied* (email belum menjadi Test user, langkah 3). Cadangan yang sangat besar (di atas sekitar 5 MB) diunggah sekali jalan; bila gagal, verifikasi menolaknya dan tidak ada soal yang dihapus.
+1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan pilih **proyek yang sama dengan Firebase**.
+2. **APIs & Services > Library**: cari dan aktifkan **Google Drive API**.
+3. **Google Auth Platform** (menu di sidebar):
+   - **Branding**: isi nama aplikasi dan email dukungan.
+   - **Data Access > Add or remove scopes**: tambahkan `.../auth/drive.file`. Scope ini tercantum di "Your non-sensitive scopes", jadi **tidak perlu verifikasi Google**.
+   - **Audience**: bila statusnya "Testing", tambahkan email semua editor dan admin di **Test users** (maksimal 100); tanpa itu mereka kena `access_denied`. Atau ubah ke "In production" agar tidak perlu mendaftarkan email.
+4. **Google Auth Platform > Clients > Create client**: pilih **Web application**, beri nama yang jelas (mis. `LABSOUMA Web`; hanya label di console). Pada **Authorized JavaScript origins** isi alamat situs persis (mis. `https://labsouma.vercel.app`, tanpa garis miring akhir; tambahkan `http://localhost:3000` untuk uji lokal, dan alamat lain bila situs diakses lewat domain berbeda). **Authorized redirect URIs** dikosongkan. Klik **Create**.
+5. Salin **Client ID** (bentuknya `123456-abc.apps.googleusercontent.com`; client secret tidak dipakai), isi di Vercel sebagai `GOOGLE_DRIVE_CLIENT_ID`, lalu **Redeploy**.
+
+Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mismatch* (alamat yang dipakai tidak terdaftar di langkah 4), dan *access_denied* (email belum menjadi Test user, langkah 3). Cadangan yang sangat besar (di atas sekitar 5 MB) diunggah sekali jalan; bila gagal, verifikasi menolaknya dan tidak ada soal yang dihapus.
 
 ## Struktur
 
