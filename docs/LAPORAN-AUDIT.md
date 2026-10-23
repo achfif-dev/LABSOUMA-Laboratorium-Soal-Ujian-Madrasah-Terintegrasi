@@ -230,7 +230,8 @@ Diuji: logika murni (`public/ujian.js`), validasi dan pembersihan server (`sanit
 - `clean()` di `src/soalService.js` tidak membuang tag `</daftar_isi>`. Daftar isi tempelan bisa menyelipkan instruksi keluar dari blok data. Diperbaiki, diuji lewat unit dan handler.
 - `simpanBerkas` ternyata sudah dideklarasikan di bagian Pegonizer. Deklarasi ganda `const` pada satu blok Babel membuat seluruh aplikasi gagal dimuat. Tertangkap karena blok asli dijalankan di Node, bukan dari cek sintaks (cek sintaks lolos). Salinan dihapus.
 - Lebar kolom tabel DOCX kisi-kisi diabaikan LibreOffice (persentase pada sel). Diganti lebar tetap DXA dan tata letak tetap; hasilnya dilihat lewat render PDF.
-- Masih terbuka dari audit lama: tidak ada `package-lock.json`, CSP masih Report-Only dengan `unsafe-inline`/`unsafe-eval`, skrip CDN tanpa SRI.
+- `package-lock.json` (B1): TIDAK bisa dibuat di sandbox (tanpa akses registry npm; lockfile butuh versi dan hash dari registry, tidak boleh dikarang). Disiapkan `.github/workflows/kunci.yml` (jalankan sekali dari tab Actions), dan `docx` kini dideklarasikan sebagai devDependency karena tes DOCX kisi-kisi sebelumnya otomatis dilewati bila paket itu tidak terpasang. Setelah lockfile ada, ganti `npm install` di `ci.yml` dan `eval.yml` menjadi `npm ci`.
+- Masih terbuka dari audit lama: CSP masih Report-Only dengan `unsafe-inline`/`unsafe-eval`, skrip CDN tanpa SRI.
 
 ### Yang ditambahkan
 - Tab **Fokus Ujian & Kisi-kisi**. Aksi `bab` di `/api/assist` (`src/babService.js`, kerangka di `src/aswaja.js`): saran bab dengan prioritas inti/penting/pendukung, alokasi soal (dihitung server, jumlahnya tepat), penanda khilafiyah, dan catatan pendekatan.

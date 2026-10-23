@@ -18,5 +18,8 @@
     "jwks-rsa": {
       "jose": "^4.15.9"
     }
+  },
+  "devDependencies": {
+    "docx": "^9.6.1"
   }
 }
