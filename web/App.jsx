@@ -1,0 +1,3543 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
+import {
+  BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target,
+} from 'lucide-react';
+
+/* ---------- Data & constants ---------- */
+const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
+const MAPEL = ['Fiqih', 'Akidah', 'Akhlak', 'Tarikh (SKI)', "Qur'an Hadits", 'Bahasa Arab', 'Lainnya'];
+// Cadangan bila /api/app-config belum terbaca. Nilai sebenarnya diatur admin di menu Konfigurasi (src/appConfig.js).
+const FALLBACK_CFG = {
+  tingkat: TINGKAT.map((n) => ({ nama: n, label: n, singkat: '', kelas: [], aktif: true })),
+  mapel: MAPEL.map((n) => ({ nama: n, tingkat: TINGKAT, aktif: true })),
+  kitab: ['Fathul Qarib', 'Kifayatul Akhyar', 'Safinatun Naja', 'Taqrib (Matan Abu Syuja)', "Arba'in Nawawi", 'Riyadhus Shalihin', "Ta'lim al-Muta'allim", 'Aqidatul Awam']
+    .map((n) => ({ nama: n, pengarang: '', mapel: '', tingkat: TINGKAT, aktif: true })),
+};
+// Kelas, sistem ujian, dan penempatan kitab: fungsi murni dari public/ujian.js (window.Ujian). Bila modul belum/tidak termuat, fitur kelas dan ujian diam (tidak merusak halaman).
+// PENTING: dinamai Uj, bukan Ujian, agar tidak bentrok dengan window.Ujian (const tingkat atas oleh Babel menjadi var global).
+const UJ_NOOP = { daftarSistem: () => [], kelasUntuk: () => [], periodeUntuk: () => [], sistemUntuk: () => null, labelPeriode: (c, t, k) => k || '', labelSistem: () => '', kitabCocok: () => true, cakupanKitab: () => '', ringkasPenempatan: () => [], penempatanYatim: () => [], penempatanKitab: () => [] };
+const Uj = new Proxy({}, { get: (_, k) => (window.Ujian || UJ_NOOP)[k] });
+// Bentuk soal (public/bentuk.js, window.Bentuk). Dinamai Bt agar tidak bentrok dengan window.Bentuk. Bila modul tidak termuat, semua soal dibaca sebagai pilihan ganda.
+const BT_NOOP = {
+  BENTUK: { pilgan: { id: 'pilgan', label: 'Pilihan ganda', singkat: 'Pilgan', opsi: ['A', 'B', 'C', 'D', 'E'], jawaban: false, rubrik: false, ket: '', contoh: '' } }, BENTUK_IDS: ['pilgan'], OPSI_BENARSALAH: { A: 'Benar', B: 'Salah' },
+  bentukDari: () => 'pilgan', punyaOpsi: () => true, kunciOpsi: () => ['A', 'B', 'C', 'D', 'E'], bentukUntukTingkat: () => ['pilgan'], dianjurkan: () => true, adaPenanda: () => true,
+  kunciTeks: (q) => String((q && q.kunci) || ''), selaraskan: (q) => q,
+  periksaSoal: (q) => { const e = []; const t = (v) => String(v || '').trim(); if (!t(q.pertanyaan)) e.push('Pertanyaan belum diisi.'); if (['A', 'B', 'C', 'D', 'E'].filter((k) => t((q.opsi || {})[k])).length < 2) e.push('Isi minimal dua opsi jawaban.'); if (!q.kunci) e.push('Pilih kunci jawaban.'); else if (!t((q.opsi || {})[q.kunci])) e.push(`Opsi ${q.kunci} kosong, tetapi dipilih sebagai kunci.`); if (!t(q.pembahasan)) e.push('Pembahasan atau dalil pendukung belum diisi.'); return e; },
+};
+const Bt = new Proxy({}, { get: (_, k) => (window.Bentuk || BT_NOOP)[k] });
+const AppCfgCtx = React.createContext(FALLBACK_CFG);
+const useCfg = () => React.useContext(AppCfgCtx);
+// Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
+const KamusCtx = React.createContext({ docs: [], ver: 0, err: null, canShare: false, simpan: async () => {}, hapus: async () => {} });
+const useKamus = () => React.useContext(KamusCtx);
+const tingkatAktif = (cfg) => cfg.tingkat.filter((t) => t.aktif);
+const labelTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).label) || nama;
+const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingkat || m.tingkat.includes(tingkat))).map((m) => m.nama);
+// Kitab di dropdown = kitab aktif di Konfigurasi untuk tingkat dan mapel terpilih. Kitab "(tanpa mapel)" berlaku untuk semua mapel.
+// Tanpa cadangan: kalau tidak ada yang cocok, daftar kosong (pengguna bisa memilih "Lainnya").
+// Kelas dan periode ujian (opsional) mempersempit lagi lewat penempatan kitab per kelas (public/ujian.js).
+const kitabUntuk = (cfg, tingkat, mapel, kelas = '', periode = '') =>
+  cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel) && Uj.kitabCocok(k, { tingkat, kelas, periode }));
+const KITAB_LAIN = '__lain__';
+const cariKitab = (cfg, nama) => cfg.kitab.find((k) => k.nama.toLowerCase() === String(nama || '').trim().toLowerCase());
+const namaArabKitab = (cfg, nama) => (cariKitab(cfg, nama) || {}).namaArab || '';
+const labelArabTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).labelArab) || '';
+// Teks Arab di tengah kalimat Latin: font Amiri, arah RTL terisolasi.
+const ArNama = ({ children, className = '' }) => (children ? <span dir="rtl" lang="ar" className={'ar-nama ' + className}>{children}</span> : null);
+// Tambahan setelah rujukan kitab: " · نama Arab" bila kitab ada di katalog dan punya nama Arab.
+const RefArab = ({ q }) => { const a = namaArabKitab(useCfg(), q.nama); return a ? <> · <ArNama>{a}</ArNama></> : null; };
+const LEVEL = [
+  { v: 'L1', label: 'L1 – Ingatan' },
+  { v: 'L2', label: 'L2 – Aplikasi' },
+  { v: 'L3', label: 'L3 – HOTS' },
+];
+const KEYS = ['A', 'B', 'C', 'D', 'E'];
+const STATUS = {
+  draft:    { label: 'Draft',          cls: 'bg-soft text-mute' },
+  pending:  { label: 'Pending Review', cls: 'bg-warn-bg text-warn' },
+  approved: { label: 'Approved',       cls: 'bg-ok-bg text-ok' },
+  revision: { label: 'Perlu Revisi',   cls: 'bg-bad-bg text-bad' },
+};
+const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', nonaktif: 'Nonaktif' };
+const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik'];
+
+const emptyForm = () => ({
+  tingkat: 'Aliyah', mapel: 'Fiqih', level: 'L3',
+  kelas: '', periode: '', // opsional: kelas dan kode periode ujian (label periode diatur di Konfigurasi)
+  nama: '', juz: '', hal: '', bab: '', // bab: opsional, dasar pengelompokan kisi-kisi
+  teks: '',
+  stimulus: '', pertanyaan: '', indikator: '', sumberUrl: '',
+  bentuk: 'pilgan', // pilgan | lanjutan | benarsalah | isian | uraian (public/bentuk.js)
+  opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '', jawaban: '', rubrik: '', // jawaban/rubrik: isian dan uraian
+  ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
+});
+
+/* ---------- Draf otomatis (public/draft.js) ---------- */
+// Isian yang belum disimpan ke server dititipkan di localStorage per akun, supaya selamat dari muat ulang halaman.
+// Rahasia (kunci API) tidak pernah dititipkan.
+const DRAFT_NOOP = { read: () => null, save() {}, saveNow: () => false, remove() {}, clearAll() {}, flush: () => true, setUser() {}, onStatus: () => () => {}, tersedia: false };
+// PENTING: modul disimpan di window.LabDraft, BUKAN window.Draft. Babel-standalone mengubah const di tingkat atas menjadi var global,
+// jadi `const Draft` di sini menjadi window.Draft dan menimpa modul. Bila Proxy ini membaca window.Draft, ia membaca dirinya sendiri
+// tanpa henti (RangeError: Maximum call stack size exceeded) dan seluruh halaman blank.
+const Draft = new Proxy({}, { get: (_, k) => (window.LabDraft || DRAFT_NOOP)[k] });
+// Titipkan `nilai` sebagai draf `nama`; bila `bersih`, hapus drafnya. `nilai` harus stabil antar render (useMemo) agar tidak menulis berulang.
+function useDraftSync(nama, nilai, bersih) {
+  useEffect(() => { if (bersih) Draft.remove(nama); else Draft.save(nama, nilai); }, [nama, nilai, bersih]);
+}
+// Baca pengaturan kecil (filter, format): hanya kunci yang dikenal dan bertipe sama yang dipakai; selebihnya nilai awal.
+const bacaPref = (nama, awal) => {
+  const s = Draft.read(nama); if (!s || typeof s !== 'object') return awal;
+  const o = { ...awal }; for (const k of Object.keys(awal)) if (typeof s[k] === typeof awal[k]) o[k] = s[k];
+  return o;
+};
+// Bentuk form dari draf yang dibaca: total (tidak pernah melempar) dan hanya menerima string pada tempatnya, supaya draf rusak tidak membuat halaman gagal tampil.
+const normalForm = (src) => {
+  const base = emptyForm(); const x = src && typeof src === 'object' ? src : {};
+  const str = (v, d) => (typeof v === 'string' ? v : d);
+  const o = { ...base };
+  for (const k of FIELDS) if (k !== 'opsi' && k !== 'ai' && typeof x[k] === 'string') o[k] = x[k];
+  const so = x.opsi && typeof x.opsi === 'object' ? x.opsi : {};
+  o.opsi = Object.fromEntries(KEYS.map((k) => [k, str(so[k], '')]));
+  if (!KEYS.includes(o.kunci)) o.kunci = '';
+  o.bentuk = Bt.bentukDari(o.bentuk);
+  const sa = x.ai && typeof x.ai === 'object' ? x.ai : {};
+  o.ai = { dibuat: sa.dibuat === true, model: str(sa.model, '').slice(0, 60), verifikasi: str(sa.verifikasi, ''), buta: str(sa.buta, '') };
+  return o;
+};
+// Ada teks yang diketik pengguna? (dasar peringatan dan pemberitahuan pemulihan)
+const formBerisi = (f) => ['nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'kunci', 'pembahasan', 'jawaban', 'rubrik'].some((k) => String(f[k] || '').trim()) || KEYS.some((k) => String((f.opsi || {})[k] || '').trim());
+// Ada yang berbeda dari form kosong (termasuk pilihan tingkat/mapel/level)? Bila tidak, tidak ada yang perlu disimpan.
+const formBeda = (f) => { const e = emptyForm(); return FIELDS.some((k) => JSON.stringify(f[k]) !== JSON.stringify(e[k])); };
+// Penanda "draf otomatis tersimpan". `names` membatasi ke kunci draf tertentu; tanpa itu, semua.
+function DraftNote({ names, className = '' }) {
+  const [st, setSt] = useState(null);
+  useEffect(() => Draft.onStatus((x) => { if (!names || names.includes(x.name)) setSt(x); }), []);
+  const warn = (t) => <p role="status" className={'text-xs font-medium text-warn ' + className}>{t}</p>;
+  if (!Draft.tersedia) return warn('Browser ini memblokir penyimpanan lokal, jadi isian tidak bisa dipulihkan setelah muat ulang. Simpan sebagai draft sebelum menutup halaman.');
+  if (!st) return null;
+  if (!st.ok) return warn(st.reason === 'terlalu-besar' ? 'Isian terlalu besar untuk draf otomatis. Simpan sebagai draft sebelum menutup halaman.' : 'Draf otomatis gagal disimpan (penyimpanan browser penuh atau ditolak). Simpan sebagai draft sebelum menutup halaman.');
+  return <p role="status" className={'text-xs text-mute ' + className}>Draf otomatis tersimpan di perangkat ini · {new Date(st.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>;
+}
+
+/* ---------- Export builders ---------- */
+const optsOf = (q) => KEYS.filter((k) => (q.opsi[k] || '').trim());
+const levelLabel = (v) => (LEVEL.find((l) => l.v === v) || {}).label || v;
+// Sel berawalan = + - @ (atau tab/CR) dibaca Excel/Sheets sebagai rumus: awali apostrof agar tampil sebagai teks biasa (OWASP CSV injection).
+const csvEsc = (s) => { let t = String(s == null ? '' : s); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
+const giftEsc = (s) => String(s || '').replace(/([\\~=#{}:])/g, '\\$1').replace(/\r?\n/g, ' '); // "\\" ikut di-escape (GIFT memakainya sebagai pelepas)
+const xmlEsc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const fullQ = (q) => [q.stimulus, q.pertanyaan].filter(Boolean).join(' ');
+
+// Bentuk non-pilihan di format Moodle: benar-salah -> {TRUE}/{FALSE}, isian -> jawaban singkat, uraian -> esai (tanpa jawaban otomatis).
+// Format GIFT dan Moodle XML untuk bentuk baru ini belum diuji di Moodle sungguhan; coba impor beberapa soal dulu.
+const giftJawaban = (q) => {
+  const b = Bt.bentukDari(q);
+  if (b === 'benarsalah') return q.kunci === 'A' ? 'TRUE' : 'FALSE';
+  if (b === 'isian') return String(q.jawaban || '').split(/\s*\/\s*/).filter(Boolean).map((x) => '=' + giftEsc(x)).join(' ');
+  return '';
+};
+const umpanUraian = (q) => [q.pembahasan, q.jawaban && `Jawaban model: ${q.jawaban}`, q.rubrik && `Pedoman penskoran: ${q.rubrik}`].filter(Boolean).join(' | ');
+
+const buildGift = (qs) =>
+  '// LABSOUMA, format Moodle GIFT\n\n' +
+  qs.map((q, i) => {
+    const b = Bt.bentukDari(q);
+    const o = optsOf(q);
+    const kepala = `// ${q.mapel} | ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? ' | ' + q.ujian : ''} | ${levelLabel(q.level)} | ${Bt.BENTUK[b].label} | ${q.nama || '-'} hal. ${q.hal || '-'}\n` +
+      `::Soal ${i + 1} ${q.mapel}::${giftEsc(fullQ(q))}`;
+    if (b === 'benarsalah' || b === 'isian') return `${kepala}{${giftJawaban(q)}####${giftEsc(q.pembahasan)}}`;
+    if (b === 'uraian') return `${kepala}{####${giftEsc(umpanUraian(q))}}`;
+    return `${kepala}{\n` +
+      o.map((k) => `${k === q.kunci ? '=' : '~'}${giftEsc(q.opsi[k])}`).join('\n') +
+      `\n####${giftEsc(q.pembahasan)}\n}`;
+  }).join('\n\n') + '\n';
+
+const buildMoodleXml = (qs) =>
+  '<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n' +
+  qs.map((q, i) => {
+    const b = Bt.bentukDari(q);
+    const tipe = b === 'benarsalah' ? 'truefalse' : b === 'isian' ? 'shortanswer' : b === 'uraian' ? 'essay' : 'multichoice';
+    const kepala = `  <question type="${tipe}">\n    <name><text>Soal ${i + 1} ${xmlEsc(q.mapel)}</text></name>\n` +
+      `    <questiontext format="html"><text><![CDATA[<p>${xmlEsc(fullQ(q))}</p>]]></text></questiontext>\n` +
+      `    <generalfeedback format="html"><text><![CDATA[${xmlEsc(b === 'uraian' ? q.pembahasan : q.pembahasan)}]]></text></generalfeedback>\n` +
+      '    <defaultgrade>1</defaultgrade>\n';
+    if (b === 'benarsalah') {
+      return kepala + `    <penalty>1</penalty>\n    <answer fraction="${q.kunci === 'A' ? 100 : 0}" format="moodle_auto_format"><text>true</text></answer>\n    <answer fraction="${q.kunci === 'B' ? 100 : 0}" format="moodle_auto_format"><text>false</text></answer>\n  </question>`;
+    }
+    if (b === 'isian') {
+      return kepala + '    <usecase>0</usecase>\n' +
+        String(q.jawaban || '').split(/\s*\/\s*/).filter(Boolean).map((x) => `    <answer fraction="100" format="moodle_auto_format"><text>${xmlEsc(x)}</text></answer>`).join('\n') + '\n  </question>';
+    }
+    if (b === 'uraian') {
+      return kepala + '    <responseformat>editor</responseformat>\n    <responserequired>1</responserequired>\n    <responsefieldlines>10</responsefieldlines>\n' +
+        `    <graderinfo format="html"><text><![CDATA[${xmlEsc(`Jawaban model: ${q.jawaban || '-'}${q.rubrik ? ' | Pedoman penskoran: ' + q.rubrik : ''}`)}]]></text></graderinfo>\n  </question>`;
+    }
+    return kepala + '    <single>true</single>\n    <shuffleanswers>1</shuffleanswers>\n    <answernumbering>ABCD</answernumbering>\n' +
+      optsOf(q).map((k) => `    <answer fraction="${k === q.kunci ? 100 : 0}" format="html"><text>${xmlEsc(q.opsi[k])}</text></answer>`).join('\n') +
+      '\n  </question>';
+  }).join('\n') + '\n</quiz>\n';
+
+// Google Forms: kolom Kunci Jawaban berisi huruf (pilihan), Benar/Salah, atau jawaban bertulis (isian/uraian). Pedoman skor uraian ikut di Pembahasan.
+const buildCsvForms = (qs) =>
+  '\uFEFF' + ['Pertanyaan', 'Opsi A', 'Opsi B', 'Opsi C', 'Opsi D', 'Opsi E', 'Kunci Jawaban', 'Pembahasan'].map(csvEsc).join(',') + '\n' +
+  qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan].map(csvEsc).join(',')).join('\n') + '\n';
+
+const buildCsvRdm = (qs) =>
+  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik'].map(csvEsc).join(',') + '\n' +
+  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik].map(csvEsc).join(',')).join('\n') + '\n';
+
+const buildDocx = async (qs, mode) => {
+  const D = window.docx;
+  if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
+  const T = (text, o = {}) => new TextRun({ text: String(text || ''), font: 'Calibri', size: 24, ...o });
+  const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
+  const AR = (text, size = 40) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children: [new TextRun({ text: String(text || ''), font: 'Traditional Arabic', size, rightToLeft: true })] });
+  const kids = [];
+  const komen = []; // komentar Word (hanya mode Pegon)
+  const date = new Date().toLocaleDateString('id-ID', { dateStyle: 'long' });
+  kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(mode === 'kartu' ? 'KARTU SOAL' : 'NASKAH SOAL', { bold: true, size: 32 })] }));
+  kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date}`, { size: 20, color: '555555' })] }));
+  const border = { style: BorderStyle.SINGLE, size: 6, color: '0F6B4F' };
+  const borders = { top: border, bottom: border, left: border, right: border };
+
+  if (mode === 'pegon' || mode === 'pegonlatin') {
+    // Teks soal dialihaksarakan dengan mesin Pegon (aksara Arab, angka, nominal, URL tidak diubah). Kata yang diragukan
+    // mesin disorot kuning dan, bila pustaka mendukung, diberi komentar Word berisi alasannya.
+    // 'pegonlatin' menambahkan baris Latin asli (abu-abu) di bawah tiap paragraf Pegon agar mudah diperiksa.
+    const dua = mode === 'pegonlatin';
+    const FONT = 'Traditional Arabic';
+    const un = (h) => String(h || '').replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const bisaKomen = !!(D.CommentRangeStart && D.CommentRangeEnd && D.CommentReference);
+    const runs = (text, o = {}) => {
+      const { html } = window.Pegon.convertText(String(text || '').replace(/\s*\n+\s*/g, ' '));
+      const out = []; const re = /<span class="flag"(?: title="([^"]*)")?[^>]*>(.*?)<\/span>/g; let last = 0, m;
+      const push = (t, flag, note) => {
+        if (!t) return;
+        const run = new TextRun({ text: un(t), font: FONT, size: 32, rightToLeft: true, ...(flag ? { highlight: 'yellow' } : {}), ...o });
+        if (flag && bisaKomen) {
+          const id = komen.length;
+          komen.push({ id, author: 'Pegonizer', initials: 'PG', date: new Date(), children: [new Paragraph({ children: [new TextRun({ text: un(note) || 'perlu diperiksa' })] })] });
+          out.push(new D.CommentRangeStart(id), run, new D.CommentRangeEnd(id), new TextRun({ children: [new D.CommentReference(id)] }));
+        } else out.push(run);
+      };
+      while ((m = re.exec(html))) { push(html.slice(last, m.index)); push(m[2], true, m[1]); last = re.lastIndex; }
+      push(html.slice(last));
+      return out;
+    };
+    const RP = (children, o = {}) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children, ...o });
+    const LP = (t, o = {}) => new Paragraph({ spacing: { after: 120 }, children: [T(t, { size: 20, color: '777777', italics: true })], ...o });
+    const adaLatin = (t) => /[A-Za-z]/.test(t); // baris Arab murni tidak perlu diulang
+    const baris = (t) => String(t || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
+    const HURUF = { A: 'أ', B: 'ب', C: 'ج', D: 'د', E: 'ه' };
+    const NUM = (t, o = {}) => new TextRun({ text: t, font: FONT, size: 32, rightToLeft: true, ...o });
+    // Satu entri per baris sumber: stimulus dan pertanyaan tetap paragraf terpisah, baris baru dipertahankan.
+    const blok = (items, awalan, o = {}, oLatin = {}) => {
+      items.forEach((ln, idx) => {
+        kids.push(RP([...(idx === 0 && awalan ? [awalan] : []), ...runs(ln)], o));
+        if (dua && adaLatin(ln)) kids.push(LP(ln, oLatin));
+      });
+    };
+    kids.length = 0;
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(dua ? 'NASKAH SOAL (PEGON + LATIN)' : 'NASKAH SOAL (PEGON)', { bold: true, size: 32 })] }));
+    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date} · kata bersorot kuning perlu diperiksa${bisaKomen ? ' (lihat komentar)' : ''}`, { size: 20, color: '555555' })] }));
+    qs.forEach((q, i) => {
+      const items = [...baris(q.stimulus), ...baris(q.pertanyaan)];
+      blok(items, NUM(`${i + 1}. `, { bold: true }), { keepNext: true });
+      optsOf(q).forEach((k) => {
+        kids.push(RP([NUM(`${HURUF[k]}. `), ...runs(q.opsi[k])], { indent: { start: 400 } }));
+        if (dua) kids.push(LP(`${k}. ${q.opsi[k]}`, { indent: { left: 400 } }));
+      });
+      kids.push(P(T('')));
+    });
+    kids.push(new Paragraph({ pageBreakBefore: true, bidirectional: true, spacing: { after: 160 }, children: runs('Kunci jawaban dan pembahasan', { bold: true }) }));
+    qs.forEach((q, i) => {
+      const lines = baris(q.pembahasan);
+      const bt = Bt.bentukDari(q);
+      const kLabel = bt === 'pilgan' || bt === 'lanjutan' ? (HURUF[q.kunci] || q.kunci) : bt === 'benarsalah' ? Bt.kunciTeks(q) : '';
+      if (Bt.BENTUK[bt].jawaban) {
+        kids.push(RP([NUM(`${i + 1}. `, { bold: true }), ...runs(bt === 'uraian' ? 'Jawaban model:' : 'Jawaban:', { bold: true }), ...runs(' ' + (q.jawaban || ''))]));
+        if (bt === 'uraian' && q.rubrik) { kids.push(RP(runs('Pedoman penskoran:', { bold: true }), { indent: { start: 400 } })); baris(q.rubrik).forEach((ln) => kids.push(RP(runs(ln), { indent: { start: 400 } }))); }
+        lines.forEach((ln) => { kids.push(RP(runs(ln), { indent: { start: 400 } })); if (dua && adaLatin(ln)) kids.push(LP(ln, { indent: { left: 400 } })); });
+      } else {
+        kids.push(RP([NUM(`${i + 1}. ${kLabel}  `, { bold: true }), ...(lines[0] ? runs(lines[0]) : [])]));
+        if (dua && lines[0] && adaLatin(lines[0])) kids.push(LP(lines[0]));
+      }
+      (Bt.BENTUK[bt].jawaban ? [] : lines.slice(1)).forEach((ln) => { kids.push(RP(runs(ln), { indent: { start: 400 } })); if (dua && adaLatin(ln)) kids.push(LP(ln, { indent: { left: 400 } })); });
+      const kecil = { size: 26, color: '555555' };
+      if (q.nama) kids.push(RP(runs(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, kecil), { indent: { start: 400 } }));
+      if (q.namaArab) kids.push(AR(q.namaArab, 28));
+      if (q.indikator) kids.push(RP(runs(`Indikator: ${q.indikator}`, kecil), { indent: { start: 400 } }));
+      if (q.teks) kids.push(AR(q.teks));
+    });
+  } else if (mode === 'daftar') {
+    qs.forEach((q, i) => {
+      kids.push(P([T(`${i + 1}. `, { bold: true }), T(fullQ(q))], { keepNext: true }));
+      optsOf(q).forEach((k) => kids.push(P(T(`${k}. ${q.opsi[k]}`), { indent: { left: 400 } })));
+      kids.push(P(T('')));
+    });
+    kids.push(new Paragraph({ pageBreakBefore: true, children: [T('KUNCI JAWABAN & PEMBAHASAN', { bold: true, size: 28 })], spacing: { after: 160 } }));
+    qs.forEach((q, i) => {
+      const bt = Bt.bentukDari(q);
+      kids.push(P([T(`${i + 1}. ${bt === 'uraian' ? '' : Bt.kunciTeks(q)}`, { bold: true }), T(`  ${q.pembahasan}`)]));
+      if (bt === 'uraian') {
+        kids.push(P([T('Jawaban model: ', { bold: true }), T(q.jawaban)], { indent: { left: 400 } }));
+        if (q.rubrik) kids.push(P([T('Pedoman penskoran: ', { bold: true }), T(q.rubrik)], { indent: { left: 400 } }));
+      }
+      if (q.nama) kids.push(P(T(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555', italics: true }), { indent: { left: 400 } }));
+      if (q.namaArab) kids.push(AR(q.namaArab, 32));
+    });
+  } else {
+    qs.forEach((q, i) => {
+      const cell = (children, shade) => new TableCell({ borders, margins: { top: 100, bottom: 100, left: 160, right: 160 }, width: { size: 100, type: WidthType.PERCENTAGE }, shading: shade ? { fill: shade } : undefined, children });
+      const rows = [
+        new TableRow({ children: [cell([P(T(`No. ${i + 1}  |  ${q.mapel}  |  ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? '  |  ' + q.ujian : ''}  |  ${levelLabel(q.level)}${Bt.bentukDari(q) !== 'pilgan' ? '  |  ' + Bt.BENTUK[Bt.bentukDari(q)].label : ''}`, { bold: true, color: 'FFFFFF' }))], '0F6B4F')] }),
+        new TableRow({ children: [cell([
+          ...(q.stimulus ? [P(T(q.stimulus, { italics: true }))] : []),
+          P(T(q.pertanyaan, { bold: true })),
+          ...optsOf(q).map((k) => P(T(`${k}. ${q.opsi[k]}`), { indent: { left: 300 } })),
+        ])] }),
+        new TableRow({ children: [cell([
+          ...(Bt.BENTUK[Bt.bentukDari(q)].jawaban
+            ? [P([T(Bt.bentukDari(q) === 'uraian' ? 'Jawaban model: ' : 'Jawaban: ', { bold: true }), T(q.jawaban, { bold: true, color: '0F6B4F' })]), ...(q.rubrik ? [P([T('Pedoman penskoran: ', { bold: true }), T(q.rubrik)])] : [])]
+            : [P([T('Kunci: ', { bold: true }), T(Bt.kunciTeks(q), { bold: true, color: '0F6B4F' })])]),
+          P([T('Pembahasan: ', { bold: true }), T(q.pembahasan)]),
+          ...(q.indikator ? [P([T('Indikator: ', { bold: true }), T(q.indikator)])] : []),
+        ], 'E2F1E9')] }),
+        new TableRow({ children: [cell([
+          P(T(`Rujukan: ${q.nama || '-'}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555' })),
+          ...(q.namaArab ? [AR(q.namaArab, 32)] : []),
+          ...(q.teks ? [AR(q.teks)] : []),
+        ])] }),
+      ];
+      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }));
+      kids.push(P(T('')));
+    });
+  }
+  const doc = new Document({ ...(komen.length ? { comments: { children: komen } } : {}), sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: kids }] });
+  return Packer.toBlob(doc);
+};
+
+const FORMATS = [
+  { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
+  { id: 'pegonlatin', label: 'Soal Pegon + Latin (DOCX)', sub: 'Pegon dengan baris Latin asli di bawahnya, untuk diperiksa', icon: Languages, ext: 'docx' },
+  { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
+  { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
+  { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
+  { id: 'mxml',  label: 'Moodle XML',         sub: 'Disimpan sebagai .txt, ganti ke .xml', icon: FileCode, ext: 'txt', build: buildMoodleXml },
+  { id: 'gforms', label: 'CSV Google Forms',  sub: 'Pertanyaan, opsi, kunci',       icon: FileSpreadsheet, ext: 'csv', build: buildCsvForms },
+  { id: 'rdm',   label: 'CSV RDM / Excel',    sub: 'Semua kolom metadata',          icon: FileSpreadsheet, ext: 'csv', build: buildCsvRdm },
+];
+
+/* ---------- Small UI parts ---------- */
+const Badge = ({ status }) => (
+  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS[status].cls}`}>{STATUS[status].label}</span>
+);
+const Chip = ({ children }) => (
+  <span className="inline-flex items-center rounded-md border border-line px-2 py-0.5 text-xs font-medium text-mute">{children}</span>
+);
+const Label = ({ htmlFor, children, hint }) => (
+  <label htmlFor={htmlFor} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-mute">
+    {children}{hint && <span className="ml-1 normal-case font-normal tracking-normal">{hint}</span>}
+  </label>
+);
+const Btn = ({ kind = 'ghost', className = '', children, ...p }) => {
+  const base = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ';
+  const k = {
+    primary: 'bg-brand text-brand-fg hover:opacity-90',
+    soft: 'bg-soft text-soft-ink hover:opacity-80',
+    ghost: 'border border-line text-ink hover:bg-soft',
+    danger: 'bg-bad-bg text-bad hover:opacity-80',
+  }[kind];
+  return <button type="button" className={base + k + ' ' + className} {...p}>{children}</button>;
+};
+const Select = ({ id, value, onChange, children }) => (
+  <select id={id} className="field" value={value} onChange={(e) => onChange(e.target.value)}>{children}</select>
+);
+const Section = ({ title, icon: Icon, children, action }) => (
+  <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-soft-ink">
+        {Icon && <Icon size={16} />}{title}
+      </h2>
+      {action}
+    </div>
+    {children}
+  </section>
+);
+const Empty = ({ icon: Icon, title, text }) => (
+  <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-12 text-center">
+    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-soft text-soft-ink"><Icon size={22} /></div>
+    <p className="font-semibold">{title}</p>
+    <p className="mx-auto mt-1 max-w-sm text-sm text-mute">{text}</p>
+  </div>
+);
+/* ---------- Pemeriksa kutipan Arab (gratis, di browser, tanpa kuota AI) ---------- */
+const KUTIPAN_UI = {
+  lolos: ['Kutipan cocok dengan teks kitab', 'bg-ok-bg text-ok'],
+  periksa: ['Periksa kutipan secara manual', 'bg-warn-bg text-warn'],
+  gagal: ['Ada kutipan yang tidak ada di teks kitab', 'bg-bad-bg text-bad'],
+};
+function SikapBadge({ q }) {
+  const S = window.Sikap; const K = window.Kutipan;
+  const r = useMemo(() => (S && K ? S.periksaSikap(K.bidangDariSoal(q)) : null), [S, K, q.stimulus, q.pertanyaan, q.opsi, q.pembahasan]);
+  if (!r || r.status === 'aman') return null;
+  return (
+    <div className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">
+      <p className="font-semibold">Periksa nada soal (madrasah berhaluan wasathiyah)</p>
+      {r.temuan.map((t, i) => <p key={i} className="mt-1">Kata “{t.kata}” di {t.bidang}: {t.alasan}. Pastikan sesuai teks dan tidak menyalahkan pihak lain.</p>)}
+    </div>
+  );
+}
+function KutipanBadge({ q }) {
+  const K = window.Kutipan;
+  const r = useMemo(
+    () => (K && q.teks && q.pembahasan ? K.periksaKutipan(K.bidangDariSoal(q), q.teks) : null),
+    [K, q.teks, q.pembahasan, q.stimulus, q.pertanyaan, q.opsi],
+  );
+  if (!r || r.status === 'tanpa_teks') return null;
+  const [label, cls] = KUTIPAN_UI[r.status];
+  const bermasalah = r.detail.filter((d) => d.status !== 'cocok');
+  return (
+    <div className={`rounded-lg px-3 py-2 text-xs ${cls}`}>
+      <p className="font-semibold">{label}{r.ringkas.total ? ` (${r.ringkas.cocok} dari ${r.ringkas.total} cocok)` : ''}</p>
+      {r.peringatan.map((w, i) => <p key={'w' + i} className="mt-1">{w}</p>)}
+      {bermasalah.map((d, i) => (
+        <div key={i} className="mt-2 border-t border-line pt-2">
+          <p className="font-semibold">{d.label}: {d.bedaHarakat ? 'kata sama, tetapi harakat berbeda dari teks kitab' : d.status === 'mirip' ? 'mirip, tapi ada kata yang berbeda' : 'tidak ditemukan di teks kitab'}</p>
+          <p dir="rtl" lang="ar" className="ar mt-1">{d.kutipan}</p>
+          {d.bedaHarakat && d.bedaHarakat.map((h, j) => <p key={j} className="mt-1" dir="rtl" lang="ar"><span className="ar">{h.kutipan}</span> ≠ <span className="ar">{h.teks}</span></p>)}
+          {d.terdekat && <p className="mt-1">Bagian teks yang paling dekat (tanpa harakat):</p>}
+          {d.terdekat && <p dir="rtl" lang="ar" className="ar">{d.terdekat}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+const QuestionView = ({ q }) => (
+  <div className="space-y-3">
+    {Bt.bentukDari(q) !== 'pilgan' && <p className="text-xs font-semibold uppercase tracking-wide text-mute">{Bt.BENTUK[Bt.bentukDari(q)].label}</p>}
+    {q.stimulus && <p className="rounded-lg bg-soft px-3 py-2 text-sm leading-relaxed text-soft-ink">{q.stimulus}</p>}
+    <p className="font-semibold leading-relaxed">{q.pertanyaan}</p>
+    {optsOf(q).length > 0 && (
+      <ul className="space-y-1.5">
+        {optsOf(q).map((k) => (
+          <li key={k} className={`flex gap-2 rounded-lg border px-3 py-2 text-sm ${k === q.kunci ? 'border-brand bg-ok-bg text-ok' : 'border-line'}`}>
+            <span className="font-bold">{k}.</span>
+            <span className="min-w-0 flex-1 break-words">{q.opsi[k]}</span>
+            {k === q.kunci && <Check size={16} className="mt-0.5 shrink-0" />}
+          </li>
+        ))}
+      </ul>
+    )}
+    {Bt.BENTUK[Bt.bentukDari(q)].jawaban && q.jawaban && (
+      <p className="whitespace-pre-wrap rounded-lg border border-brand bg-ok-bg px-3 py-2 text-sm text-ok"><span className="font-bold">{Bt.bentukDari(q) === 'uraian' ? 'Jawaban model: ' : 'Jawaban: '}</span>{q.jawaban}</p>
+    )}
+    {Bt.bentukDari(q) === 'uraian' && q.rubrik && (
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Pedoman penskoran: </span>{q.rubrik}</p>
+    )}
+    {q.pembahasan && (
+      <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Pembahasan: </span>{q.pembahasan}</p>
+    )}
+    <KutipanBadge q={q} />
+    <SikapBadge q={q} />
+    {q.indikator && (
+      <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Indikator: </span>{q.indikator}</p>
+    )}
+  </div>
+);
+const Meta = ({ q }) => {
+  const cfg = useCfg();
+  return (
+  <div className="flex flex-wrap gap-1.5">
+    <Chip>{q.mapel}</Chip><Chip>{labelTingkat(cfg, q.tingkat)}</Chip>{q.kelas && <Chip>Kelas {q.kelas}</Chip>}{q.periode && <Chip>{Uj.labelPeriode(cfg, q.tingkat, q.periode)}</Chip>}{q.bab && <Chip>Bab: {q.bab}</Chip>}<Chip>{levelLabel(q.level)}</Chip>{Bt.bentukDari(q) !== 'pilgan' && <Chip>{Bt.BENTUK[Bt.bentukDari(q)].label}</Chip>}
+    {q.contoh && <Chip>Contoh data</Chip>}
+    {q.ai && q.ai.dibuat && <Chip>Dibuat AI{q.ai.model ? ` · ${q.ai.model}` : ''}</Chip>}
+  </div>
+  );
+};
+const refText = (q) => [q.nama || 'Kitab belum diisi', q.juz && `Juz ${q.juz}`, q.hal && `Hal. ${q.hal}`].filter(Boolean).join(' · ');
+
+const Toast = ({ t }) => t ? (
+  <div role="status" className="fade-in fixed left-1/2 z-50 -translate-x-1/2 rounded-xl bg-head px-4 py-3 text-sm font-medium text-head-ink shadow-lg"
+       style={{ bottom: 'calc(20px + env(safe-area-inset-bottom, 0px))', maxWidth: 'calc(100vw - 32px)' }}>
+    {t}
+  </div>
+) : null;
+
+/* ---------- Helper API & tampilan bantuan AI ---------- */
+async function callApi(path, body, signal) {
+  const token = await firebase.auth().currentUser.getIdToken();
+  const res = await fetch(path, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(body) });
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw { ...((data && data.error) || { code: 'HTTP_' + res.status, message: `Server mengembalikan error ${res.status}.` }), status: res.status };
+  return data;
+}
+const apiErr = (e) => (e && e.name === 'AbortError' ? null : (e && e.code ? e : { code: 'NETWORK', message: 'Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.' }));
+const ERR_TITLES = {
+  INVALID_ARABIC: 'Teks Arab tidak valid', TEKS_TIDAK_MEMADAI: 'Teks belum cukup', TEKS_TOO_LONG: 'Teks terlalu panjang', SOAL_KOSONG: 'Naskah soal belum lengkap',
+  RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai', RATE_LIMIT_DAILY: 'Kuota harian habis',
+  AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
+  AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', NETWORK: 'Tidak terhubung ke server',
+  URL_INVALID: 'Tautan tidak valid', URL_NOT_ALLOWED: 'Situs belum didukung', SUMBER_NOT_FOUND: 'Halaman tidak ditemukan', SUMBER_BLOCKED: 'Situs menolak permintaan otomatis',
+  SUMBER_ERROR: 'Situs sumber bermasalah', SUMBER_TIMEOUT: 'Situs sumber lambat', SUMBER_TOO_LARGE: 'Halaman terlalu besar', SUMBER_BUKAN_TEKS: 'Bukan halaman teks',
+  TEKS_TIDAK_DITEMUKAN: 'Teks Arab tidak ditemukan', FILE: 'File tidak bisa dipakai',
+  TEKS_KOSONG: 'Teks belum ada', GAMBAR_TIDAK_DIDUKUNG: 'Format foto tidak didukung', GAMBAR_TIDAK_VALID: 'Foto tidak valid', GAMBAR_TERLALU_BESAR: 'Foto terlalu besar',
+  AI_KEY_MISSING: 'Kunci API belum ada', AI_TEST_KEY: 'Kunci API ditolak', AI_MODEL_NOT_FOUND: 'Model tidak ditemukan', AI_TEST_REJECTED: 'Permintaan uji ditolak',
+  AI_UNREACHABLE: 'Layanan AI tidak terjangkau', AI_REQUEST_REJECTED: 'Permintaan ke AI ditolak', SERVER_AUTH: 'Kunci API server ditolak',
+  SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', CONFIG_READ_FAILED: 'Pengaturan tidak bisa dibaca', CONFIG_INVALID: 'Isian tidak valid',
+  BACKUP_INVALID: 'Cadangan tidak bisa dipakai', CONFIG_CONFLICT: 'Konfigurasi sudah diubah admin lain', RIWAYAT_INVALID: 'Permintaan tidak bisa diproses', RIWAYAT_NOT_FOUND: 'Cadangan tidak ditemukan', DRIVE_BELUM_DIATUR: 'Backup belum diatur', DRIVE_IZIN: 'Izin Google Drive diperlukan', DRIVE_TOKEN: 'Izin Google Drive berakhir',
+  DRIVE_API_OFF: 'Google Drive API belum aktif', DRIVE_PENUH: 'Google Drive penuh', DRIVE_RATE: 'Terlalu banyak permintaan', DRIVE_DITOLAK: 'Google Drive menolak',
+  DRIVE_TIDAK_ADA: 'Tidak ditemukan di Drive', DRIVE_VERIFIKASI: 'Cadangan gagal diverifikasi', DRIVE_ERROR: 'Galat Google Drive',
+};
+const ErrorBox = ({ e }) => (
+  <div role="alert" className="rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">
+    <p className="flex items-center gap-2 font-bold"><AlertTriangle size={16} className="shrink-0" />{ERR_TITLES[e.code] || 'Gagal'}</p>
+    <p className="mt-1 leading-relaxed">{e.message}</p>
+  </div>
+);
+const Spin = ({ children }) => (
+  <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-xl bg-soft px-4 py-3 text-sm font-medium text-soft-ink"><Loader2 size={18} className="spin shrink-0" />{children}</div>
+);
+const SourceLink = ({ url }) => (/^https:\/\//.test(url || '')
+  ? <a href={url} target="_blank" rel="noopener noreferrer" className="break-all underline">{url}</a> : null);
+
+/* Membersihkan teks salinan Maktabah Syamilah: penanda halaman [ص: ١٢], nomor catatan kaki, tatwil, karakter tak terlihat. */
+const cleanArabic = (t) => String(t || '')
+  .replace(/[​-‏‪-‮⁦-⁩﻿]/g, '')
+  .replace(/ـ/g, '')
+  .replace(/\[\s*(?:ص|ج)?\s*[:：]?\s*[\d٠-٩]+(?:\s*[\/:]\s*[\d٠-٩]+)?\s*\]/g, '')
+  .replace(/\(\s*[\d٠-٩]{1,2}\s*\)/g, '')
+  .replace(/[ \t ]+/g, ' ')
+  .split('\n').map((l) => l.trim()).join('\n')
+  .replace(/\n{3,}/g, '\n\n').trim();
+
+const PAGE_RE = /^(https:\/\/[^?#]*\/book\/\d+\/)(\d+)(.*)$/;
+const BOOK_RE = /^(https:\/\/[^?#]*\/book\/\d+)(?:\/\d+)?\/?$/;
+const urlHalaman = (tautan, hal) => { const m = BOOK_RE.exec(String(tautan || '').trim()); const n = Number(hal); return m && Number.isInteger(n) && n >= 1 ? m[1] + '/' + n : null; };
+const cariGoogle = (nama) => 'https://www.google.com/search?q=' + encodeURIComponent('site:shamela.ws ' + nama);
+const pageNav = (url, d) => { const m = PAGE_RE.exec(url || ''); if (!m) return null; const n = Number(m[2]) + d; return n >= 1 ? m[1] + n : null; };
+
+const VERDICT = { layak: ['Layak', 'bg-ok-bg text-ok'], perlu_perbaikan: ['Perlu perbaikan', 'bg-warn-bg text-warn'], tidak_layak: ['Tidak layak', 'bg-bad-bg text-bad'] };
+const ASPEK = { kunci: 'Kunci', pengecoh: 'Pengecoh', kejelasan: 'Kejelasan', level: 'Level', bahasa: 'Bahasa', pembahasan: 'Pembahasan', rujukan: 'Rujukan', indikator: 'Indikator', kesesuaian_teks: 'Kesesuaian teks', jawaban: 'Jawaban', rubrik: 'Pedoman penskoran', bentuk: 'Bentuk soal' };
+const H3 = ({ children }) => <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-mute">{children}</h3>;
+
+function ButaView({ state }) {
+  if (!state) return null;
+  if (state.loading) return <Spin>Menguji soal tanpa kunci...</Spin>;
+  if (state.error) return <div className="mt-2"><ErrorBox e={state.error} /></div>;
+  const d = state.data;
+  if (d.status === 'sepakat') return <p className="mt-2 rounded-lg bg-ok-bg px-3 py-2 text-xs font-semibold text-ok">Uji buta: penguji menjawab {d.jawaban}, sama dengan kunci.</p>;
+  if (d.status === 'tanpa_kunci') return <p className="mt-2 text-xs text-mute">Pilih kunci jawaban dulu agar hasil uji bisa dibandingkan.</p>;
+  return (
+    <div className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-xs text-bad">
+      <p className="font-semibold">Uji buta berbeda dari kunci: penguji menjawab “{d.jawaban === 'tidak_ada' ? 'tidak ada yang benar' : d.jawaban === 'lebih_dari_satu' ? 'lebih dari satu benar' : d.jawaban}”, kunci {d.kunci}.</p>
+      {d.alasan && <p className="mt-1">{d.alasan}</p>}
+      <p className="mt-1">Cek ulang kunci dan pengecoh sebelum mengirim ke editor.</p>
+    </div>
+  );
+}
+function TelaahView({ state, onApply, onUseNotes }) {
+  if (state.loading) return <Spin>Sedang menelaah soal terhadap teks kitab...</Spin>;
+  if (state.error) return <ErrorBox e={state.error} />;
+  const d = state.data;
+  const [vl, vc] = VERDICT[d.verdict] || VERDICT.perlu_perbaikan;
+  const p = d.perbaikan;
+  const fixed = { stimulus: p.stimulus, pertanyaan: p.pertanyaan, opsi: { A: p.pilihan_a, B: p.pilihan_b, C: p.pilihan_c, D: p.pilihan_d, E: p.pilihan_e }, kunci: p.kunci_jawaban, pembahasan: p.pembahasan, indikator: p.indikator_kisi_kisi, bentuk: p.bentuk, jawaban: p.jawaban, rubrik: p.rubrik };
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${vc}`}>{vl}</span>
+        <span className="text-mute">{d.temuan.length ? `${d.temuan.length} temuan` : 'Tidak ada temuan'}</span></p>
+      {d.temuan.length > 0 && (
+        <ul className="space-y-2">
+          {d.temuan.map((t, i) => (
+            <li key={i} className="rounded-lg border border-line bg-surface px-3 py-2">
+              <p className="flex flex-wrap items-center gap-2"><span className={`rounded-md px-2 py-px text-xs font-semibold ${t.tingkat === 'kritis' ? 'bg-bad-bg text-bad' : 'bg-soft text-soft-ink'}`}>{t.tingkat === 'kritis' ? 'Kritis' : 'Saran'}</span>
+                <span className="text-xs font-semibold text-mute">{ASPEK[t.aspek]}</span></p>
+              <p className="mt-1 leading-relaxed">{t.masalah}</p>
+              <p className="mt-1 leading-relaxed text-mute"><span className="font-semibold text-ink">Saran: </span>{t.saran}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.ringkasan_perubahan && <p className="leading-relaxed text-mute"><span className="font-semibold text-ink">Perubahan: </span>{d.ringkasan_perubahan}</p>}
+      <details className="rounded-lg border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-sm font-semibold text-soft-ink">Lihat soal hasil perbaikan</summary>
+        <div className="mt-3"><QuestionView q={fixed} /></div>
+      </details>
+      <div className="flex flex-wrap gap-2">
+        {onApply && <Btn kind="primary" onClick={onApply}><Check size={16} />Terapkan perbaikan ke form</Btn>}
+        {onUseNotes && d.temuan.length > 0 && <Btn kind="ghost" onClick={() => onUseNotes(d.temuan.map((t) => `${ASPEK[t.aspek]}: ${t.masalah} ${t.saran}`).join('\n'))}>Pakai temuan sebagai catatan revisi</Btn>}
+      </div>
+      <p className="text-xs text-mute">Telaah AI membantu, bukan pengganti keputusan editor.</p>
+    </div>
+  );
+}
+
+function AssistView({ state, onIdea }) {
+  if (state.loading) return <Spin>{state.kind === 'terjemah' ? 'Sedang menerjemahkan teks kitab...' : 'Sedang menganalisis teks kitab...'}</Spin>;
+  if (state.error) return <ErrorBox e={state.error} />;
+  const d = state.data;
+  if (state.kind === 'terjemah') {
+    return (
+      <div className="space-y-4 text-sm">
+        <p className="whitespace-pre-wrap leading-relaxed">{d.terjemah}</p>
+        {d.poin_inti.length > 0 && <div><H3>Poin inti</H3><ul className="list-disc space-y-1 pl-5">{d.poin_inti.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+        {d.istilah.length > 0 && (
+          <div><H3>Istilah</H3>
+            <ul className="space-y-1">{d.istilah.map((x, i) => (
+              <li key={i} className="flex items-baseline gap-3"><span dir="rtl" lang="ar" className="ar ar-sm shrink-0 !leading-normal">{x.arab}</span><span>{x.arti}</span></li>))}</ul></div>
+        )}
+        <p className="text-xs text-mute">Draf terjemahan mesin (AI), belum ditinjau ustadz atau guru. Jangan dipakai sebagai kunci atau pembahasan sebelum dicocokkan dengan kitab terjemahan atau ditinjau orang yang menguasai kitabnya.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4 text-sm">
+      <p className="font-semibold leading-relaxed">{d.tema}</p>
+      {d.kandungan.length > 0 && <div><H3>Yang ditegaskan teks</H3><ul className="list-disc space-y-1 pl-5">{d.kandungan.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+      <div><H3>Ide soal</H3>
+        <ul className="space-y-2">{d.ide_soal.map((x, i) => (
+          <li key={i} className="rounded-lg border border-line bg-surface px-3 py-2">
+            <p className="flex items-start gap-2"><span className="mt-0.5 shrink-0 rounded-md bg-soft px-2 py-px text-xs font-bold text-soft-ink">{x.level}</span><span className="min-w-0 flex-1 leading-relaxed">{x.fokus}</span></p>
+            {x.alasan && <p className="mt-1 text-xs leading-relaxed text-mute">{x.alasan}</p>}
+            <button type="button" onClick={() => onIdea(x)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline"><Sparkles size={13} />Buat soal dari fokus ini</button>
+          </li>))}</ul></div>
+      {d.potensi_pengecoh.length > 0 && <div><H3>Calon pengecoh</H3><ul className="list-disc space-y-1 pl-5">{d.potensi_pengecoh.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+      {d.catatan_khilaf && <div><H3>Perbedaan pendapat dalam teks</H3><p className="leading-relaxed">{d.catatan_khilaf}</p></div>}
+    </div>
+  );
+}
+
+/* ---------- Tab 1: Penyusunan ---------- */
+/* ---------- Pegonkan: pratinjau Pegon dari isian soal (isian Latin TIDAK diubah) + perbaikan kata bersorot ke kamus ---------- */
+function PegonSoal({ form, toast }) {
+  const P = window.Pegon;
+  const kc = useKamus();
+  const [tick, setTick] = useState(0);
+  const [bahas, setBahas] = useState(false);
+  const [isi, setIsi] = useState({}); // kata -> { arab, tipe }
+  const [busy, setBusy] = useState('');
+  const bagian = useMemo(() => {
+    const out = [];
+    const tambah = (label, teks) => { if (String(teks || '').trim()) out.push({ label, ...P.convertText(String(teks)) }); };
+    tambah('Stimulus', form.stimulus);
+    tambah('Pertanyaan', form.pertanyaan);
+    (Bt.bentukDari(form) === 'benarsalah' ? [] : ['A', 'B', 'C', 'D', 'E']).forEach((k) => tambah('Opsi ' + k + (form.kunci === k ? ' (kunci)' : ''), (form.opsi || {})[k]));
+    if (Bt.BENTUK[Bt.bentukDari(form)].jawaban) tambah('Jawaban', form.jawaban);
+    if (Bt.bentukDari(form) === 'uraian') tambah('Pedoman penskoran', form.rubrik);
+    if (bahas) tambah('Pembahasan', form.pembahasan);
+    return out;
+  }, [form.stimulus, form.pertanyaan, form.opsi, form.kunci, form.pembahasan, form.bentuk, form.jawaban, form.rubrik, bahas, kc.ver, tick]);
+  // Kata bersorot yang bisa dibereskan lewat kamus. Kata berhubung (rekan-rekan) dipecah: mesin mencari kamus per bagian, bukan per gabungan.
+  const masalah = useMemo(() => {
+    const peta = new Map();
+    for (const b of bagian) for (const d of b.details) {
+      if (!d.flagged) continue;
+      for (const part of String(d.latin).split('-')) {
+        const k = part.toLowerCase();
+        if (!k || peta.has(k)) continue;
+        const det = P.convertText(part).details.find((x) => x.flagged);
+        if (det) peta.set(k, { kata: k, jenis: P.jenisPerbaikan(det.note), note: det.note });
+      }
+    }
+    return [...peta.values()];
+  }, [bagian]);
+  const salin = async () => { try { await navigator.clipboard.writeText(bagian.map((b) => b.label + '\n' + b.pegon).join('\n\n')); toast('Pegon soal disalin.'); } catch (e) { toast('Penyalinan ditolak browser. Pilih teks lalu salin manual.'); } };
+  const simpan = async (m, bersama) => {
+    const f = isi[m.kata] || {};
+    const en = m.jenis === 'arab' ? { jenis: 'arab', kata: m.kata, arab: f.arab } : { jenis: 'e', kata: m.kata, tipe: f.tipe || 'keras' };
+    const cek = P.kamus.bentukEntri(en);
+    if (!cek.ok) return toast(cek.pesan);
+    if (!bersama) {
+      const r = en.jenis === 'arab' ? P.kamus.tambahArab(en.kata, en.arab) : P.kamus.tambahE(en.kata, en.tipe);
+      if (r.ok === false) return toast(r.pesan);
+      setTick((n) => n + 1); return toast('Disimpan di perangkat ini.');
+    }
+    setBusy(m.kata);
+    try { await kc.simpan([cek.entri]); toast('Disimpan ke kamus bersama.'); }
+    catch (e) { toast(e && e.code === 'permission-denied' ? 'Ditolak: hanya editor/admin yang boleh mengubah kamus bersama.' : 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); }
+    finally { setBusy(''); }
+  };
+  if (!bagian.length) return <p className="mt-3 text-xs text-mute">Isi stimulus, pertanyaan, atau opsi dulu.</p>;
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn onClick={salin}><Copy size={16} />Salin Pegon</Btn>
+        <label className="inline-flex items-center gap-2 text-xs text-mute"><input type="checkbox" checked={bahas} onChange={(e) => setBahas(e.target.checked)} />Sertakan pembahasan</label>
+      </div>
+      <div className="space-y-2">
+        {bagian.map((b, i) => (
+          <div key={i}>
+            <p className="text-xs font-semibold text-soft-ink">{b.label}</p>
+            <div dir="rtl" lang="ar" className="ar rounded-xl border border-line bg-surface p-3 [&_.flag]:rounded [&_.flag]:bg-warn-bg [&_.flag]:px-0.5"
+              dangerouslySetInnerHTML={{ __html: b.html }} />
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-mute">Hanya untuk dilihat dan disalin; isian Latin soal tidak berubah dan tetap dipakai untuk telaah AI, cek kutipan, dan uji buta. Ekspor <b>Soal Pegon (DOCX)</b> memakai kamus yang sama. Transliterasi otomatis perlu diperiksa oleh yang menguasai Pegon.</p>
+      {masalah.length > 0 && (
+        <div className="rounded-xl bg-warn-bg px-3 py-3 text-warn">
+          <p className="font-bold">{masalah.length} kata bersorot. Bila ejaannya sudah Anda ketahui, simpan ke kamus supaya hasil berikutnya benar:</p>
+          <div className="mt-2 space-y-2">
+            {masalah.map((m) => (
+              <div key={m.kata} className="rounded-lg bg-surface p-2 text-ink">
+                <p className="text-sm"><b>{m.kata}</b> <span className="text-xs text-mute">— {m.note}</span></p>
+                {m.jenis ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                    {m.jenis === 'arab'
+                      ? <input className="field ar-sm" dir="rtl" lang="ar" placeholder="Ejaan Arab, mis. توكل" value={(isi[m.kata] || {}).arab || ''} onChange={(e) => setIsi({ ...isi, [m.kata]: { ...(isi[m.kata] || {}), arab: e.target.value } })} />
+                      : <Select value={(isi[m.kata] || {}).tipe || 'keras'} onChange={(v) => setIsi({ ...isi, [m.kata]: { ...(isi[m.kata] || {}), tipe: v } })}><option value="keras">e keras (ي)</option><option value="pepet">e pepet (tidak ditulis)</option></Select>}
+                    <div className="flex flex-wrap gap-2">
+                      {kc.canShare && <Btn kind="primary" disabled={busy === m.kata} onClick={() => simpan(m, true)}>Simpan untuk semua</Btn>}
+                      <Btn onClick={() => simpan(m, false)}>{kc.canShare ? 'Hanya di perangkat ini' : 'Simpan di perangkat ini'}</Btn>
+                    </div>
+                  </div>
+                ) : <p className="mt-1 text-xs text-mute">Kasus ini belum bisa diatur lewat kamus; putuskan dan edit manual di hasil Pegon.</p>}
+              </div>
+            ))}
+          </div>
+          {!kc.canShare && <p className="mt-2 text-xs">Anda penyusun: simpanan di perangkat ini tidak terlihat oleh rekan. Untuk membagikannya, ekspor kamus di tab Pegonizer dan serahkan ke editor.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
+  const cfg = useCfg();
+  const babSaran = (React.useContext(SaranCtx).saran || { bab: [] }).bab.map((b) => b.nama);
+  const [busy, setBusy] = useState(false);
+  const [generated, setGenerated] = useState(false);
+  const [errors, setErrors] = useState([]);
+  // Hasil uji buta hanya berlaku untuk isi soal yang diuji: ubah isi, hasilnya dihapus.
+  const AFFECT = ['teks', 'stimulus', 'pertanyaan', 'kunci', 'bentuk'];
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v, ...(AFFECT.includes(k) ? { ai: { ...f.ai, buta: '' } } : {}) }));
+  const setOpt = (k, v) => setForm((f) => ({ ...f, opsi: { ...f.opsi, [k]: v }, ai: { ...f.ai, buta: '' } }));
+  // Mapel mengikuti tingkat: ganti tingkat, mapel yang tidak berlaku di tingkat itu diganti mapel pertama yang berlaku.
+  // Kelas dan periode ujian juga mengikuti tingkat: yang tidak berlaku di tingkat baru dikosongkan.
+  const pilihTingkat = (v) => setForm((f) => {
+    const l = mapelUntuk(cfg, v);
+    return { ...f, tingkat: v, mapel: l.includes(f.mapel) || !l.length ? f.mapel : l[0],
+      kelas: Uj.kelasUntuk(cfg, v).includes(f.kelas) ? f.kelas : '', periode: Uj.periodeUntuk(cfg, v).some((x) => x.kode === f.periode) ? f.periode : '' };
+  });
+  const tingkatOpsi = [...new Set([...tingkatAktif(cfg).map((t) => t.nama), form.tingkat])];
+  const mapelOpsi = [...new Set([...mapelUntuk(cfg, form.tingkat), form.mapel])];
+  const kelasOpsi = [...new Set([...Uj.kelasUntuk(cfg, form.tingkat), form.kelas].filter(Boolean))];
+  const periodeOpsi = Uj.periodeUntuk(cfg, form.tingkat).map((x) => ({ kode: x.kode, label: x.label }));
+  if (form.periode && !periodeOpsi.some((x) => x.kode === form.periode)) periodeOpsi.push({ kode: form.periode, label: Uj.labelPeriode(cfg, form.tingkat, form.periode) + ' (tidak ada di sistem ujian tingkat ini)' });
+  const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel, form.kelas, form.periode);
+  const kitabCocok = cfg.kitab.find((k) => k.nama.toLowerCase() === form.nama.trim().toLowerCase());
+  const cakupanTerpilih = kitabCocok && form.kelas && form.periode ? Uj.cakupanKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : '';
+  // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
+  const [ex, setEx] = useState(() => {
+    const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
+    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true, kFoto: o.kFoto === true };
+  });
+  const patchEx = (p) => setEx((x) => ({ ...x, ...p }));
+  const { kUrl, kHal, kAppend, fokus, kManual } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
+  const setKUrl = (v) => patchEx({ kUrl: v }); const setKHal = (v) => patchEx({ kHal: v }); const setKAppend = (v) => patchEx({ kAppend: v });
+  const setFokus = (v) => patchEx({ fokus: v }); const setKManual = (v) => patchEx({ kManual: v });
+  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto);
+  const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
+  const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
+  // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
+  useEffect(() => {
+    if (editingId) return;
+    setForm((f) => {
+      const t = tingkatAktif(cfg).map((x) => x.nama); const tk = t.includes(f.tingkat) || !t.length ? f.tingkat : t[0];
+      const m = mapelUntuk(cfg, tk); const mp = m.includes(f.mapel) || !m.length ? f.mapel : m[0];
+      return tk === f.tingkat && mp === f.mapel ? f : { ...f, tingkat: tk, mapel: mp };
+    });
+  }, [cfg, editingId]);
+  const [pg, setPg] = useState(false); // panel Pegonkan
+  const [butaState, setButaState] = useState(null);
+  const ujiButa = async (soal, bentuk = form.bentuk) => {
+    setButaState({ loading: true });
+    try {
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: form.teks, nama: form.nama, tingkat: form.tingkat, level: form.level, bentuk, soal });
+      setButaState({ data: d.hasil });
+      const st = d.hasil.status === 'sepakat' || d.hasil.status === 'beda' ? d.hasil.status : '';
+      setForm((f) => ({ ...f, ai: { ...f.ai, buta: st } }));
+    } catch (e) { const er = apiErr(e); setButaState(er ? { error: er } : null); }
+  };
+
+  const [status, setStatus] = useState('idle');
+  const [apiError, setApiError] = useState(null);
+  const [cooldown, setCooldown] = useState(0);
+  const abortRef = useRef(null);
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const ARAB = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+  const arabicProblem = (txt) => {
+    let letters = 0, arab = 0;
+    for (const ch of txt) { if (/\p{L}/u.test(ch)) { letters++; if (ARAB.test(ch)) arab++; } }
+    if (letters < 15) return 'Teks terlalu pendek. Tempel minimal satu kalimat Arab lengkap.';
+    if (arab / letters < 0.6) return 'Teks kitab harus berbahasa Arab. Kolom ini terdeteksi berisi teks non-Arab.';
+    return null;
+  };
+  const ERR_TITLE = {
+    INVALID_ARABIC: 'Teks Arab tidak valid', TEKS_TIDAK_MEMADAI: 'Teks belum cukup untuk dijadikan soal', TEKS_TOO_LONG: 'Teks terlalu panjang',
+    RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai',
+    AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
+    SOAL_KOSONG: 'Naskah soal belum lengkap', AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', RATE_LIMIT_DAILY: 'Kuota harian habis',
+    NETWORK: 'Tidak terhubung ke server', SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', SERVER_AUTH: 'Kunci API server bermasalah',
+  };
+
+  const generate = async () => {
+    setErrors([]); setApiError(null);
+    const bad = arabicProblem(form.teks.trim());
+    if (bad) { setApiError({ code: 'INVALID_ARABIC', message: bad }); return; }
+    setBusy(true); setStatus('loading');
+    const ctl = new AbortController(); abortRef.current = ctl;
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
+        body: JSON.stringify({ teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus }),
+      });
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (!res.ok) {
+        const err = (data && data.error) || { code: 'HTTP_' + res.status, message: `Server mengembalikan error ${res.status}.` };
+        setApiError(err);
+        if (res.status === 429 && err.code !== 'RATE_LIMIT_DAILY') setCooldown(Math.max(1, Math.min(120, Number(err.retryAfter) || 30)));
+        return;
+      }
+      const s = data.soal;
+      const bt = Bt.bentukDari(s.bentuk || form.bentuk); // soal pilihan ganda dari server lama/baru tidak membawa `bentuk`
+      setForm((f) => ({
+        ...f,
+        bentuk: bt, jawaban: s.jawaban || '', rubrik: s.rubrik || '',
+        stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '',
+        opsi: { A: s.pilihan_a || '', B: s.pilihan_b || '', C: s.pilihan_c || '', D: s.pilihan_d || '', E: s.pilihan_e || '' },
+        kunci: s.kunci_jawaban || '', pembahasan: s.pembahasan || '', indikator: s.indikator_kisi_kisi || '',
+        ai: { dibuat: true, model: String(data.model || '').slice(0, 60), verifikasi: (data.verifikasi && data.verifikasi.status) || '', buta: '' },
+      }));
+      setGenerated(true);
+      if (Bt.punyaOpsi(bt)) ujiButa({ stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '', opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e }, kunci: s.kunci_jawaban }, bt); else setButaState(null); // tanpa await: tidak menahan tampilan soal
+    } catch (e) {
+      if (e && e.name === 'AbortError') { /* dibatalkan pengguna */ }
+      else setApiError({ code: 'NETWORK', message: 'Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.' });
+    } finally { setBusy(false); setStatus('idle'); abortRef.current = null; }
+  };
+
+  const [kBusy, setKBusy] = useState(false);
+  const [kErr, setKErr] = useState(null);
+  const [kInfo, setKInfo] = useState(null);
+  const [kGagal, setKGagal] = useState('');
+  const fileRef = useRef(null);
+  const [ai, setAi] = useState(null);     // {kind, loading, data, error}
+  const [tl, setTl] = useState(null);     // telaah {loading, data, error}
+  const [undo, setUndo] = useState(null);
+
+  const fetchKitab = async (url, append) => {
+    setKErr(null); setKGagal(''); setKBusy(true);
+    try {
+      const d = await callApi('/api/kitab', { url });
+      const src = d.sumber;
+      setForm((f) => ({
+        ...f,
+        teks: append && f.teks.trim() ? f.teks.trim() + '\n' + src.teks : src.teks,
+        sumberUrl: src.url, nama: f.nama || src.nama || '', hal: append && f.hal ? f.hal : (src.hal || f.hal),
+      }));
+      setKUrl(src.url); setKInfo(src);
+    } catch (e) { const er = apiErr(e); if (er) setKErr(er); setKGagal(url); }
+    finally { setKBusy(false); }
+  };
+  const importFile = (file) => {
+    if (!file) return;
+    if (file.size > 500000) { setKErr({ code: 'FILE', message: 'File terlalu besar (maksimal 500 KB). Ambil satu bagian saja.' }); return; }
+    const r = new FileReader();
+    r.onload = () => {
+      let txt = String(r.result || '');
+      if (/\.html?$/i.test(file.name)) txt = new DOMParser().parseFromString(txt, 'text/html').body.textContent || '';
+      txt = cleanArabic(txt);
+      if (!txt) { setKErr({ code: 'FILE', message: 'File kosong.' }); return; }
+      setKErr(null); setKInfo(null);
+      setForm((f) => ({ ...f, teks: txt }));
+    };
+    r.onerror = () => setKErr({ code: 'FILE', message: 'File tidak bisa dibaca.' });
+    r.readAsText(file, 'utf-8');
+  };
+  // Baca teks Arab dari foto halaman kitab fisik (OCR oleh AI). Hasil selalu perlu dikoreksi pengguna: harakat dan huruf bisa salah baca.
+  const fotoRef = useRef(null); const kameraRef = useRef(null);
+  const [fotoBusy, setFotoBusy] = useState(false);
+  const [fotoInfo, setFotoInfo] = useState(null); // { kualitas, ragu[], terpotong }
+  const bacaFoto = async (file) => {
+    if (!file || fotoBusy) return;
+    if (form.teks.trim() && !kAppend && !window.confirm('Teks Kitab sudah terisi. Hasil foto akan MENGGANTI teks itu. Lanjutkan? (Centang "Tambahkan ke teks yang sudah ada" bila ingin menyambung.)')) return;
+    setFotoBusy(true); setKErr(null); setKInfo(null);
+    try {
+      const gambar = await siapkanFoto(file, 2000); // harakat kecil: butuh resolusi lebih tinggi dari foto Pegon (1.600 px)
+      const d = await callApi('/api/assist', { aksi: 'fotokitab', gambar });
+      const h = d.hasil;
+      setForm((f) => ({ ...f, teks: kAppend && f.teks.trim() ? f.teks.trimEnd() + '\n\n' + h.teks : h.teks }));
+      setFotoInfo({ kualitas: h.kualitas, ragu: h.ragu || [], terpotong: !!h.terpotong });
+      patchEx({ kFoto: true });
+    } catch (e) { setKErr(apiErr(e)); } finally { setFotoBusy(false); }
+  };
+  const selesaiKoreksiFoto = () => { patchEx({ kFoto: false }); setFotoInfo(null); };
+  const cleanText = () => setForm((f) => ({ ...f, teks: cleanArabic(f.teks) }));
+  // Reset Rujukan Kitab: nama, juz, halaman, teks, tautan sumber, dan semua keadaan pengambilan. Naskah soal (pertanyaan, opsi, dst.) tidak disentuh.
+  const rujukanTerisi = !!(form.nama || form.juz || form.hal || form.teks || form.sumberUrl || kUrl || kInfo || kErr || ai || fokus);
+  const resetRujukan = () => {
+    if (form.teks.trim() && !window.confirm('Kosongkan Rujukan Kitab (nama kitab, juz, halaman, teks, dan tautan sumber)? Naskah soal tidak ikut dihapus.')) return;
+    setForm((f) => ({ ...f, nama: '', juz: '', hal: '', teks: '', sumberUrl: '', ai: { ...f.ai, buta: '' } }));
+    setKUrl(''); setKErr(null); setKInfo(null); setKGagal(''); setKAppend(false); setKHal('1'); setKManual(false);
+    setAi(null); setFokus(''); setApiError(null);
+    toast('Rujukan kitab dikosongkan.');
+  };
+
+  const runAssist = async (kind) => {
+    const bad = arabicProblem(form.teks.trim());
+    if (bad) { setAi({ kind, error: { code: 'INVALID_ARABIC', message: bad } }); return; }
+    setAi({ kind, loading: true });
+    try {
+      const d = await callApi('/api/assist', { aksi: kind, teks: form.teks, nama: form.nama, tingkat: form.tingkat, mapel: form.mapel });
+      setAi({ kind, data: d.hasil });
+    } catch (e) { const er = apiErr(e); setAi(er ? { kind, error: er } : null); }
+  };
+  const useIdea = (x) => { set('level', x.level); setFokus(x.fokus); toast('Fokus dipilih. Tekan Generate untuk membuat soalnya.'); };
+
+  const runTelaah = async () => {
+    const bad = arabicProblem(form.teks.trim());
+    if (bad) { setTl({ error: { code: 'INVALID_ARABIC', message: bad } }); return; }
+    setTl({ loading: true });
+    try {
+      const d = await callApi('/api/assist', {
+        aksi: 'telaah', teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, bentuk: form.bentuk,
+        soal: { stimulus: form.stimulus, pertanyaan: form.pertanyaan, opsi: form.opsi, kunci: form.kunci, pembahasan: form.pembahasan, indikator: form.indikator, jawaban: form.jawaban, rubrik: form.rubrik },
+      });
+      setTl({ data: d.hasil });
+    } catch (e) { const er = apiErr(e); setTl(er ? { error: er } : null); }
+  };
+  const applyFix = () => {
+    const p = tl.data.perbaikan;
+    setUndo({ ...form, opsi: { ...form.opsi } });
+    setForm((f) => ({ ...f, stimulus: p.stimulus, pertanyaan: p.pertanyaan, opsi: { A: p.pilihan_a, B: p.pilihan_b, C: p.pilihan_c, D: p.pilihan_d, E: p.pilihan_e },
+      kunci: p.kunci_jawaban, pembahasan: p.pembahasan, indikator: p.indikator_kisi_kisi, jawaban: p.jawaban || '', rubrik: p.rubrik || '', ai: { ...f.ai, buta: '' } }));
+    setTl(null); toast('Perbaikan diterapkan. Tombol Urungkan tersedia.');
+  };
+  const undoFix = () => { setForm(undo); setUndo(null); };
+
+  const validate = () => {
+    const e = [];
+    if (!form.teks.trim()) e.push('Teks kitab (Arab) belum diisi.');
+    if (!form.nama.trim()) e.push('Nama kitab belum diisi.');
+    e.push(...Bt.periksaSoal(form)); // pertanyaan, opsi/kunci atau jawaban, dan pembahasan, sesuai bentuk soal
+    return e;
+  };
+  const send = () => { const e = validate(); setErrors(e); if (!e.length) onSend(); };
+  const save = () => {
+    if (!form.pertanyaan.trim() && !form.teks.trim()) { setErrors(['Isi minimal teks kitab atau pertanyaan sebelum menyimpan draft.']); return; }
+    setErrors([]); onSave();
+  };
+
+  return (
+    <div className="fade-in grid gap-5 lg:grid-cols-12">
+      <div className="min-w-0 space-y-5 lg:col-span-5">
+        <Section title="Data Soal" icon={Layers}>
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+            <div><Label htmlFor="tingkat">Tingkat</Label>
+              <Select id="tingkat" value={form.tingkat} onChange={pilihTingkat}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select>
+              {labelArabTingkat(cfg, form.tingkat) && <p className="mt-1 text-xs text-mute"><ArNama>{labelArabTingkat(cfg, form.tingkat)}</ArNama></p>}</div>
+            <div><Label htmlFor="mapel">Mata Pelajaran</Label>
+              <Select id="mapel" value={form.mapel} onChange={(v) => set('mapel', v)}>{mapelOpsi.map((t) => <option key={t}>{t}</option>)}</Select></div>
+            <div><Label htmlFor="level">Tingkat Kesukaran</Label>
+              <Select id="level" value={form.level} onChange={(v) => set('level', v)}>{LEVEL.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}</Select></div>
+          </div>
+          <div className="mt-3">
+            <Label htmlFor="bentuk-soal">Bentuk Soal</Label>
+            <div id="bentuk-soal" role="radiogroup" aria-label="Bentuk soal" className="flex flex-wrap gap-2">
+              {Bt.BENTUK_IDS.map((id) => {
+                const aktif = form.bentuk === id; const saran = Bt.dianjurkan(form.tingkat, id) && Bt.bentukUntukTingkat(form.tingkat).length < Bt.BENTUK_IDS.length;
+                return (
+                  <button key={id} type="button" role="radio" aria-checked={aktif} onClick={() => set('bentuk', id)} title={Bt.BENTUK[id].ket + ' Contoh: ' + Bt.BENTUK[id].contoh}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${aktif ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-ink hover:border-brand'}`}>
+                    {Bt.BENTUK[id].label}{saran && !aktif ? ' ★' : ''}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-mute">{Bt.BENTUK[Bt.bentukDari(form)].ket} Contoh: <i>{Bt.BENTUK[Bt.bentukDari(form)].contoh}</i>{Bt.bentukUntukTingkat(form.tingkat).length < Bt.BENTUK_IDS.length ? ' ★ = dianjurkan untuk jenjang ini (saran awal, bukan batasan).' : ''}</p>
+            {Bt.bentukDari(form) === 'isian' && form.level === 'L3' && <p className="mt-1 text-xs text-warn">Soal isian jarang cocok untuk tingkat HOTS (L3); pertimbangkan bentuk Uraian.</p>}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div><Label htmlFor="kelas" hint="(opsional)">Kelas</Label>
+              <Select id="kelas" value={form.kelas} onChange={(v) => set('kelas', v)}>
+                <option value="">{kelasOpsi.length ? '— Belum dipilih —' : '— Belum ada kelas di Konfigurasi —'}</option>
+                {kelasOpsi.map((k) => <option key={k} value={k}>Kelas {k}</option>)}</Select></div>
+            <div><Label htmlFor="periode" hint={Uj.labelSistem(cfg, form.tingkat) ? `(${Uj.labelSistem(cfg, form.tingkat)})` : '(opsional)'}>Ujian</Label>
+              <Select id="periode" value={form.periode} onChange={(v) => set('periode', v)}>
+                <option value="">{periodeOpsi.length ? '— Belum dipilih —' : '— Belum ada periode ujian —'}</option>
+                {periodeOpsi.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+          </div>
+          <p className="mt-2 text-xs text-mute">Kelas dan ujian menyaring pilihan kitab di bawah sesuai pemetaan di menu Konfigurasi, dan ikut tersimpan pada soal.</p>
+        </Section>
+
+        <Section title="Rujukan Kitab" icon={BookOpen}
+          action={<button type="button" onClick={resetRujukan} disabled={kBusy || !rujukanTerisi} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw size={13} />Reset</button>}>
+          <div className="space-y-3">
+            <div className="space-y-2 rounded-xl border border-line bg-bg p-3">
+              {kitabCocok && kitabCocok.tautan && (
+                <div className="space-y-2 rounded-lg bg-soft p-2.5">
+                  <p className="text-xs font-semibold text-soft-ink">Kitab ini punya tautan sumber</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a href={kitabCocok.tautan} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-soft-ink underline">Buka di situs ↗</a>
+                    <label htmlFor="khal" className="text-xs text-mute">Halaman situs</label>
+                    <input id="khal" type="number" min="1" inputMode="numeric" className="field !w-24 !py-1.5" value={kHal} onChange={(e) => setKHal(e.target.value)} />
+                    <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" disabled={kBusy || !urlHalaman(kitabCocok.tautan, kHal)} onClick={() => { const u = urlHalaman(kitabCocok.tautan, kHal); setKUrl(u); fetchKitab(u, kAppend); }}>Ambil halaman {kHal}</Btn>
+                  </div>
+                  <p className="text-xs leading-relaxed text-mute">Nomor di sini adalah urutan halaman pada situs (bagian akhir alamat), bukan selalu nomor halaman cetak. Nomor cetak terisi otomatis dari judul halaman.</p>
+                </div>
+              )}
+              <Label htmlFor="kurl">Ambil teks dari tautan</Label>
+              <div className="flex gap-2">
+                <input id="kurl" type="text" inputMode="url" autoCapitalize="none" spellCheck={false} className="field min-w-0" placeholder="shamela.ws/book/…/…" value={kUrl} onChange={(e) => setKUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && kUrl.trim() && !kBusy) { e.preventDefault(); fetchKitab(kUrl, kAppend); } }} />
+                <Btn kind="soft" className="shrink-0" onClick={() => fetchKitab(kUrl, kAppend)} disabled={kBusy || !kUrl.trim()}>
+                  {kBusy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Ambil
+                </Btn>
+              </div>
+              <p className="text-xs leading-relaxed text-mute">Situs yang didukung: shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org, ketabonline.com (hasilnya belum tentu bersih). Satu halaman per permintaan. Tautan boleh ditempel tanpa https://.</p>
+              <div className="flex flex-wrap gap-2">
+                <a href="https://shamela.ws/" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Buka shamela.ws ↗</a>
+                <a href="https://al-maktaba.org/" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Buka al-maktaba.org ↗</a>
+                {form.nama.trim() && <a href={cariGoogle(form.nama.trim())} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Cari “{form.nama.trim().slice(0, 24)}” di Shamela ↗</a>}
+              </div>
+              <p className="text-xs leading-relaxed text-mute">Cara cepat: buka kitabnya di situs, pindah ke halaman yang dibutuhkan, salin alamat di bilah browser, lalu tempel di kolom di atas.</p>
+              {(pageNav(kUrl, -1) || pageNav(kUrl, 1)) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" disabled={kBusy || !pageNav(kUrl, -1)} onClick={() => fetchKitab(pageNav(kUrl, -1), kAppend)}>Halaman sebelumnya</Btn>
+                  <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" disabled={kBusy || !pageNav(kUrl, 1)} onClick={() => fetchKitab(pageNav(kUrl, 1), kAppend)}>Halaman berikutnya</Btn>
+                </div>
+              )}
+              <label htmlFor="kappend" className="flex items-center gap-2 text-xs text-mute">
+                <input id="kappend" type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={kAppend} onChange={(e) => setKAppend(e.target.checked)} />
+                Tambahkan ke teks yang sudah ada (bahasan berlanjut ke halaman lain)
+              </label>
+              {kInfo && <p className="text-xs leading-relaxed text-soft-ink">Diambil dari {kInfo.host}{kInfo.judul ? ' · ' + kInfo.judul : ''}{kInfo.terpotong ? '. Teks dipotong pada 6.000 karakter.' : ''} Periksa dan sunting teks sebelum dipakai.</p>}
+              {kErr && <ErrorBox e={kErr} />}
+              {kErr && /^https:\/\//.test(kGagal) && <a href={kGagal} target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink underline">Buka halaman ini di tab baru ↗</a>}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fileRef.current && fileRef.current.click()}><FileText size={14} />Impor file .txt</Btn>
+                <input ref={fileRef} type="file" accept=".txt,.htm,.html,text/plain,text/html" className="hidden" aria-label="Impor file teks kitab" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => kameraRef.current && kameraRef.current.click()} disabled={fotoBusy}>{fotoBusy ? <Loader2 size={14} className="spin" /> : <Camera size={14} />}{fotoBusy ? 'Membaca foto…' : 'Foto kitab (kamera)'}</Btn>
+                <input ref={kameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Ambil foto halaman kitab dengan kamera" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fotoRef.current && fotoRef.current.click()} disabled={fotoBusy}><Upload size={14} />Foto dari galeri</Btn>
+                <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" aria-label="Pilih foto halaman kitab dari galeri" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={cleanText} disabled={!form.teks.trim()}>Bersihkan teks</Btn>
+              </div>
+              <p className="text-xs leading-relaxed text-mute">Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p>
+            </div>
+            <div><Label htmlFor="nama">Nama Kitab</Label>
+              <Select id="nama" value={kManual ? KITAB_LAIN : form.nama} onChange={pilihKitab}>
+                <option value="">{kitabOpsi.length ? '— Pilih kitab —' : '— Belum ada kitab untuk pilihan tingkat, kelas, ujian, dan mapel ini —'}</option>
+                {kitabOpsi.map((k) => <option key={k.nama} value={k.nama}>{[k.pengarang ? `${k.nama} · ${k.pengarang}` : k.nama, k.namaArab].filter(Boolean).join(' — ')}</option>)}
+                {!kManual && form.nama && !namaDiKatalog && <option value={form.nama}>{form.nama} (di luar katalog)</option>}
+                <option value={KITAB_LAIN}>Lainnya (ketik manual)…</option>
+              </Select>
+              {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
+              {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab, atau memetakannya ke {labelTingkat(cfg, form.tingkat)}{form.kelas ? ` kelas ${form.kelas}` : ''} · {form.mapel}, di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
+              {cakupanTerpilih && <p className="mt-1 text-xs text-soft-ink">Cakupan materi kitab ini pada kelas {form.kelas} · {Uj.labelPeriode(cfg, form.tingkat, form.periode)}: {cakupanTerpilih}</p>}
+              {kitabCocok && (kitabCocok.namaArab || kitabCocok.pengarangArab) && (
+                <div className="mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">
+                  {kitabCocok.namaArab && <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal">{kitabCocok.namaArab}</p>}
+                  {kitabCocok.pengarangArab && <p dir="rtl" lang="ar" className="ar-nama text-sm opacity-80">{kitabCocok.pengarangArab}</p>}
+                </div>)}
+              {kitabCocok && kitabCocok.pengarang && <p className="mt-1 text-xs text-mute">Pengarang: {kitabCocok.pengarang}</p>}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label htmlFor="juz">Juz / Volume</Label><input id="juz" className="field" placeholder="1" value={form.juz} onChange={(e) => set('juz', e.target.value)} /></div>
+              <div><Label htmlFor="hal">Halaman</Label><input id="hal" className="field" placeholder="8" value={form.hal} onChange={(e) => set('hal', e.target.value)} /></div>
+            </div>
+            <div><Label htmlFor="bab" hint="(untuk kisi-kisi)">Bab / Materi</Label>
+              <input id="bab" list="daftar-bab" maxLength={120} className="field" placeholder="mis. Bab Thaharah" value={form.bab} onChange={(e) => set('bab', e.target.value)} />
+              <datalist id="daftar-bab">{babSaran.map((b) => <option key={b} value={b} />)}</datalist>
+              <p className="mt-1 text-xs text-mute">Soal dengan bab yang sama dikelompokkan di kisi-kisi. {babSaran.length ? 'Pilihan berasal dari saran AI di tab Fokus Ujian.' : 'Tab Fokus Ujian bisa menyarankan bab yang penting.'}</p></div>
+            <div><Label htmlFor="teks">Teks Kitab</Label>
+              <textarea id="teks" dir="rtl" lang="ar" rows={7} className="field ar" placeholder="الصق النص العربي هنا..." value={form.teks} onChange={(e) => set('teks', e.target.value)} />
+              <p className={`mt-1 text-xs ${form.teks.length > 6000 ? 'font-semibold text-bad' : 'text-mute'}`}>
+                {form.teks.length.toLocaleString('id-ID')} / 6.000 karakter{form.teks.length > 6000 ? '. Potong teks agar bisa diproses AI.' : ''}
+              </p>
+              {ex.kFoto && (
+                <div role="status" className="mt-2 space-y-2 rounded-xl bg-warn-bg px-3 py-3 text-xs leading-relaxed text-warn">
+                  <p className="font-semibold">Teks ini dibaca AI dari foto dan belum dikoreksi.{fotoInfo ? ` Kualitas bacaan: ${fotoInfo.kualitas}.` : ''}</p>
+                  <p>Cocokkan huruf dan harakat dengan kitab fisik sebelum membuat soal. Pemeriksaan kutipan memakai teks ini sebagai rujukan, jadi kesalahan baca akan ikut dianggap benar.{fotoInfo && fotoInfo.terpotong ? ' Teks dipotong pada 6.000 karakter; foto halaman berikutnya terpisah.' : ''}</p>
+                  {fotoInfo && fotoInfo.ragu.length > 0 && (
+                    <ul className="list-disc space-y-0.5 pl-5">{fotoInfo.ragu.map((w, i) => <li key={i}><span className="ar" dir="rtl" lang="ar">{w.kata}</span>{w.catatan ? `: ${w.catatan}` : ''}</li>)}</ul>
+                  )}
+                  <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={selesaiKoreksiFoto}>Sudah saya cocokkan dengan kitab</Btn>
+                </div>
+              )}
+              {form.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber tersimpan: <SourceLink url={form.sumberUrl} /></p>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Btn kind="soft" onClick={() => runAssist('terjemah')} disabled={ai && ai.loading}>Terjemahkan</Btn>
+              <Btn kind="soft" onClick={() => runAssist('analisis')} disabled={ai && ai.loading}>Analisis teks</Btn>
+            </div>
+            {fokus && (
+              <div className="flex items-start gap-2 rounded-lg bg-soft px-3 py-2 text-sm text-soft-ink">
+                <span className="min-w-0 flex-1"><b>Fokus soal:</b> {fokus}</span>
+                <button type="button" aria-label="Hapus fokus soal" onClick={() => setFokus('')}><X size={14} /></button>
+              </div>
+            )}
+            <Btn kind="primary" className="w-full" onClick={generate} disabled={busy || cooldown > 0}>
+              {busy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+              {busy ? 'Menyusun soal...' : cooldown > 0 ? `Coba lagi dalam ${cooldown} detik` : 'Generate Draft Soal dari Teks Kitab'}
+            </Btn>
+            {busy && (
+              <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-xl bg-soft px-4 py-3 text-sm font-medium text-soft-ink">
+                <Loader2 size={18} className="spin shrink-0" />
+                <span className="flex-1">Sedang menganalisis teks kitab &amp; menyusun soal...</span>
+                <button type="button" className="text-xs font-semibold underline" onClick={() => abortRef.current && abortRef.current.abort()}>Batalkan</button>
+              </div>
+            )}
+            {apiError && !busy && (
+              <div role="alert" className="rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">
+                <p className="flex items-center gap-2 font-bold"><AlertTriangle size={16} className="shrink-0" />{ERR_TITLE[apiError.code] || 'Gagal menyusun soal'}</p>
+                <p className="mt-1 leading-relaxed">{apiError.message}</p>
+              </div>
+            )}
+            <p className="flex gap-2 text-xs leading-relaxed text-mute">
+              <Info size={14} className="mt-0.5 shrink-0" />
+              Soal disusun AI hanya dari teks Arab di atas. Isi form akan terganti oleh hasilnya.
+            </p>
+          </div>
+        </Section>
+
+        {ai && (
+          <Section title={ai.kind === 'terjemah' ? 'Terjemah & Istilah' : 'Analisis Teks'} icon={Sparkles}
+            action={<button type="button" onClick={() => setAi(null)} className="text-xs font-semibold text-mute hover:text-ink">Tutup</button>}>
+            <AssistView state={ai} onIdea={useIdea} />
+          </Section>
+        )}
+      </div>
+
+      <div className="min-w-0 space-y-5 lg:col-span-7">
+        <Section title={editingId ? 'Naskah Soal (sedang diedit)' : 'Naskah Soal'} icon={PenLine}
+          action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
+          {generated && (
+            <div className="mb-4 flex gap-2 rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>Draft disusun AI dari teks kitab Anda. Cek kebenaran kunci, pengecoh, dan kutipan Arab sebelum dikirim ke editor.</span>
+            </div>
+          )}
+          <div className="space-y-4">
+            <div><Label htmlFor="stimulus" hint="(opsional)">Narasi / Stimulus</Label>
+              <textarea id="stimulus" rows={3} className="field" placeholder="Kasus atau konteks yang mengantar pertanyaan" value={form.stimulus} onChange={(e) => set('stimulus', e.target.value)} /></div>
+            <div><Label htmlFor="pertanyaan">{{ pilgan: 'Pertanyaan', lanjutan: 'Kalimat yang dilanjutkan', benarsalah: 'Pernyataan', isian: 'Kalimat dengan titik-titik', uraian: 'Pertanyaan / Perintah' }[Bt.bentukDari(form)]}</Label>
+              <textarea id="pertanyaan" rows={2} className="field" placeholder={{ pilgan: 'Tulis pertanyaan', lanjutan: 'Mis. Seorang musafir boleh mengqashar shalat apabila .....', benarsalah: 'Tulis satu pernyataan yang dinilai Benar atau Salah', isian: 'Mis. Syarat sah shalat ada ..... perkara.', uraian: 'Mis. Jelaskan syarat-syarat seorang musafir boleh mengqashar shalat!' }[Bt.bentukDari(form)]} value={form.pertanyaan} onChange={(e) => set('pertanyaan', e.target.value)} />
+              {(form.bentuk === 'lanjutan' || form.bentuk === 'isian') && form.pertanyaan.trim() && !Bt.adaPenanda(form.pertanyaan) && <p className="mt-1 text-xs text-warn">Belum ada titik-titik (.....) tempat melanjutkan.</p>}</div>
+            {(form.bentuk === 'pilgan' || form.bentuk === 'lanjutan' || !Bt.BENTUK[form.bentuk]) && (
+            <fieldset>
+              <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-mute">{form.bentuk === 'lanjutan' ? 'Kelanjutan (opsi)' : 'Opsi Jawaban'} <span className="ml-1 normal-case font-normal tracking-normal">(pilih bulatan untuk kunci)</span></legend>
+              <div className="space-y-2">
+                {KEYS.map((k) => (
+                  <div key={k} className={`flex items-center gap-2 rounded-xl border p-1.5 pr-2 ${form.kunci === k ? 'border-brand bg-ok-bg' : 'border-line'}`}>
+                    <label htmlFor={'kunci-' + k} className="flex shrink-0 cursor-pointer items-center gap-2 pl-2" title={`Jadikan ${k} kunci jawaban`}>
+                      <input id={'kunci-' + k} type="radio" name="kunci" className="h-4 w-4 accent-[var(--brand)]" checked={form.kunci === k} onChange={() => set('kunci', k)} />
+                      <span className="w-4 text-sm font-bold">{k}</span>
+                    </label>
+                    <input id={'opsi-' + k} aria-label={`Opsi ${k}`} className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-mute focus:outline-none" placeholder={`Opsi ${k}`} maxLength={1000} value={form.opsi[k]} onChange={(e) => setOpt(k, e.target.value)} />
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+            )}
+            {form.bentuk === 'benarsalah' && (
+            <fieldset>
+              <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-mute">Kunci <span className="ml-1 normal-case font-normal tracking-normal">(pernyataan di atas)</span></legend>
+              <div className="grid grid-cols-2 gap-2">
+                {[['A', 'Benar'], ['B', 'Salah']].map(([k, t]) => (
+                  <label key={k} htmlFor={'bs-' + k} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-sm font-semibold ${form.kunci === k ? 'border-brand bg-ok-bg' : 'border-line'}`}>
+                    <input id={'bs-' + k} type="radio" name="kunci-bs" className="h-4 w-4 accent-[var(--brand)]" checked={form.kunci === k} onChange={() => set('kunci', k)} />{t}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            )}
+            {(form.bentuk === 'isian' || form.bentuk === 'uraian') && (
+              <div><Label htmlFor="jawaban">{form.bentuk === 'uraian' ? 'Jawaban Model' : 'Jawaban Isian'}</Label>
+                <textarea id="jawaban" rows={form.bentuk === 'uraian' ? 4 : 1} className="field" maxLength={2000} placeholder={form.bentuk === 'uraian' ? 'Jawaban lengkap yang diharapkan' : 'Jawaban singkat; pisahkan dengan " / " bila ada penulisan lain yang sama benarnya'} value={form.jawaban} onChange={(e) => set('jawaban', e.target.value)} /></div>
+            )}
+            {form.bentuk === 'uraian' && (
+              <div><Label htmlFor="rubrik">Pedoman Penskoran</Label>
+                <textarea id="rubrik" rows={3} className="field" maxLength={2000} placeholder="Mis. 1) menyebut syarat jarak (skor 2); 2) menyebut tujuan bukan maksiat (skor 2); Skor maksimal 4" value={form.rubrik} onChange={(e) => set('rubrik', e.target.value)} /></div>
+            )}
+            <div><Label htmlFor="pembahasan">Pembahasan / Dalil Pendukung</Label>
+              <textarea id="pembahasan" rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} />
+              <div className="mt-2"><KutipanBadge q={form} /></div></div>
+            <div><Label htmlFor="indikator" hint="(opsional)">Indikator Kisi-kisi</Label>
+              <textarea id="indikator" rows={2} className="field" placeholder="Peserta didik dapat ..." value={form.indikator} onChange={(e) => set('indikator', e.target.value)} /></div>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-line bg-bg p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn kind="soft" onClick={runTelaah} disabled={!!(tl && tl.loading) || !form.pertanyaan.trim()}>
+                {tl && tl.loading ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}Telaah &amp; Perbaiki dengan AI
+              </Btn>
+              {undo && <Btn kind="ghost" onClick={undoFix}><RotateCcw size={16} />Urungkan perbaikan</Btn>}
+            </div>
+            {tl && <div className="mt-3"><TelaahView state={tl} onApply={applyFix} /></div>}
+          </div>
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn kind="soft" onClick={() => setPg((v) => !v)} aria-expanded={pg}><Languages size={16} />{pg ? 'Tutup Pegon' : 'Pegonkan'}</Btn>
+              <span className="text-xs text-mute">Lihat soal ini dalam aksara Pegon. Isian Latin tidak diubah.</span>
+            </div>
+            {pg && <PegonSoal form={form} toast={toast} />}
+          </div>
+          {Bt.punyaOpsi(form.bentuk) ? (
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn kind="soft" onClick={() => ujiButa({ stimulus: form.stimulus, pertanyaan: form.pertanyaan, opsi: form.opsi, kunci: form.kunci })} disabled={!!(butaState && butaState.loading) || !form.pertanyaan.trim() || !form.kunci}>
+                {butaState && butaState.loading ? <Loader2 size={16} className="spin" /> : <Check size={16} />}Uji jawab buta
+              </Btn>
+              <span className="text-xs text-mute">Model menjawab tanpa melihat kunci; bila berbeda, soal perlu ditelaah.</span>
+            </div>
+            <ButaView state={butaState} />
+          </div>
+          ) : (
+            <p className="mt-3 rounded-xl border border-line bg-bg p-3 text-xs leading-relaxed text-mute">Uji jawab buta hanya untuk soal berpilihan. Untuk soal {Bt.BENTUK[Bt.bentukDari(form)].label.toLowerCase()}, periksa dengan tombol Telaah &amp; Perbaiki di atas.</p>
+          )}
+
+          {errors.length > 0 && (
+            <ul role="alert" className="mt-4 space-y-1 rounded-lg bg-bad-bg px-4 py-3 text-sm text-bad">
+              {errors.map((e) => <li key={e} className="flex gap-2"><X size={14} className="mt-1 shrink-0" />{e}</li>)}
+            </ul>
+          )}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Btn kind="ghost" onClick={save}><Save size={16} />Simpan Draft</Btn>
+            <Btn kind="primary" onClick={send}><Send size={16} />Kirim ke Editor</Btn>
+          </div>
+          <DraftNote names={['form', 'composeEx']} className="mt-2" />
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tab 2: Review ---------- */
+function ReviewCard({ q, onApprove, onRevise, me }) {
+  const own = q.authorUid === me.uid && me.role !== 'admin';
+  const [note, setNote] = useState(() => { const d = Draft.read('catatan:' + q.id); return typeof d === 'string' ? d.slice(0, 1000) : ''; });
+  useDraftSync('catatan:' + q.id, note, !note.trim());
+  const [err, setErr] = useState(false);
+  const [tl, setTl] = useState(null);
+  const [errOk, setErrOk] = useState(false);
+  const [buta, setButa] = useState(null);
+  const K = window.Kutipan;
+  const kutLive = useMemo(() => (K && q.teks && q.pembahasan ? K.periksaKutipan(K.bidangDariSoal(q), q.teks).status : ''), [K, q.teks, q.pembahasan, q.stimulus, q.pertanyaan, q.opsi]);
+  const a = q.ai || {};
+  const alasanOverride = [
+    (kutLive === 'gagal' || a.verifikasi === 'gagal') && 'ada kutipan Arab yang tidak ada di teks kitab',
+    (a.buta === 'beda' || (buta && buta.data && buta.data.status === 'beda')) && 'uji jawab buta berbeda dari kunci',
+  ].filter(Boolean);
+  const runButa = async () => {
+    setButa({ loading: true });
+    try {
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: q.teks, nama: q.nama, tingkat: q.tingkat, level: q.level, bentuk: Bt.bentukDari(q), soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci } });
+      setButa({ data: d.hasil });
+    } catch (e) { const er = apiErr(e); setButa(er ? { error: er } : null); }
+  };
+  const setujui = () => {
+    if (alasanOverride.length && !note.trim()) { setErrOk(true); return; }
+    onApprove(q.id, alasanOverride.length ? `[Disetujui dengan catatan] ${note.trim()}`.slice(0, 1000) : '');
+  };
+  const runTelaah = async () => {
+    setTl({ loading: true });
+    try {
+      const d = await callApi('/api/assist', {
+        aksi: 'telaah', teks: q.teks, nama: q.nama, juz: q.juz, hal: q.hal, tingkat: q.tingkat, mapel: q.mapel, level: q.level, bentuk: Bt.bentukDari(q),
+        soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci, pembahasan: q.pembahasan, indikator: q.indikator || '', jawaban: q.jawaban || '', rubrik: q.rubrik || '' },
+      });
+      setTl({ data: d.hasil });
+    } catch (e) { const er = apiErr(e); setTl(er ? { error: er } : null); }
+  };
+  return (
+    <article className="overflow-hidden rounded-2xl border border-line bg-surface">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
+        <Meta q={q} />
+        <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /></span>
+      </header>
+      <div className="grid md:grid-cols-2">
+        <div className="min-w-0 border-b border-line p-4 sm:p-5 md:border-b-0 md:border-r">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><Quote size={14} />Teks Kitab Asli</h3>
+          <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">{q.teks || '—'}</p></div>
+          <p className="mt-2 text-xs text-mute">{refText(q)}<RefArab q={q} /></p>
+          {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
+        </div>
+        <div className="min-w-0 p-4 sm:p-5">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><PenLine size={14} />Naskah Soal</h3>
+          <QuestionView q={q} />
+        </div>
+      </div>
+      <footer className="border-t border-line bg-bg px-4 py-4 sm:px-5">
+        <div className="mb-4">
+          <Btn kind="soft" onClick={runTelaah} disabled={!!(tl && tl.loading)}>
+            {tl && tl.loading ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}Telaah AI
+          </Btn>
+          {Bt.punyaOpsi(q) && (
+            <Btn kind="soft" className="ml-2" onClick={runButa} disabled={!!(buta && buta.loading)}>
+              {buta && buta.loading ? <Loader2 size={16} className="spin" /> : <Check size={16} />}Uji jawab buta
+            </Btn>
+          )}
+          <ButaView state={buta} />
+          {tl && <div className="mt-3"><TelaahView state={tl} onUseNotes={(t) => { setNote(t.slice(0, 1000)); setErr(false); }} /></div>}
+        </div>
+        {alasanOverride.length > 0 && (
+          <div role="alert" className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-xs text-bad">
+            <p className="font-semibold">Peringatan sebelum menyetujui: {alasanOverride.join('; ')}.</p>
+            <p className="mt-1">Soal ini baru bisa disetujui bila Anda menulis catatan alasan di kolom di bawah (override). Catatan tersimpan bersama soal.</p>
+            {errOk && <p className="mt-1 font-semibold">Tulis catatan alasan lebih dulu.</p>}
+          </div>
+        )}
+        {q.sumberUrl && <p className="mb-3 text-xs text-mute">Tautan sumber diisi penyusun dan tidak otomatis terikat ke teks di atas. Cocokkan sendiri bila perlu.</p>}
+        <Label htmlFor={'note-' + q.id}>Catatan Revisi</Label>
+        <textarea id={'note-' + q.id} rows={2} className={`field ${err ? '!border-[var(--bad)]' : ''}`} placeholder="Wajib diisi bila meminta revisi"
+          value={note} onChange={(e) => { setNote(e.target.value); setErr(false); setErrOk(false); }} />
+        {err && <p className="mt-1 text-xs font-medium text-bad">Tulis catatan revisi agar penyusun tahu apa yang diperbaiki.</p>}
+        {own && <p className="mt-2 text-xs font-medium text-warn">Anda penyusun soal ini. Soal harus ditinjau editor lain.</p>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Btn kind="primary" disabled={own} onClick={setujui}><CheckCircle2 size={16} />Setujui Soal</Btn>
+          <Btn kind="danger" disabled={own} onClick={() => { if (!note.trim()) { setErr(true); return; } onRevise(q.id, note.trim()); }}><RotateCcw size={16} />Minta Revisi</Btn>
+        </div>
+      </footer>
+    </article>
+  );
+}
+function Review({ list, onApprove, onRevise, me }) {
+  if (me.role !== 'editor' && me.role !== 'admin') return <Empty icon={ShieldCheck} title="Tab ini untuk editor" text="Hanya editor dan admin yang dapat meninjau soal. Pantau status soal Anda di tab Bank Soal dengan filter status." />;
+  if (!list.length) return <Empty icon={ClipboardCheck} title="Tidak ada soal yang menunggu review" text="Soal yang dikirim dari tab Penyusunan Soal akan muncul di sini." />;
+  return <div className="fade-in space-y-5">{list.map((q) => <ReviewCard key={q.id} q={q} me={me} onApprove={onApprove} onRevise={onRevise} />)}</div>;
+}
+
+/* ---------- Filters ---------- */
+function Filters({ f, setF, withStatus, count, qs = [] }) {
+  const cfg = useCfg();
+  // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
+  const mapelOpsi = [...new Set([...mapelUntuk(cfg, f.tingkat), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.mapel).filter(Boolean)])];
+  // Kelas dan ujian: milik tingkat terpilih; tanpa tingkat, gabungan semua tingkat plus yang sudah dipakai soal tersimpan (soal lama tetap bisa difilter).
+  const kelasOpsiFilter = [...new Set([...(f.tingkat ? Uj.kelasUntuk(cfg, f.tingkat) : cfg.tingkat.flatMap((t) => Uj.kelasUntuk(cfg, t.nama))), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.kelas).filter(Boolean)])];
+  const periodeOpsiFilter = (() => {
+    const m = new Map(); const tambah = (x) => { if (!m.has(x.kode)) m.set(x.kode, x.label); };
+    if (f.tingkat) Uj.periodeUntuk(cfg, f.tingkat).forEach(tambah); else cfg.tingkat.forEach((t) => Uj.periodeUntuk(cfg, t.nama).forEach(tambah));
+    qs.filter((q) => q.periode && (!f.tingkat || q.tingkat === f.tingkat)).forEach((q) => tambah({ kode: q.periode, label: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
+    return [...m].map(([kode, label]) => ({ kode, label }));
+  })();
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
+      <Filter size={16} className="mb-2.5 text-mute" />
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-mapel' + (withStatus ? 'b' : 'e')}>Mata Pelajaran</Label>
+        <Select id={'f-mapel' + (withStatus ? 'b' : 'e')} value={f.mapel} onChange={(v) => setF({ ...f, mapel: v })}><option value="">Semua</option>{mapelOpsi.map((m) => <option key={m}>{m}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-tingkat' + (withStatus ? 'b' : 'e')}>Tingkat</Label>
+        <Select id={'f-tingkat' + (withStatus ? 'b' : 'e')} value={f.tingkat} onChange={(v) => setF({ ...f, tingkat: v, kelas: '', periode: '' })}><option value="">Semua</option>{cfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.label}</option>)}</Select></div>
+      <div className="min-w-[110px] flex-1"><Label htmlFor={'f-kelas' + (withStatus ? 'b' : 'e')}>Kelas</Label>
+        <Select id={'f-kelas' + (withStatus ? 'b' : 'e')} value={f.kelas || ''} onChange={(v) => setF({ ...f, kelas: v })}><option value="">Semua</option>{kelasOpsiFilter.map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-periode' + (withStatus ? 'b' : 'e')}>Ujian</Label>
+        <Select id={'f-periode' + (withStatus ? 'b' : 'e')} value={f.periode || ''} onChange={(v) => setF({ ...f, periode: v })}><option value="">Semua</option>{periodeOpsiFilter.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-bentuk' + (withStatus ? 'b' : 'e')}>Bentuk Soal</Label>
+        <Select id={'f-bentuk' + (withStatus ? 'b' : 'e')} value={f.bentuk || ''} onChange={(v) => setF({ ...f, bentuk: v })}><option value="">Semua</option>{Bt.BENTUK_IDS.map((id) => <option key={id} value={id}>{Bt.BENTUK[id].label}</option>)}</Select></div>
+      {withStatus && (
+        <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
+          <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
+            <option value="">Semua</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></div>
+      )}
+      <p className="mb-2.5 ml-auto text-sm font-semibold text-soft-ink">{count} soal</p>
+    </div>
+  );
+}
+const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
+
+/* ---------- Tab 3: Bank ---------- */
+function Bank({ all, onEdit, onDelete, canEdit }) {
+  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved' };
+  const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
+  useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
+  const [confirm, setConfirm] = useState(null);
+  const list = applyFilter(all, f);
+  return (
+    <div className="fade-in space-y-4">
+      <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      {!list.length ? <Empty icon={Library} title="Tidak ada soal yang cocok" text="Ubah filter, atau setujui soal dari tab Review/Validasi." /> :
+        list.map((q) => (
+          <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
+              <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
+            </div>
+            {q.status === 'revision' && q.catatan && (
+              <p className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-sm text-bad"><span className="font-semibold">Catatan editor: </span>{q.catatan}</p>
+            )}
+            <QuestionView q={q} />
+            {q.teks && (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-semibold text-soft-ink">Lihat teks kitab</summary>
+                <p dir="rtl" lang="ar" className="ar ar-sm mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">{q.teks}</p>
+                {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
+              </details>
+            )}
+            {canEdit(q) && <div className="mt-4 flex flex-wrap gap-2">
+              <Btn kind={q.status === 'revision' ? 'primary' : 'ghost'} onClick={() => onEdit(q)}><Pencil size={15} />{q.status === 'revision' ? 'Perbaiki' : 'Edit'}</Btn>
+              {confirm === q.id ? (
+                <>
+                  <Btn kind="danger" onClick={() => { onDelete(q.id); setConfirm(null); }}><Trash2 size={15} />Ya, hapus</Btn>
+                  <Btn kind="ghost" onClick={() => setConfirm(null)}>Batal</Btn>
+                </>
+              ) : <Btn kind="ghost" onClick={() => setConfirm(q.id)}><Trash2 size={15} />Hapus</Btn>}
+            </div>}
+          </article>
+        ))}
+    </div>
+  );
+}
+
+/* ---------- Tab 4: Export ---------- */
+function Export({ all, toast }) {
+  const cfg = useCfg();
+  const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
+  const EAWAL = { f: { mapel: '', tingkat: '', kelas: '', periode: '' }, fmt: 'gift', picked: null };
+  const eAwal = useRef(null); if (eAwal.current === null) { const d = Draft.read('exportPrefs'); eAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [f, setF] = useState(() => bacaPref('exportFilter', EAWAL.f));
+  const [fmt, setFmt] = useState(() => (FORMATS.some((x) => x.id === eAwal.current.fmt) ? eAwal.current.fmt : EAWAL.fmt));
+  const [picked, setPicked] = useState(() => (Array.isArray(eAwal.current.picked) ? new Set(eAwal.current.picked.filter((x) => typeof x === 'string')) : null)); // null = semua hasil filter
+  useDraftSync('exportFilter', f, JSON.stringify(f) === JSON.stringify(EAWAL.f));
+  const ePref = useMemo(() => ({ fmt, picked: picked ? [...picked] : null }), [fmt, picked]);
+  useDraftSync('exportPrefs', ePref, fmt === EAWAL.fmt && picked === null);
+  const [busy, setBusy] = useState(false);
+
+  const saveFile = (filename, data) => {
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  const list = applyFilter(approved, f);
+  // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
+  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
+  const format = FORMATS.find((x) => x.id === fmt);
+  const isText = !!format.build;
+  const text = isText ? format.build(chosen) : '';
+  const toggle = (id) => {
+    const cur = new Set(picked || list.map((q) => q.id));
+    cur.has(id) ? cur.delete(id) : cur.add(id);
+    setPicked(cur);
+  };
+  const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
+  const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
+  const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); toast('Teks ekspor disalin.'); }
+    catch (e) { toast('Penyalinan ditolak browser. Pilih teks pratinjau lalu salin manual.'); }
+  };
+  const download = async () => {
+    if (!chosen.length) return;
+    setBusy(true);
+    try {
+      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar');
+      saveFile(fname, data);
+      toast('File diunduh.');
+    } catch (e) {
+      toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fade-in space-y-5">
+      <Filters f={f} setF={(v) => { setF(v); setPicked(null); }} count={list.length} qs={approved} />
+      <div className="grid gap-5 lg:grid-cols-12">
+        <div className="min-w-0 space-y-5 lg:col-span-5">
+          <Section title="Pilih Soal" icon={ClipboardCheck}
+            action={list.length > 0 && <button type="button" className="text-xs font-semibold text-soft-ink hover:underline"
+              onClick={() => setPicked(!picked || picked.size === list.length ? new Set() : null)}>{!picked || picked.size === list.length ? 'Kosongkan' : 'Pilih semua'}</button>}>
+            {!list.length ? <p className="text-sm text-mute">Belum ada soal Approved yang cocok dengan filter.</p> : (
+              <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                {list.map((q) => {
+                  const on = !picked || picked.has(q.id);
+                  return (
+                    <li key={q.id}>
+                      <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-soft' : 'border-line'}`}>
+                        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(q.id)} />
+                        <span className="min-w-0">
+                          <span className="block break-words font-medium">{q.pertanyaan}</span>
+                          <span className="mt-1 block text-xs text-mute">{q.mapel} · {q.tingkat}{q.kelas ? ` · Kelas ${q.kelas}` : ''}{q.periode ? ` · ${Uj.labelPeriode(cfg, q.tingkat, q.periode)}` : ''} · {q.level}</span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Section>
+        </div>
+
+        <div className="min-w-0 space-y-5 lg:col-span-7">
+          <Section title="Format Ekspor" icon={Download}>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {FORMATS.map((x) => (
+                <button key={x.id} type="button" onClick={() => setFmt(x.id)} aria-pressed={fmt === x.id}
+                  className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${fmt === x.id ? 'border-brand bg-soft' : 'border-line hover:bg-soft'}`}>
+                  <x.icon size={20} className="mt-0.5 shrink-0 text-soft-ink" />
+                  <span className="min-w-0"><span className="block text-sm font-bold">{x.label}</span><span className="block text-xs text-mute">{x.sub}</span></span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Btn kind="primary" onClick={download} disabled={!chosen.length || busy}>
+                {busy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Unduh {chosen.length} soal
+              </Btn>
+              {isText && <Btn kind="ghost" onClick={copy} disabled={!chosen.length}><Copy size={16} />Salin teks</Btn>}
+            </div>
+          </Section>
+
+          <Section title="Pratinjau">
+            {!chosen.length ? <p className="text-sm text-mute">Pilih minimal satu soal Approved.</p> :
+              isText ? (
+                <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{text}</pre>
+              ) : (
+                <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl bg-bg p-4">
+                  {chosen.map((q, i) => (
+                    <div key={q.id} className="text-sm">
+                      <p className={`font-semibold ${isPegon ? 'ar-sm' : ''}`} dir={isPegon ? 'rtl' : undefined}>{i + 1}. {pv(fullQ(q))}</p>
+                      <ul className="ml-4 mt-1" dir={isPegon ? 'rtl' : undefined}>{optsOf(q).map((k) => <li key={k} className={isPegon ? 'ar-sm' : ''}>{k}. {pv(q.opsi[k])}</li>)}</ul>
+                      {fmt === 'kartu' && <>
+                        <p className="mt-1 text-soft-ink">{Bt.BENTUK[Bt.bentukDari(q)].jawaban ? 'Jawaban' : 'Kunci'}: <b>{Bt.kunciTeks(q)}</b></p>
+                        {q.teks && <p dir="rtl" lang="ar" className="ar ar-sm">{q.teks}</p>}
+                      </>}
+                    </div>
+                  ))}
+                </div>
+              )}
+          </Section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tab: Fokus Ujian (saran AI bab penting + kisi-kisi dari soal) ---------- */
+// Saran AI (haluan Ahlussunnah wal Jamaah, setia pada teks kitab) hanya MENYARANKAN bab. Kisi-kisi dihitung dari soal yang sudah ada
+// (public/kisi.js), jadi tidak mengarang. Kunci jawaban, opsi, dan pembahasan tidak pernah ikut keluar, sehingga aman dibagikan ke murid.
+// Nama top-level di blok ini tidak boleh sama dengan properti window (lihat catatan Draft di atas): modul kisi diakses lewat window.Kisi.
+const SaranCtx = React.createContext({ saran: null, setSaran: () => {}, pakaiBab: () => {} });
+const PRIO_BAB = { inti: ['Inti', 'bg-ok-bg text-ok'], penting: ['Penting', 'bg-soft text-soft-ink'], pendukung: ['Pendukung', 'bg-bg text-mute'] };
+const JENIS_BAB = { akidah: 'Akidah', ibadah_pokok: 'Ibadah pokok', muamalah: 'Muamalah', akhlak: 'Akhlak', nahwu_sharaf: 'Nahwu/Sharaf', hadits_quran: "Hadits/Qur'an", sejarah: 'Sejarah', lainnya: 'Lainnya' };
+const CAKUPAN_STATUS = { kosong: ['Belum ada soal', 'bg-bad-bg text-bad'], kurang: ['Kurang', 'bg-warn-bg text-warn'], cukup: ['Cukup', 'bg-ok-bg text-ok'], lebih: ['Lebih', 'bg-soft text-soft-ink'], ada: ['Ada soal', 'bg-ok-bg text-ok'] };
+// simpanBerkas(nama, blob) dipakai bersama dengan Pegonizer (dideklarasikan sekali, di bagian Pegonizer).
+
+function SaranView({ d, onPakai }) {
+  return (
+    <div className="space-y-4 text-sm">
+      {d.dasar === 'daftar_isi'
+        ? <p className="rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink">Disusun dari daftar isi yang Anda tempel. Setiap bab dicocokkan ulang dengan daftar isi itu.</p>
+        : <p role="alert" className="rounded-xl bg-warn-bg px-4 py-2 text-xs leading-relaxed text-warn"><b>Perlu diverifikasi.</b> Tanpa daftar isi, saran ini berasal dari pengetahuan umum model. Cocokkan dengan kitab Anda, atau tempel daftar isinya.</p>}
+      {d.peringatan.filter((x) => d.dasar === 'daftar_isi').map((x, i) => <p key={i} role="alert" className="rounded-xl bg-warn-bg px-4 py-2 text-xs leading-relaxed text-warn">{x}</p>)}
+      {d.sikap && d.sikap.status === 'periksa' && (
+        <p role="alert" className="rounded-xl bg-warn-bg px-4 py-2 text-xs leading-relaxed text-warn">Ada kata yang perlu ditinjau ustadz ({[...new Set(d.sikap.temuan.map((t) => t.kata))].join(', ')}). Pastikan bahasanya santun dan tidak menyalahkan pihak lain.</p>)}
+      {d.ringkasan && <p className="font-semibold leading-relaxed">{d.ringkasan}</p>}
+      <p className="text-xs text-mute">Keyakinan AI pada struktur kitab: <b>{d.keyakinan}</b>{d.jumlah_soal ? ` · rencana ${d.jumlah_soal} soal` : ''}</p>
+      <ul className="space-y-2">
+        {d.bab.map((b, i) => (
+          <li key={i} className="rounded-lg border border-line bg-surface px-3 py-2">
+            <p className="flex flex-wrap items-center gap-2">
+              <span className={'shrink-0 rounded-md px-2 py-px text-xs font-bold ' + (PRIO_BAB[b.prioritas] || PRIO_BAB.penting)[1]}>{(PRIO_BAB[b.prioritas] || PRIO_BAB.penting)[0]}</span>
+              <span className="min-w-0 font-semibold">{b.nama}</span>
+              {b.nama_arab && <ArNama>{b.nama_arab}</ArNama>}
+            </p>
+            {b.alasan && <p className="mt-1 text-xs leading-relaxed text-mute">{b.alasan}</p>}
+            <p className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
+              <Chip>{JENIS_BAB[b.jenis_materi] || 'Lainnya'}</Chip>
+              {b.level_disarankan.map((l) => <Chip key={l}>{l}</Chip>)}
+              {b.alokasi_soal > 0 && <Chip>{b.alokasi_soal} soal</Chip>}
+              {b.khilafiyah && <Chip>Khilafiyah</Chip>}
+              {b.ditemukan === true && <span className="rounded-md bg-ok-bg px-2 py-px font-semibold text-ok">Ada di daftar isi</span>}
+              {b.ditemukan === false && <span className="rounded-md bg-warn-bg px-2 py-px font-semibold text-warn">Tidak ada di daftar isi</span>}
+            </p>
+            {b.catatan_aswaja && <p className="mt-1.5 text-xs leading-relaxed text-soft-ink">Catatan pendekatan (AI, tinjau ustadz): {b.catatan_aswaja}</p>}
+            <button type="button" onClick={() => onPakai(b)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline"><PenLine size={13} />Susun soal untuk bab ini</button>
+          </li>))}
+      </ul>
+      {d.catatan_umum && <div><H3>Catatan untuk ustadz</H3><p className="leading-relaxed">{d.catatan_umum}</p></div>}
+      <p className="text-xs text-mute">Saran disusun dengan haluan Ahlussunnah wal Jamaah yang moderat dan setia pada teks kitab. Ini bahan pertimbangan, bukan keputusan: guru pengampu atau ustadz yang menetapkan bab ujian.</p>
+    </div>
+  );
+}
+
+function FokusUjian({ all, toast }) {
+  const cfg = useCfg();
+  const { saran, setSaran, pakaiBab } = React.useContext(SaranCtx);
+  const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
+  const K = window.Kisi;
+
+  /* --- Saran AI --- */
+  const SAWAL = { tingkat: (tingkatAktif(cfg)[0] || {}).nama || 'Aliyah', kelas: '', periode: '', mapel: 'Fiqih', nama: '', daftarIsi: '', jumlah: '' };
+  const [sf, setSf] = useState(() => bacaPref('saranBabForm', SAWAL));
+  useDraftSync('saranBabForm', sf, JSON.stringify(sf) === JSON.stringify(SAWAL));
+  const setS = (k, v) => setSf((x) => ({ ...x, [k]: v }));
+  const pilihTingkatS = (v) => setSf((x) => {
+    const l = mapelUntuk(cfg, v);
+    return { ...x, tingkat: v, mapel: l.includes(x.mapel) || !l.length ? x.mapel : l[0],
+      kelas: Uj.kelasUntuk(cfg, v).includes(x.kelas) ? x.kelas : '', periode: Uj.periodeUntuk(cfg, v).some((y) => y.kode === x.periode) ? x.periode : '' };
+  });
+  const [st, setSt] = useState({});
+  const ctrl = useRef(null);
+  useEffect(() => () => { if (ctrl.current) ctrl.current.abort(); }, []);
+  const kitabOpsi = kitabUntuk(cfg, sf.tingkat, sf.mapel, sf.kelas, sf.periode);
+  const kitabObj = cariKitab(cfg, sf.nama.trim());
+  const cakupan = kitabObj ? Uj.cakupanKitab(kitabObj, sf.tingkat, sf.kelas, sf.periode) : '';
+  const jalankan = async () => {
+    const nama = sf.nama.trim();
+    if (!nama) { toast('Isi nama kitab dulu.'); return; }
+    if (ctrl.current) ctrl.current.abort();
+    const c = new AbortController(); ctrl.current = c;
+    setSt({ loading: true });
+    try {
+      const d = await callApi('/api/assist', {
+        aksi: 'bab', nama, pengarang: kitabObj ? kitabObj.pengarang || '' : '', tingkat: sf.tingkat, kelas: sf.kelas, mapel: sf.mapel,
+        ujian: sf.periode ? Uj.labelPeriode(cfg, sf.tingkat, sf.periode) : '', cakupan, daftarIsi: sf.daftarIsi, jumlahSoal: sf.jumlah.trim(),
+      }, c.signal);
+      if (c.signal.aborted) return;
+      setSaran(d.hasil); setSt({});
+    } catch (e) { const er = apiErr(e); if (er) setSt({ error: er }); }
+  };
+
+  /* --- Kisi-kisi --- */
+  const KAWAL = { mapel: '', tingkat: '', kelas: '', periode: '' };
+  const kAwal = useRef(null); if (kAwal.current === null) { const d = Draft.read('kisiPrefs'); kAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [kf, setKf] = useState(() => bacaPref('kisiFilter', KAWAL));
+  const [meta, setMeta] = useState(() => ({ judul: typeof kAwal.current.judul === 'string' ? kAwal.current.judul.slice(0, 80) : '', madrasah: typeof kAwal.current.madrasah === 'string' ? kAwal.current.madrasah.slice(0, 80) : '' }));
+  const [picked, setPicked] = useState(() => (Array.isArray(kAwal.current.picked) ? new Set(kAwal.current.picked.filter((x) => typeof x === 'string')) : null)); // null = semua hasil filter
+  useDraftSync('kisiFilter', kf, JSON.stringify(kf) === JSON.stringify(KAWAL));
+  const kPref = useMemo(() => ({ judul: meta.judul, madrasah: meta.madrasah, picked: picked ? [...picked] : null }), [meta, picked]);
+  useDraftSync('kisiPrefs', kPref, !meta.judul && !meta.madrasah && picked === null);
+  const [busy, setBusy] = useState('');
+
+  const list = applyFilter(approved, kf);
+  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
+  // Saran dipakai untuk urutan dan analisis hanya bila untuk kitab yang sama dengan soal terpilih (jangan campur kitab).
+  const saranCocok = K && saran && chosen.some((q) => K.samaBab(q.nama, saran.kitab)) ? saran : null;
+  const kisi = K && chosen.length ? K.buatKisi(chosen, {
+    judul: meta.judul, madrasah: meta.madrasah,
+    urutanBab: saranCocok ? saranCocok.bab.map((b) => b.nama) : [], prioritas: saranCocok ? Object.fromEntries(saranCocok.bab.map((b) => [b.nama, b.prioritas])) : {},
+  }) : null;
+  const cakupanHasil = saranCocok ? K.analisisCakupan(saranCocok.bab.map((b) => ({ nama: b.nama, prioritas: b.prioritas, alokasi: b.alokasi_soal })), chosen.filter((q) => K.samaBab(q.nama, saranCocok.kitab))) : null;
+  const tanpaIndikator = chosen.filter((q) => !String(q.indikator || '').trim()).length;
+  const toggle = (id) => { const cur = new Set(picked || list.map((q) => q.id)); cur.has(id) ? cur.delete(id) : cur.add(id); setPicked(cur); };
+  const slug = (meta.judul || kf.mapel || 'soal').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'soal';
+
+  const unduh = async (mode) => {
+    if (!kisi) return;
+    setBusy(mode);
+    try {
+      if (mode === 'csv') simpanBerkas(`kisi-kisi-${slug}.csv`, new Blob([K.kisiKeCsv(kisi)], { type: 'text/csv;charset=utf-8' }));
+      else {
+        const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+        simpanBerkas(`kisi-kisi-${slug}-${mode}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, mode)));
+      }
+      toast('File diunduh.');
+    } catch (e) { toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.'); } finally { setBusy(''); }
+  };
+  const salin = async () => { try { await navigator.clipboard.writeText(K.kisiKeTeks(kisi)); toast('Teks kisi-kisi disalin.'); } catch (e) { toast('Penyalinan ditolak browser.'); } };
+  const kelasOpsi = Uj.kelasUntuk(cfg, sf.tingkat); const periodeOpsi = Uj.periodeUntuk(cfg, sf.tingkat);
+
+  return (
+    <div className="fade-in space-y-5">
+      <Section title="Saran AI: Bab Penting untuk Diujikan" icon={Target}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div><Label htmlFor="sb-tingkat">Tingkat</Label>
+            <Select id="sb-tingkat" value={sf.tingkat} onChange={pilihTingkatS}>{[...new Set([...tingkatAktif(cfg).map((t) => t.nama), sf.tingkat])].map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select></div>
+          <div><Label htmlFor="sb-kelas" hint="(opsional)">Kelas</Label>
+            <Select id="sb-kelas" value={sf.kelas} onChange={(v) => setS('kelas', v)}><option value="">— Belum dipilih —</option>{kelasOpsi.map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
+          <div><Label htmlFor="sb-periode" hint="(opsional)">Ujian</Label>
+            <Select id="sb-periode" value={sf.periode} onChange={(v) => setS('periode', v)}><option value="">— Belum dipilih —</option>{periodeOpsi.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+          <div><Label htmlFor="sb-mapel">Mata Pelajaran</Label>
+            <Select id="sb-mapel" value={sf.mapel} onChange={(v) => setS('mapel', v)}>{[...new Set([...mapelUntuk(cfg, sf.tingkat), sf.mapel])].map((m) => <option key={m}>{m}</option>)}</Select></div>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2"><Label htmlFor="sb-nama">Nama Kitab</Label>
+            <input id="sb-nama" list="sb-kitab" maxLength={120} className="field" placeholder="Pilih dari katalog atau ketik nama kitab" value={sf.nama} onChange={(e) => setS('nama', e.target.value)} />
+            <datalist id="sb-kitab">{kitabOpsi.map((k) => <option key={k.nama} value={k.nama} />)}</datalist>
+            {cakupan && <p className="mt-1 text-xs text-soft-ink">Cakupan materi dari Konfigurasi: {cakupan}. AI diminta membatasi saran pada cakupan ini.</p>}</div>
+          <div><Label htmlFor="sb-jumlah" hint="(opsional)">Rencana jumlah soal</Label>
+            <input id="sb-jumlah" inputMode="numeric" className="field" placeholder="mis. 40" value={sf.jumlah} onChange={(e) => setS('jumlah', e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} /></div>
+        </div>
+        <div className="mt-3"><Label htmlFor="sb-isi" hint="(opsional, sangat disarankan)">Daftar isi kitab</Label>
+          <textarea id="sb-isi" rows={5} className="field" placeholder="Tempel daftar isi (Arab atau Latin), satu bab per baris. Dengan daftar isi, saran terikat pada kitab Anda dan tiap bab diperiksa ulang." value={sf.daftarIsi} onChange={(e) => setS('daftarIsi', e.target.value)} />
+          <p className={`mt-1 text-xs ${sf.daftarIsi.length > 5000 ? 'font-semibold text-bad' : 'text-mute'}`}>{sf.daftarIsi.length.toLocaleString('id-ID')} / 5.000 karakter{sf.daftarIsi.length > 5000 ? '. Tempel bagian yang akan diujikan saja.' : ''}</p></div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Btn kind="primary" onClick={jalankan} disabled={st.loading || !sf.nama.trim() || sf.daftarIsi.length > 5000}>{st.loading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}Sarankan bab penting</Btn>
+          <span className="text-xs text-mute">Memakai 1 kuota AI.</span>
+        </div>
+        <div className="mt-4" aria-live="polite">
+          {st.loading && <Spin>AI sedang menimbang bab yang paling penting...</Spin>}
+          {st.error && <ErrorBox e={st.error} />}
+          {!st.loading && !st.error && saran && <SaranView d={saran} onPakai={(b) => pakaiBab({ bab: b.nama, nama: saran.kitab, tingkat: sf.tingkat, kelas: sf.kelas, periode: sf.periode, mapel: sf.mapel })} />}
+          {!st.loading && !st.error && !saran && <p className="text-sm text-mute">Isi nama kitab (dan sebaiknya daftar isinya), lalu minta saran. Hasilnya bisa dipakai untuk menentukan bab yang disusun soalnya dan untuk menandai bab pada tiap soal.</p>}
+        </div>
+      </Section>
+
+      <Filters f={kf} setF={(v) => { setKf(v); setPicked(null); }} count={list.length} qs={approved} />
+      <div className="grid gap-5 lg:grid-cols-12">
+        <div className="min-w-0 space-y-5 lg:col-span-5">
+          <Section title="Soal untuk Kisi-kisi" icon={ClipboardCheck}
+            action={list.length > 0 && <button type="button" className="text-xs font-semibold text-soft-ink hover:underline"
+              onClick={() => setPicked(!picked || picked.size === list.length ? new Set() : null)}>{!picked || picked.size === list.length ? 'Kosongkan' : 'Pilih semua'}</button>}>
+            {!list.length ? <p className="text-sm text-mute">Belum ada soal Approved yang cocok dengan filter.</p> : (
+              <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                {list.map((q, i) => {
+                  const on = !picked || picked.has(q.id);
+                  return (
+                    <li key={q.id}>
+                      <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-soft' : 'border-line'}`}>
+                        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(q.id)} />
+                        <span className="min-w-0">
+                          <span className="block break-words font-medium">{q.pertanyaan}</span>
+                          <span className="mt-1 block text-xs text-mute">{q.bab ? `Bab: ${q.bab}` : 'Belum ditandai bab'} · {q.level}{String(q.indikator || '').trim() ? '' : ' · tanpa indikator'}</span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Section>
+        </div>
+        <div className="min-w-0 space-y-5 lg:col-span-7">
+          <Section title="Dokumen Kisi-kisi" icon={ListChecks}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><Label htmlFor="ks-judul" hint="(mis. UTS Fiqih)">Judul</Label><input id="ks-judul" maxLength={80} className="field" value={meta.judul} onChange={(e) => setMeta((m) => ({ ...m, judul: e.target.value }))} /></div>
+              <div><Label htmlFor="ks-madrasah" hint="(opsional)">Nama madrasah</Label><input id="ks-madrasah" maxLength={80} className="field" value={meta.madrasah} onChange={(e) => setMeta((m) => ({ ...m, madrasah: e.target.value }))} /></div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Btn kind="primary" onClick={() => unduh('lengkap')} disabled={!kisi || !!busy}>{busy === 'lengkap' ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Kisi-kisi + Lembar Fokus (DOCX)</Btn>
+              <Btn kind="ghost" onClick={() => unduh('kisi')} disabled={!kisi || !!busy}><FileText size={16} />Kisi-kisi guru (DOCX)</Btn>
+              <Btn kind="ghost" onClick={() => unduh('fokus')} disabled={!kisi || !!busy}><Users size={16} />Lembar fokus murid (DOCX)</Btn>
+              <Btn kind="ghost" onClick={() => unduh('csv')} disabled={!kisi || !!busy}><FileSpreadsheet size={16} />CSV</Btn>
+              <Btn kind="ghost" onClick={salin} disabled={!kisi}><Copy size={16} />Salin teks</Btn>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-mute">Kunci jawaban, opsi, dan pembahasan tidak pernah dimasukkan, jadi aman dibagikan kepada murid. Nomor soal mengikuti urutan soal terpilih; bila Anda juga mengekspor naskah di tab Export/Download, samakan filter dan pilihan soalnya agar nomornya cocok. Halaman yang tertulis adalah halaman sumber soal, bukan seluruh bab.</p>
+          </Section>
+
+          <Section title="Pratinjau Kisi-kisi">
+            {!kisi ? <p className="text-sm text-mute">Pilih minimal satu soal Approved.</p> : (
+              <div className="max-h-[420px] space-y-3 overflow-auto rounded-xl bg-bg p-4 text-sm">
+                {kisi.tanpaBab > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{kisi.tanpaBab} soal belum ditandai bab, jadi dikumpulkan di “Belum ditandai bab”. Edit soalnya dan isi kolom Bab agar masuk kelompok yang benar.</p>}
+                {tanpaIndikator > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{tanpaIndikator} soal belum punya indikator, jadi barisnya kosong di kisi-kisi. Isi kolom Indikator Kisi-kisi pada soal itu.</p>}
+                {kisi.kelompok.map((g) => (
+                  <div key={g.bab}>
+                    <p className="font-bold">{g.bab}{g.prioritas && <span className={'ml-2 rounded-md px-2 py-px text-xs font-bold ' + (PRIO_BAB[g.prioritas] || PRIO_BAB.penting)[1]}>{(PRIO_BAB[g.prioritas] || PRIO_BAB.penting)[0]}</span>}</p>
+                    <p className="text-xs text-mute">{g.jumlah} soal ({g.bobot}%){g.rujukan ? ` · ${g.rujukan}` : ''}</p>
+                    <ul className="mt-1 space-y-0.5">{g.soal.map((s) => <li key={s.no} className="text-xs leading-relaxed"><b>No. {s.no}</b> · {s.level} · {s.indikator || '(indikator belum diisi)'}</li>)}</ul>
+                  </div>))}
+                <p className="text-xs font-semibold text-soft-ink">Ringkasan level: L1 {kisi.perLevel.L1} · L2 {kisi.perLevel.L2} · L3 {kisi.perLevel.L3}</p>
+              </div>)}
+          </Section>
+
+          {cakupanHasil && (
+            <Section title="Cakupan terhadap Saran AI" icon={Target}>
+              {cakupanHasil.intiKosong.length > 0 && <p role="alert" className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-xs leading-relaxed text-bad">Bab inti belum punya soal: {cakupanHasil.intiKosong.join(', ')}.</p>}
+              <ul className="space-y-1.5 text-sm">
+                {cakupanHasil.baris.map((b) => (
+                  <li key={b.nama} className="flex flex-wrap items-center gap-2">
+                    <span className={'shrink-0 rounded-md px-2 py-px text-xs font-bold ' + (CAKUPAN_STATUS[b.status] || CAKUPAN_STATUS.ada)[1]}>{(CAKUPAN_STATUS[b.status] || CAKUPAN_STATUS.ada)[0]}</span>
+                    <span className="min-w-0 flex-1">{b.nama}</span>
+                    <span className="text-xs text-mute">{b.jumlah}{b.alokasi ? ` dari ${b.alokasi}` : ''} soal</span>
+                  </li>))}
+              </ul>
+              {cakupanHasil.diluarSaran.length > 0 && <p className="mt-3 text-xs leading-relaxed text-mute">Soal di bab di luar saran: {cakupanHasil.diluarSaran.map((x) => `${x.bab} (${x.jumlah})`).join(', ')}.</p>}
+              {cakupanHasil.tanpaBab > 0 && <p className="mt-1 text-xs text-mute">{cakupanHasil.tanpaBab} soal belum ditandai bab sehingga tidak terhitung di sini.</p>}
+            </Section>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pengaturan AI (admin): penyedia, model, kunci API ---------- */
+const AI_PROV = { gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
+function AiConfig({ toast }) {
+  const [st, setSt] = useState(null);
+  const [err, setErr] = useState(null);
+  const [prov, setProv] = useState('gemini');
+  const [models, setModels] = useState({ gemini: '', anthropic: '' });
+  const [keys, setKeys] = useState({ gemini: '', anthropic: '' });
+  const [busy, setBusy] = useState('');
+  const [uji, setUji] = useState(null);
+  // Pilihan provider dan model yang belum disimpan ikut dipulihkan. Kunci API sengaja TIDAK disimpan di browser: isi ulang bila perlu.
+  const awalAi = useRef(undefined); if (awalAi.current === undefined) awalAi.current = Draft.read('aiConfig') || null;
+
+  const terapkan = (d) => { setSt(d); setProv(d.aktif.provider); setModels({ ...d.models }); setKeys({ gemini: '', anthropic: '' }); };
+  const muat = async () => {
+    try {
+      terapkan(await callApi('/api/ai-config', { aksi: 'status' })); setErr(null);
+      const a = awalAi.current; awalAi.current = null;
+      if (a && typeof a === 'object') {
+        const m = a.models && typeof a.models === 'object' ? a.models : {};
+        if (AI_PROV[a.prov]) setProv(a.prov);
+        setModels((x) => ({ gemini: typeof m.gemini === 'string' ? m.gemini.slice(0, 120) : x.gemini, anthropic: typeof m.anthropic === 'string' ? m.anthropic.slice(0, 120) : x.anthropic }));
+        toast('Pilihan provider/model yang belum disimpan dipulihkan. Kunci API tidak ikut dipulihkan, isi ulang bila perlu.');
+      }
+    } catch (e) { setErr(apiErr(e)); }
+  };
+  useEffect(() => { muat(); }, []);
+  useEffect(() => {
+    if (!st) return; // tunggu status server terbaca; sebelum itu draf lama belum boleh dihapus
+    const beda = prov !== st.aktif.provider || ['gemini', 'anthropic'].some((k) => (models[k] || '') !== (st.models[k] || ''));
+    if (beda) Draft.save('aiConfig', { prov, models }); else Draft.remove('aiConfig');
+  }, [st, prov, models]);
+
+  const simpan = async () => {
+    setBusy('simpan'); setErr(null); setUji(null);
+    try {
+      const kirim = {};
+      for (const k of Object.keys(AI_PROV)) if (keys[k].trim()) kirim[k] = keys[k].trim();
+      terapkan(await callApi('/api/ai-config', { aksi: 'simpan', provider: prov, models, keys: kirim }));
+      toast('Pengaturan AI disimpan.');
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const hapusKunci = async (k) => {
+    if (!window.confirm(`Hapus kunci ${AI_PROV[k]} yang tersimpan? Aplikasi akan memakai kunci dari environment variable bila ada.`)) return;
+    setBusy('hapus'); setErr(null);
+    try { terapkan(await callApi('/api/ai-config', { aksi: 'simpan', hapus: [k] })); toast('Kunci dihapus.'); }
+    catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const ujiAi = async () => {
+    setBusy('uji'); setErr(null); setUji(null);
+    try {
+      const kirim = {};
+      for (const k of Object.keys(AI_PROV)) if (keys[k].trim()) kirim[k] = keys[k].trim();
+      const berubah = Object.keys(kirim).length > 0 || prov !== st.aktif.provider || ['gemini', 'anthropic'].some((k) => (models[k] || '') !== (st.models[k] || ''));
+      // Ada isian yang belum disimpan: uji isian itu (tidak disimpan oleh server). Jika tidak, uji pengaturan tersimpan.
+      setUji(await callApi('/api/ai-config', { aksi: 'uji', ...(berubah ? { draft: { provider: prov, models, keys: kirim } } : {}) }));
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+
+  if (!st) return err ? <ErrorBox e={err} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>;
+  const dirty = Object.values(keys).some((v) => v.trim()) || prov !== st.aktif.provider || ['gemini', 'anthropic'].some((k) => (models[k] || '') !== (st.models[k] || ''));
+  return (
+    <div className="fade-in space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-mute">
+        Aktif sekarang: <b className="text-ink">{AI_PROV[st.aktif.provider]}</b>, model <b className="text-ink">{st.aktif.model}</b>,
+        kunci dari <b className="text-ink">{st.aktif.sumberKunci === 'konfigurasi' ? 'menu ini' : st.aktif.sumberKunci === 'environment' ? 'environment variable' : 'belum ada'}</b>.
+        {st.aktif.peringatan && <p className="mt-2 font-semibold text-warn">{st.aktif.peringatan}</p>}
+        {st.enkripsi && st.enkripsi.sumber === 'turunan' && <p className="mt-2 text-xs leading-relaxed text-mute">Kunci enkripsi masih diturunkan dari kunci akun layanan Firebase, jadi bila akun layanan bocor, kunci AI ikut terbuka. Isi <code>CONFIG_ENCRYPTION_KEY</code> di Vercel (lihat README), redeploy, lalu masukkan ulang kunci AI.</p>}
+        <p className="mt-2">Kunci disimpan terenkripsi di server dan <b className="text-ink">tidak pernah ditampilkan lagi</b>; hanya 4 karakter terakhir yang terlihat. Perubahan berlaku dalam sekitar satu menit.</p>
+      </div>
+
+      <fieldset className="rounded-2xl border border-line bg-surface p-4">
+        <legend className="px-1 text-xs font-bold uppercase tracking-wide text-mute">Penyedia AI yang dipakai</legend>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {Object.entries(AI_PROV).map(([k, v]) => (
+            <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${prov === k ? 'border-brand bg-soft text-soft-ink' : 'border-line'}`}>
+              <input type="radio" name="aiprov" checked={prov === k} onChange={() => setProv(k)} />{v}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {Object.entries(AI_PROV).map(([k, nama]) => {
+        const kk = st.kunci[k];
+        return (
+          <div key={k} className="space-y-3 rounded-2xl border border-line bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold">{nama}{prov === k && <span className="ml-2 rounded-full bg-ok-bg px-2 py-px text-xs text-ok">dipakai</span>}</h3>
+              <span className="text-xs text-mute">
+                {kk.tersimpan ? `Tersimpan ••••${kk.last4}${kk.diubahOleh ? ` · oleh ${kk.diubahOleh}` : ''}` : kk.envAda ? 'Memakai environment variable' : 'Belum ada kunci'}
+              </span>
+            </div>
+            <div><Label htmlFor={'key-' + k} hint={kk.tersimpan ? '(kosongkan bila tidak diganti)' : ''}>Kunci API</Label>
+              <input id={'key-' + k} type="password" autoComplete="off" spellCheck={false} className="field" placeholder={kk.tersimpan ? `••••${kk.last4}` : 'Tempel kunci di sini'}
+                value={keys[k]} onChange={(e) => setKeys((x) => ({ ...x, [k]: e.target.value }))} /></div>
+            <div><Label htmlFor={'model-' + k} hint="(kosongkan untuk bawaan)">Model</Label>
+              <input id={'model-' + k} className="field" placeholder={st.modelBawaan[k]} value={models[k] || ''} onChange={(e) => setModels((x) => ({ ...x, [k]: e.target.value }))} />
+              {((st.modelPilihan && st.modelPilihan[k]) || []).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {st.modelPilihan[k].map((m) => (
+                    <button key={m.id} type="button" title={m.catatan} onClick={() => setModels((x) => ({ ...x, [k]: m.id }))}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${(models[k] || st.modelBawaan[k]) === m.id ? 'border-brand bg-soft text-soft-ink' : 'border-line text-mute'}`}>{m.label}</button>
+                  ))}
+                </div>
+              )}
+              {(() => { const pm = ((st.modelPilihan && st.modelPilihan[k]) || []).find((x) => x.id === (models[k] || st.modelBawaan[k])); return pm && pm.peringatan ? <p className="mt-1 text-xs leading-relaxed text-mute">{pm.peringatan}</p> : null; })()}
+            </div>
+            {kk.tersimpan && <Btn kind="danger" onClick={() => hapusKunci(k)} disabled={!!busy}><Trash2 size={14} />Hapus kunci tersimpan</Btn>}
+          </div>
+        );
+      })}
+
+      {err && <ErrorBox e={err} />}
+      {uji && (
+        <div className="space-y-1 rounded-lg bg-ok-bg px-3 py-2 text-sm text-ok">
+          <p className="font-semibold">Berhasil: {AI_PROV[uji.provider]}, model {uji.model}, respons {uji.ms} ms.</p>
+          {uji.draf && <p>Yang diuji adalah isian di layar yang belum disimpan. Tekan Simpan agar berlaku untuk semua pengguna.</p>}
+          {(uji.catatan || []).map((c) => <p key={c} className="text-warn">{c}</p>)}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Btn kind="primary" onClick={simpan} disabled={!!busy || !dirty}>{busy === 'simpan' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan</Btn>
+        <Btn kind="soft" onClick={ujiAi} disabled={!!busy}>{busy === 'uji' ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}{dirty ? 'Uji isian ini (belum disimpan)' : 'Uji koneksi AI'}</Btn>
+      </div>
+      <p className="text-xs text-mute">Uji koneksi memakai satu permintaan dari kuota AI Anda dan boleh dijalankan sebelum menyimpan: kunci dan model yang baru diketik diuji tanpa disimpan. Bila gagal, pesan galat menyebut penyebabnya (kunci, model, kuota, atau jaringan). Kuota gratis Gemini berlaku per proyek Google, bukan per kunci: kunci kedua dari proyek yang sama tidak menambah kuota.</p>
+      <RiwayatCfg jenis="ai" versi={st} dirty={dirty} onRestored={terapkan} toast={toast} />
+    </div>
+  );
+}
+
+/* ---------- Cadangan dan riwayat konfigurasi (admin): kembalikan ke setelan buatan madrasah, bukan bawaan aplikasi ---------- */
+const ALASAN_RIWAYAT = { 'sebelum-simpan': 'Sebelum disimpan', 'sebelum-reset': 'Sebelum "kembali ke bawaan"', 'sebelum-pulih': 'Sebelum pemulihan', titik: 'Titik pulih' };
+const tglWaktu = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }); };
+const barisPerubahan = (jenis, p) => {
+  if (!p) return [];
+  if (p.sama) return ['Sama persis dengan yang berlaku sekarang.'];
+  const out = [];
+  if (jenis === 'app') {
+    for (const [k, nama] of [['tingkat', 'Tingkat'], ['mapel', 'Mata pelajaran'], ['kitab', 'Kitab']]) {
+      const x = p[k]; const daftar = (a, n) => a.join(', ') + (n > a.length ? ` … (+${n - a.length})` : '');
+      if (x.jumlah.kembali) out.push(`${nama} yang akan muncul lagi (${x.jumlah.kembali}): ${daftar(x.kembali, x.jumlah.kembali)}`);
+      if (x.jumlah.hilang) out.push(`${nama} yang akan DIHAPUS karena tidak ada di cadangan (${x.jumlah.hilang}): ${daftar(x.hilang, x.jumlah.hilang)}`);
+      if (x.jumlah.beda) out.push(`${nama} yang isinya kembali ke versi cadangan (${x.jumlah.beda}): ${daftar(x.beda, x.jumlah.beda)}`);
+    }
+    if (p.sistemUjianBeda) out.push('Sistem ujian kembali ke versi cadangan.');
+  } else {
+    if (p.providerBeda) out.push(`Penyedia AI: ${p.provider.sekarang || '(dari environment)'} menjadi ${p.provider.cadangan || '(dari environment)'}`);
+    for (const m of p.model) out.push(`Model ${m.provider}: "${m.sekarang || 'bawaan'}" menjadi "${m.cadangan || 'bawaan'}"`);
+  }
+  return out;
+};
+function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
+  const label = jenis === 'app' ? 'konfigurasi' : 'pengaturan AI';
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [nama, setNama] = useState('');
+  const [lihat, setLihat] = useState(null);
+  const muat = async () => {
+    try { const r = await callApi('/api/config-backup', { aksi: 'daftar', jenis }); setList(r.riwayat); setErr(null); }
+    catch (e) { setErr(apiErr(e)); setList((x) => x || []); }
+  };
+  useEffect(() => { muat(); }, [versi]); // versi berubah (disimpan, dikembalikan ke bawaan, atau dipulihkan): daftar riwayat ikut disegarkan
+  const jalan = async (kunci, fn) => { setBusy(kunci); setErr(null); try { await fn(); } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); } };
+  const tandai = () => jalan('titik', async () => {
+    await callApi('/api/config-backup', { aksi: 'titik', jenis, nama });
+    setNama(''); toast(`Titik pulih disimpan dari ${label} yang tersimpan di server.`); await muat();
+  });
+  const bukaLihat = (r) => {
+    if (lihat && lihat.id === r.id) { setLihat(null); return; }
+    jalan('lihat-' + r.id, async () => { setLihat({ id: r.id, ...(await callApi('/api/config-backup', { aksi: 'lihat', jenis, id: r.id })) }); });
+  };
+  const pulihkan = (r) => {
+    const judul = r.tipe === 'titik' ? `titik pulih "${r.nama}"` : `cadangan ${tglWaktu(r.dibuatAt)}`;
+    if (!window.confirm(`Pulihkan ${label} ke ${judul}?\n\nKeadaan yang berlaku sekarang disimpan dulu sebagai cadangan, jadi pemulihan ini masih bisa dibatalkan.${dirty ? '\n\nPerubahan di layar yang belum disimpan akan dibuang.' : ''}${jenis === 'ai' ? '\n\nKunci API tidak ikut berubah (kunci tidak pernah dicadangkan).' : ''}`)) return;
+    jalan('pulih-' + r.id, async () => { onRestored(await callApi('/api/config-backup', { aksi: 'pulihkan', jenis, id: r.id })); setLihat(null); toast(`${label[0].toUpperCase() + label.slice(1)} dipulihkan.`); });
+  };
+  const hapus = (r) => {
+    if (!window.confirm(`Hapus titik pulih "${r.nama}"? Ini tidak bisa dibatalkan.`)) return;
+    jalan('hapus-' + r.id, async () => { await callApi('/api/config-backup', { aksi: 'hapus', jenis, id: r.id }); if (lihat && lihat.id === r.id) setLihat(null); toast('Titik pulih dihapus.'); await muat(); });
+  };
+  const titik = (list || []).filter((r) => r.tipe === 'titik'); const otomatis = (list || []).filter((r) => r.tipe !== 'titik');
+  const ringkasan = (r) => (jenis === 'app'
+    ? `${r.ringkas.tingkat} tingkat, ${r.ringkas.mapel} mapel, ${r.ringkas.kitab} kitab${r.ringkas.penempatan ? `, ${r.ringkas.penempatan} pemetaan kelas` : ''}`
+    : `${r.ringkas.provider || 'penyedia dari environment'}${Object.entries(r.ringkas.models || {}).map(([k, v]) => ` · ${k}: ${v}`).join('')}`);
+  const baris = (r) => (
+    <li key={r.id} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 text-sm">
+          <p className="font-semibold">{r.tipe === 'titik' ? r.nama : (ALASAN_RIWAYAT[r.alasan] || 'Cadangan otomatis')}</p>
+          <p className="text-xs text-mute">Dicadangkan {tglWaktu(r.dibuatAt)}{r.dibuatOleh ? ` oleh ${r.dibuatOleh}` : ''}</p>
+          {r.sumberAt && <p className="text-xs text-mute">Isinya disimpan {tglWaktu(r.sumberAt)}{r.sumberOleh ? ` oleh ${r.sumberOleh}` : ''}</p>}
+          <p className="mt-1 text-xs text-soft-ink">{ringkasan(r)}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => bukaLihat(r)} disabled={!!busy}>{busy === 'lihat-' + r.id ? <Loader2 size={14} className="spin" /> : null}{lihat && lihat.id === r.id ? 'Tutup' : 'Lihat perubahan'}</Btn>
+          <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => pulihkan(r)} disabled={!!busy}>{busy === 'pulih-' + r.id ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}Pulihkan</Btn>
+          {r.tipe === 'titik' && <button type="button" aria-label={'Hapus titik pulih ' + r.nama} className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={!!busy} onClick={() => hapus(r)}><Trash2 size={15} /></button>}
+        </div>
+      </div>
+      {lihat && lihat.id === r.id && (
+        <div className="rounded-lg bg-soft p-2.5 text-xs leading-relaxed text-soft-ink">
+          <p className="font-semibold">Bila dipulihkan, dibandingkan dengan yang berlaku sekarang:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">{barisPerubahan(jenis, lihat.perubahan).map((b, i) => <li key={i} className="break-words">{b}</li>)}</ul>
+          {!lihat.dapatDipulihkan && <p className="mt-1 font-semibold text-bad">Cadangan ini tidak lagi lolos pemeriksaan dan tidak bisa dipulihkan: {lihat.alasanTolak}</p>}
+        </div>
+      )}
+    </li>
+  );
+  return (
+    <Section title="Cadangan & Riwayat" icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
+      <div className="space-y-4">
+        <p className="text-xs leading-relaxed text-mute">
+          Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal 30 terakhir). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
+          {jenis === 'ai' && ' Kunci API tidak pernah ikut dicadangkan; bila terhapus, tempel ulang kuncinya.'}
+        </p>
+        <div className="rounded-xl border border-dashed border-line p-3">
+          <Label htmlFor={'titik-' + jenis} hint="(dari yang tersimpan di server sekarang; tidak ikut terhapus otomatis)">Tandai setelan yang sudah benar sebagai titik pulih</Label>
+          <div className="flex flex-wrap gap-2">
+            <input id={'titik-' + jenis} className="field min-w-[200px] flex-1" maxLength={80} placeholder="mis. Setelan awal tahun ajaran 2026/2027" value={nama} onChange={(e) => setNama(e.target.value)} />
+            <Btn kind="primary" onClick={tandai} disabled={!!busy || !nama.trim()}>{busy === 'titik' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan titik pulih</Btn>
+          </div>
+          {dirty && <p className="mt-1 text-xs text-warn">Ada perubahan di layar yang belum disimpan; yang ditandai adalah versi yang sudah tersimpan di server.</p>}
+        </div>
+        {err && <ErrorBox e={err} />}
+        {!list ? <div className="flex justify-center py-6 text-mute"><Loader2 className="spin" /></div> : (
+          <>
+            <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Titik pulih ({titik.length})</h3>
+              {titik.length ? <ul className="space-y-2">{titik.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Tandai setelan yang sudah benar agar mudah dikembalikan.</p>}
+            </div>
+            <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Cadangan otomatis ({otomatis.length})</h3>
+              {otomatis.length ? <ul className="space-y-2">{otomatis.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Cadangan pertama dibuat saat {label} yang sudah tersimpan diubah.</p>}
+            </div>
+          </>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/* ---------- Konfigurasi aplikasi (admin): tingkatan, mata pelajaran, katalog kitab ---------- */
+const rapikan = (n) => String(n || '').replace(/\s+/g, ' ').trim();
+const TingkatChecks = ({ value, onChange, daftar }) => (
+  <div className="flex flex-wrap gap-x-3 gap-y-1">
+    {daftar.filter((t) => rapikan(t.nama)).map((t) => { const n = rapikan(t.nama); return (
+      <label key={t._k} className="flex items-center gap-1 text-xs font-semibold">
+        <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={value.includes(n)}
+          onChange={(e) => onChange(daftar.map((x) => rapikan(x.nama)).filter((x) => x && (x === n ? e.target.checked : value.includes(x))))} />{t.singkat || t.label || n}
+      </label>); })}
+  </div>
+);
+const AktifCek = ({ checked, onChange }) => (
+  <label className="flex items-center gap-1 text-xs font-semibold">
+    <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />Aktif
+  </label>
+);
+function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
+  const seq = useRef(0);
+  const bubuhId = (c) => ({
+    sistemUjian: Uj.daftarSistem(c).map((x) => ({ ...x, periode: x.periode.map((p) => ({ ...p, _k: ++seq.current })), _k: ++seq.current })),
+    tingkat: c.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', kelasTeks: (t.kelas || []).join(', '), sistemUjian: t.sistemUjian || '', _k: ++seq.current })),
+    mapel: c.mapel.map((m) => ({ ...m, _k: ++seq.current })),
+    kitab: c.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', penempatan: (k.penempatan || []).map((x) => ({ ...x, periode: (x.periode || []).map((y) => ({ ...y })) })), _k: ++seq.current })),
+  });
+  // Draf konfigurasi yang belum disimpan dipulihkan setelah muat ulang. Bentuknya divalidasi ketat dan dibangun ulang dari daftar bidang yang dikenal.
+  const sigCfg = (c) => JSON.stringify({ sistemUjian: c.sistemUjian || [], tingkat: c.tingkat, mapel: c.mapel, kitab: c.kitab });
+  // Bandingkan konfigurasi tanpa bergantung pada urutan kunci objek (bentuk dari server dan bentuk hasil susun() bisa berbeda urutannya).
+  const kanon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+  const normCfgDraft = (a) => {
+    if (!a || typeof a !== 'object' || !a.d || !Array.isArray(a.d.tingkat) || !Array.isArray(a.d.mapel) || !Array.isArray(a.d.kitab)) return null;
+    const S = (v) => (typeof v === 'string' ? v : ''); const B = (v) => v !== false; const A = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+    const o = (v) => (v && typeof v === 'object' ? v : {}); let maks = 0;
+    const kunci = (x) => { const k = Number(o(x)._k); if (Number.isFinite(k) && k > 0) { maks = Math.max(maks, k); return k; } return ++maks; };
+    const P = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').map((x) => ({ tingkat: S(x.tingkat), kelas: S(x.kelas), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), cakupan: S(y.cakupan) })) })) : []);
+    const SU = (v) => (Array.isArray(v) && v.length ? v.filter((x) => x && typeof x === 'object').map((x) => ({ id: S(x.id), label: S(x.label), ...(x.baru === true ? { baru: true } : {}), _k: kunci(x), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), label: S(y.label), ...(y.baru === true ? { baru: true } : {}), _k: kunci(y) })) })) : null);
+    const d = {
+      sistemUjian: SU(a.d.sistemUjian) || SU(Uj.daftarSistem(cfg)) || [],
+      tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), sistemUjian: S(o(x).sistemUjian), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
+      mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
+      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), penempatan: P(o(x).penempatan), aktif: B(o(x).aktif), _k: kunci(x) })),
+    };
+    return { d, massal: S(a.massal).slice(0, 200000), basi: a.baseSig !== sigCfg(cfg), maks };
+  };
+  const awalCfg = useRef(undefined); if (awalCfg.current === undefined) awalCfg.current = normCfgDraft(Draft.read('cfgDraft'));
+  const [d, setD] = useState(() => { const a = awalCfg.current; if (a) { seq.current = a.maks; return a.d; } return bubuhId(cfg); });
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [cari, setCari] = useState('');
+  const [batas, setBatas] = useState(30);
+  const [massal, setMassal] = useState(() => (awalCfg.current ? awalCfg.current.massal : ''));
+  const [salinDari, setSalinDari] = useState({});
+  const cfgPertama = useRef(true);
+  useEffect(() => { if (cfgPertama.current) { cfgPertama.current = false; return; } setD(bubuhId(cfg)); setMassal(''); }, [cfg]); // konfigurasi berubah (disimpan/dipulihkan): mulai dari yang baru
+  useEffect(() => {
+    const a = awalCfg.current; if (!a) return;
+    toast(a.basi ? 'Draf konfigurasi yang belum disimpan dipulihkan, tetapi konfigurasi di server berubah sejak draf dibuat. Periksa dulu sebelum menyimpan.' : 'Draf konfigurasi yang belum disimpan dipulihkan. Tekan Simpan agar berlaku.');
+  }, []);
+
+  // Bentuk yang dikirim ke server: tanpa penanda UI (_k, baru, kelasTeks); nama tingkat dirapikan agar cocok dengan rujukan di mapel/kitab.
+  const kelasDari = (t) => t.kelasTeks.split(/[,،]/).map((x) => x.trim()).filter(Boolean);
+  // Urutan yang sama dengan server (src/appConfig.js sanitizePenempatan): tingkat, lalu kelas, lalu periode menurut urutan di konfigurasi.
+  const urutPen = (pen) => {
+    const tn = d.tingkat.map((t) => rapikan(t.nama));
+    const kelasT = (n) => { const t = d.tingkat.find((x) => rapikan(x.nama) === n); return t ? kelasDari(t) : []; };
+    const kodeT = (n) => { const t = d.tingkat.find((x) => rapikan(x.nama) === n); const sis = t && (d.sistemUjian.find((y) => y.id === t.sistemUjian) || d.sistemUjian[0]); return sis ? sis.periode.map((y) => y.kode) : []; };
+    return pen.map((x) => ({ ...x, tingkat: rapikan(x.tingkat), periode: [...(x.periode || [])].sort((a, b) => kodeT(rapikan(x.tingkat)).indexOf(a.kode) - kodeT(rapikan(x.tingkat)).indexOf(b.kode)) }))
+      .sort((a, b) => tn.indexOf(a.tingkat) - tn.indexOf(b.tingkat) || kelasT(a.tingkat).indexOf(a.kelas) - kelasT(b.tingkat).indexOf(b.kelas));
+  };
+  const susun = () => ({
+    sistemUjian: d.sistemUjian.map(({ _k, baru, periode, ...x }) => ({ ...x, label: rapikan(x.label), periode: periode.map(({ _k: _p, baru: _b, ...y }) => ({ ...y, label: rapikan(y.label) })) })),
+    tingkat: d.tingkat.filter((t) => rapikan(t.nama)).map(({ _k, baru, kelasTeks, ...t }) => ({ ...t, nama: rapikan(t.nama), kelas: kelasDari({ kelasTeks }), sistemUjian: t.sistemUjian || (d.sistemUjian[0] || {}).id || '' })),
+    mapel: d.mapel.map(({ _k, ...m }) => ({ ...m, tingkat: m.tingkat.map(rapikan) })),
+    kitab: d.kitab.map(({ _k, ...k }) => ({ ...k, tingkat: k.tingkat.map(rapikan), penempatan: urutPen(k.penempatan || []) })),
+  });
+  const cur = susun(); // bentuk yang akan dikirim; juga dasar ringkasan penempatan dan peringatan rujukan yatim
+  const dirty = kanon(cur) !== kanon({
+    sistemUjian: Uj.daftarSistem(cfg),
+    tingkat: cfg.tingkat.map((t) => ({ ...t, labelArab: t.labelArab || '', sistemUjian: t.sistemUjian || (Uj.daftarSistem(cfg)[0] || {}).id || '' })),
+    mapel: cfg.mapel,
+    kitab: cfg.kitab.map((k) => ({ ...k, namaArab: k.namaArab || '', pengarangArab: k.pengarangArab || '', penempatan: k.penempatan || [] })),
+  });
+  const cfgVal = useMemo(() => ({ d, massal, baseSig: sigCfg(cfg) }), [d, massal, cfg]);
+  useDraftSync('cfgDraft', cfgVal, !dirty && !massal.trim());
+  const namaTingkat = d.tingkat.map((t) => rapikan(t.nama)).filter(Boolean);
+  const tanpaNama = d.tingkat.some((t) => !rapikan(t.nama));
+
+  // Tingkat: mengubah kunci hanya mungkin untuk tingkat baru (belum disimpan); rujukan di mapel/kitab ikut diganti.
+  const setT = (k, patch) => setD((x) => {
+    const lama = x.tingkat.find((t) => t._k === k); if (!lama) return x;
+    let { mapel, kitab } = x;
+    if (patch.nama !== undefined && rapikan(lama.nama)) {
+      const ganti = (arr) => arr.map((n) => (n === rapikan(lama.nama) ? rapikan(patch.nama) : n));
+      mapel = mapel.map((m) => ({ ...m, tingkat: ganti(m.tingkat) }));
+      kitab = kitab.map((b) => ({ ...b, tingkat: ganti(b.tingkat), penempatan: (b.penempatan || []).map((p) => (p.tingkat === rapikan(lama.nama) ? { ...p, tingkat: rapikan(patch.nama) } : p)) }));
+    }
+    // Ganti sistem ujian tingkat: kode periode lama tidak berlaku lagi, jadi pembagian periode kitab di tingkat ini dikosongkan (kelasnya tetap).
+    if (patch.sistemUjian !== undefined && patch.sistemUjian !== lama.sistemUjian && rapikan(lama.nama)) {
+      kitab = kitab.map((b) => ({ ...b, penempatan: (b.penempatan || []).map((p) => (p.tingkat === rapikan(lama.nama) ? { ...p, periode: [] } : p)) }));
+    }
+    return { ...x, mapel, kitab, tingkat: x.tingkat.map((t) => (t._k === k ? { ...t, ...patch } : t)) };
+  });
+  const tambahT = () => setD((x) => ({ ...x, tingkat: [...x.tingkat, { nama: '', label: '', labelArab: '', singkat: '', kelas: [], kelasTeks: '', sistemUjian: (x.sistemUjian[0] || {}).id || '', aktif: true, baru: true, _k: ++seq.current }] }));
+  const geserT = (k, arah) => setD((x) => {
+    const i = x.tingkat.findIndex((t) => t._k === k); const j = i + arah;
+    if (i < 0 || j < 0 || j >= x.tingkat.length) return x;
+    const t = [...x.tingkat]; [t[i], t[j]] = [t[j], t[i]]; return { ...x, tingkat: t };
+  });
+  const hapusT = (k) => {
+    const t = d.tingkat.find((x) => x._k === k); if (!t) return;
+    if (d.tingkat.length <= 1) { toast('Minimal satu tingkat harus ada.'); return; }
+    if (!t.baru && !window.confirm(`Hapus tingkat "${t.label || t.nama}"? Soal lama dengan tingkat ini tetap tersimpan, tetapi tidak bisa difilter lagi. Menonaktifkan biasanya lebih aman.`)) return;
+    const n = rapikan(t.nama);
+    setD((x) => ({ ...x, tingkat: x.tingkat.filter((y) => y._k !== k), mapel: x.mapel.map((m) => ({ ...m, tingkat: m.tingkat.filter((y) => y !== n) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: b.tingkat.filter((y) => y !== n), penempatan: (b.penempatan || []).filter((p) => p.tingkat !== n) })) }));
+  };
+  // Tingkat baru belum punya mapel/kitab: salin cakupan dari tingkat lain agar tidak mencentang satu per satu.
+  const salinCakupan = (k) => {
+    const t = d.tingkat.find((x) => x._k === k); const dari = salinDari[k]; const n = t && rapikan(t.nama);
+    if (!n || !dari || dari === n) return;
+    const tambah = (arr) => (arr.includes(dari) && !arr.includes(n) ? [...arr, n] : arr);
+    setD((x) => ({ ...x, mapel: x.mapel.map((m) => ({ ...m, tingkat: tambah(m.tingkat) })), kitab: x.kitab.map((b) => ({ ...b, tingkat: tambah(b.tingkat) })) }));
+    toast(`Mapel dan kitab milik ${dari} ditambahkan juga ke ${n}. Tekan Simpan agar berlaku.`);
+  };
+
+  // Sistem ujian. ID sistem dan kode periode dibuat otomatis dan tetap (dipakai soal); yang diubah admin adalah nama/label.
+  const kodeBaru = (awal) => { const pakai = new Set([...d.sistemUjian.map((x) => x.id), ...d.sistemUjian.flatMap((x) => x.periode.map((y) => y.kode))]); let k; do { k = awal + Math.random().toString(36).slice(2, 8); } while (pakai.has(k)); return k; };
+  const setS = (k, patch) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === k ? { ...y, ...patch } : y)) }));
+  const tambahS = () => setD((x) => ({ ...x, sistemUjian: [...x.sistemUjian, { id: kodeBaru('s'), label: '', baru: true, _k: ++seq.current, periode: [{ kode: kodeBaru('p'), label: '', baru: true, _k: ++seq.current }] }] }));
+  const hapusS = (k) => {
+    const sis = d.sistemUjian.find((y) => y._k === k); if (!sis) return;
+    if (d.sistemUjian.length <= 1) { toast('Minimal satu sistem ujian harus ada.'); return; }
+    if (d.tingkat.some((t) => (t.sistemUjian || d.sistemUjian[0].id) === sis.id)) { toast('Sistem ujian ini masih dipakai tingkat. Pindahkan tingkatnya ke sistem lain dulu.'); return; }
+    setD((x) => ({ ...x, sistemUjian: x.sistemUjian.filter((y) => y._k !== k) }));
+  };
+  const tambahP = (ks) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks && y.periode.length < 6 ? { ...y, periode: [...y.periode, { kode: kodeBaru('p'), label: '', baru: true, _k: ++seq.current }] } : y)) }));
+  const setP = (ks, kp, patch) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks ? { ...y, periode: y.periode.map((z) => (z._k === kp ? { ...z, ...patch } : z)) } : y)) }));
+  const geserP = (ks, kp, arah) => setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => {
+    if (y._k !== ks) return y;
+    const i = y.periode.findIndex((z) => z._k === kp); const j = i + arah; if (i < 0 || j < 0 || j >= y.periode.length) return y;
+    const l = [...y.periode]; [l[i], l[j]] = [l[j], l[i]]; return { ...y, periode: l };
+  }) }));
+  const hapusP = (ks, kp) => {
+    const sis = d.sistemUjian.find((y) => y._k === ks); const per = sis && sis.periode.find((z) => z._k === kp); if (!per) return;
+    if (sis.periode.length <= 1) { toast('Satu sistem ujian minimal punya satu periode.'); return; }
+    if (!per.baru && !window.confirm(`Hapus periode \"${per.label || per.kode}\"? Pemetaan kitab ke periode ini ikut dibuang. Soal lama tetap menyimpan periodenya, tetapi namanya tidak tampil lagi. Mengganti nama biasanya lebih aman.`)) return;
+    setD((x) => ({ ...x, sistemUjian: x.sistemUjian.map((y) => (y._k === ks ? { ...y, periode: y.periode.filter((z) => z._k !== kp) } : y)),
+      kitab: x.kitab.map((b) => ({ ...b, penempatan: (b.penempatan || []).map((p) => ({ ...p, periode: p.periode.filter((z) => z.kode !== per.kode) })) })) }));
+  };
+  // Penempatan kitab ke kelas dan periode. Kelas tanpa daftar periode = semua periode (bentuk lama); di sini kelas yang dicentang selalu memuat daftar periode eksplisit.
+  const periodeTingkat = (t) => { const sis = d.sistemUjian.find((y) => y.id === t.sistemUjian) || d.sistemUjian[0]; return sis ? sis.periode : []; };
+  const ubahPen = (kk, tn, fn) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === kk ? { ...b, penempatan: fn((b.penempatan || []).filter((p) => p.tingkat === tn)).concat((b.penempatan || []).filter((p) => p.tingkat !== tn)) } : b)) }));
+  const semuaPeriode = (t) => periodeTingkat(t).map((y) => ({ kode: y.kode, cakupan: '' }));
+  const toggleKelas = (kk, t, kelas, on) => ubahPen(kk, rapikan(t.nama), (pet) => (on ? [...pet.filter((p) => p.kelas !== kelas), { tingkat: rapikan(t.nama), kelas, periode: semuaPeriode(t) }] : pet.filter((p) => p.kelas !== kelas)));
+  const semuaKelas = (kk, t) => ubahPen(kk, rapikan(t.nama), (pet) => kelasDari(t).map((kls) => pet.find((p) => p.kelas === kls) || { tingkat: rapikan(t.nama), kelas: kls, periode: semuaPeriode(t) }));
+  const kosongkanPen = (kk, t) => ubahPen(kk, rapikan(t.nama), () => []);
+  const aktifPeriode = (p, kode) => p.periode.length === 0 || p.periode.some((y) => y.kode === kode);
+  const togglePeriode = (kk, t, kelas, kode) => {
+    const urut = periodeTingkat(t).map((y) => y.kode); let ditolak = false;
+    ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => {
+      if (p.kelas !== kelas) return p;
+      const dasar = p.periode.length ? p.periode : semuaPeriode(t);
+      const ada = dasar.some((y) => y.kode === kode);
+      const next = ada ? dasar.filter((y) => y.kode !== kode) : [...dasar, { kode, cakupan: '' }];
+      if (!next.length) { ditolak = true; return p; }
+      return { ...p, periode: next.sort((a, b) => urut.indexOf(a.kode) - urut.indexOf(b.kode)) };
+    }));
+    if (ditolak) toast('Minimal satu periode. Hapus centang kelas bila kitab tidak dipakai di kelas ini.');
+  };
+  const setCakupan = (kk, t, kelas, kode, v) => ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => (p.kelas === kelas ? { ...p, periode: (p.periode.length ? p.periode : semuaPeriode(t)).map((y) => (y.kode === kode ? { ...y, cakupan: v } : y)) } : p)));
+  const [bukaPeta, setBukaPeta] = useState({}); // kitab yang editor penempatannya sedang dibuka (dirender hanya bila dibuka, supaya katalog besar tetap ringan)
+
+  const setM = (k, patch) => setD((x) => {
+    const lama = x.mapel.find((m) => m._k === k);
+    const ganti = patch.nama !== undefined && lama ? lama.nama : null; // mengganti nama mapel ikut mengubah kitab yang menunjuk ke nama lama
+    return { ...x, mapel: x.mapel.map((m) => (m._k === k ? { ...m, ...patch } : m)), kitab: ganti === null ? x.kitab : x.kitab.map((b) => (b.mapel === ganti ? { ...b, mapel: patch.nama } : b)) };
+  });
+  const hapusM = (k) => setD((x) => ({ ...x, mapel: x.mapel.filter((m) => m._k !== k) }));
+  const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current }] }));
+  const setK = (k, patch) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === k ? { ...b, ...patch } : b)) }));
+  const hapusK = (k) => setD((x) => ({ ...x, kitab: x.kitab.filter((b) => b._k !== k) }));
+  const kitabBaru = (o = {}) => ({ nama: '', namaArab: '', pengarang: '', pengarangArab: '', mapel: '', tautan: '', tingkat: [...namaTingkat], penempatan: [], aktif: true, _k: ++seq.current, ...o });
+  const tambahK = () => { setCari(''); setD((x) => ({ ...x, kitab: [kitabBaru({ mapel: (x.mapel[0] || {}).nama || '' }), ...x.kitab] })); };
+  const tambahMassal = () => {
+    const ada = new Set(d.kitab.map((b) => b.nama.toLowerCase())); let baru = 0; let lewat = 0; const isi = [];
+    for (const baris of massal.split('\n')) {
+      const [nama = '', pengarang = '', mapel = '', tautan = '', namaArab = '', pengarangArab = ''] = baris.split('|').map((x) => x.trim());
+      if (!nama) continue;
+      if (ada.has(nama.toLowerCase())) { lewat++; continue; }
+      ada.add(nama.toLowerCase()); baru++;
+      isi.push(kitabBaru({ nama, pengarang, mapel, tautan, namaArab, pengarangArab }));
+    }
+    setD((x) => ({ ...x, kitab: [...isi, ...x.kitab] })); setMassal('');
+    toast(`${baru} kitab ditambahkan${lewat ? `, ${lewat} dilewati (nama sudah ada)` : ''}. Tekan Simpan agar berlaku.`);
+  };
+
+  const simpan = async () => {
+    if (tanpaNama) { setErr({ message: 'Ada tingkat baru yang belum diberi kunci (nama). Isi atau hapus dulu.' }); return; }
+    setBusy('simpan'); setErr(null);
+    try { const r = await callApi('/api/app-config', { aksi: 'simpan', config: susun(), basisAt: diubahAt || null }); onSaved(r); toast('Konfigurasi disimpan. Versi sebelumnya masuk ke Riwayat.'); }
+    catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const pulihkan = async () => {
+    if (!window.confirm('Kembalikan ke BAWAAN APLIKASI?\n\nIni BUKAN urungkan: tingkatan, kelas, sistem ujian, mapel, kitab, dan pemetaan kelas buatan madrasah diganti daftar bawaan aplikasi.\n\nSalinan keadaan sekarang tetap disimpan di bagian Cadangan & Riwayat di bawah dan bisa dipulihkan dari sana. Soal yang sudah tersimpan tidak terpengaruh.')) return;
+    setBusy('reset'); setErr(null);
+    try { const r = await callApi('/api/app-config', { aksi: 'reset' }); onSaved(r); toast('Konfigurasi dikembalikan ke bawaan aplikasi. Setelan sebelumnya ada di Cadangan & Riwayat.'); }
+    catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+
+  const unduhCfg = () => simpanBerkas(`konfigurasi-labsouma-${new Date().toISOString().slice(0, 10)}.json`, new Blob([JSON.stringify({ konfigurasi: cfg }, null, 2)], { type: 'application/json' }));
+
+  const q = cari.trim().toLowerCase();
+  const kitabTampil = d.kitab.filter((b) => !q || b.nama.toLowerCase().includes(q) || (b.namaArab || '').includes(cari.trim()) || (b.pengarang || '').toLowerCase().includes(q) || (b.mapel || '').toLowerCase().includes(q));
+  const namaMapel = [...new Set(d.mapel.map((m) => m.nama).filter(Boolean))];
+
+  return (
+    <div className="fade-in space-y-5">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
+        Atur pilihan yang muncul di form penyusunan soal dan filter. {kustom ? 'Sedang memakai pengaturan Anda.' : 'Sedang memakai daftar bawaan aplikasi.'}
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+          <li>Tingkatan bisa ditambah, diurutkan, dinonaktifkan, atau dihapus. <b>Kunci</b> tingkat dipakai pada setiap soal, jadi tidak bisa diubah setelah disimpan; yang bisa diubah kapan saja adalah label, singkatan, label Arab, dan kelas.</li>
+          <li>Tingkat baru belum punya mapel dan kitab: pakai tombol <b>Salin mapel &amp; kitab dari…</b> atau centang per mapel/kitab di bawah.</li>
+          <li>Mengganti nama mapel tidak mengubah soal lama. Soal lama tetap muncul di filter dengan nama lamanya.</li>
+          <li><b>Kelas</b> adalah turunan tingkat. Kelas dipakai di form soal (tersimpan pada soal), filter, dan pemetaan kitab. Mengganti nama kelas memutus pemetaan kitab lama ke kelas itu; pemetaannya perlu diatur ulang.</li>
+          <li><b>Sistem ujian</b>: tiap tingkat memakai satu sistem (bawaan: Semester 4 ujian dan Catur Wulan 3 ujian). Nama sistem dan nama tiap ujian bebas diubah, ditambah, atau diurutkan ulang. Soal menyimpan kode periodenya, jadi mengganti nama tidak memutus soal lama.</li>
+          <li><b>Pemetaan kitab</b>: pada tiap kitab, buka <i>Kelas &amp; ujian</i> untuk menentukan kitab itu dipakai di kelas dan periode ujian mana. Kitab tanpa pemetaan berlaku untuk semua kelas dan periode di tingkatnya.</li>
+          <li>Nama Arab kitab dan pengarang tampil di pilihan kitab, daftar soal, dan ekspor (DOCX/CSV). Tulis dengan huruf Arab; harakat boleh.</li>
+          <li>Daftar kitab dan nama Arab bawaan adalah usulan. Periksa bersama ustadz atau guru mapel.</li>
+        </ul>
+      </div>
+
+      <Section title={`Tingkatan & Kelas (${d.tingkat.length})`} icon={Layers} action={<Btn kind="soft" onClick={tambahT} disabled={d.tingkat.length >= 8}>Tambah tingkat</Btn>}>
+        <div className="space-y-3">
+          {d.tingkat.map((t, i) => (
+            <div key={t._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+              <div className="grid gap-2 sm:grid-cols-12">
+                <div className="sm:col-span-3">
+                  <Label htmlFor={'tn-' + t._k} hint={t.baru ? '(tetap setelah disimpan)' : '(kunci, tetap)'}>Kunci</Label>
+                  {t.baru
+                    ? <input id={'tn-' + t._k} className="field" maxLength={40} placeholder="mis. Wustha" value={t.nama} onChange={(e) => setT(t._k, { nama: e.target.value })} />
+                    : <p className="field !bg-soft font-semibold text-soft-ink">{t.nama}</p>}
+                </div>
+                <div className="sm:col-span-4"><Label htmlFor={'tl-' + t._k}>Label</Label><input id={'tl-' + t._k} className="field" maxLength={40} placeholder="Nama yang tampil" value={t.label} onChange={(e) => setT(t._k, { label: e.target.value })} /></div>
+                <div className="sm:col-span-3"><Label htmlFor={'ta-' + t._k} hint="(Arab)">Label Arab</Label><input id={'ta-' + t._k} dir="rtl" lang="ar" className="field ar-input" maxLength={40} placeholder="المرحلة" value={t.labelArab} onChange={(e) => setT(t._k, { labelArab: e.target.value })} /></div>
+                <div className="sm:col-span-2"><Label htmlFor={'ts-' + t._k}>Singkatan</Label><input id={'ts-' + t._k} className="field" maxLength={10} value={t.singkat} onChange={(e) => setT(t._k, { singkat: e.target.value })} /></div>
+                <div className="sm:col-span-8"><Label htmlFor={'tk-' + t._k} hint="(turunan tingkat, pisahkan koma; maks. 12)">Kelas</Label><input id={'tk-' + t._k} className="field" placeholder="mis. X, XI, XII" value={t.kelasTeks} onChange={(e) => setT(t._k, { kelasTeks: e.target.value })} /></div>
+                <div className="sm:col-span-4"><Label htmlFor={'tu-' + t._k}>Sistem ujian</Label>
+                  <select id={'tu-' + t._k} className="field" value={t.sistemUjian || (d.sistemUjian[0] || {}).id || ''} onChange={(e) => { setT(t._k, { sistemUjian: e.target.value }); if (!t.baru) toast('Sistem ujian diganti: pembagian periode kitab di tingkat ini dikosongkan (pemetaan kelas tetap). Tekan Simpan agar berlaku.'); }}>
+                    {d.sistemUjian.map((y) => <option key={y._k} value={y.id}>{y.label || '(sistem baru)'} · {y.periode.length} ujian</option>)}
+                  </select></div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <AktifCek checked={t.aktif} onChange={(v) => setT(t._k, { aktif: v })} />
+                <div className="flex items-center gap-1">
+                  <select aria-label={'Salin cakupan ke ' + (t.nama || 'tingkat baru')} className="field !w-auto !py-1 text-xs" value={salinDari[t._k] || ''} onChange={(e) => setSalinDari((x) => ({ ...x, [t._k]: e.target.value }))}>
+                    <option value="">Salin mapel &amp; kitab dari…</option>
+                    {namaTingkat.filter((n) => n !== rapikan(t.nama)).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => salinCakupan(t._k)} disabled={!rapikan(t.nama) || !salinDari[t._k]}>Salin</Btn>
+                </div>
+                <div className="ml-auto flex items-center gap-1">
+                  <button type="button" aria-label="Naikkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === 0} onClick={() => geserT(t._k, -1)}>↑</button>
+                  <button type="button" aria-label="Turunkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === d.tingkat.length - 1} onClick={() => geserT(t._k, 1)}>↓</button>
+                  <button type="button" aria-label={'Hapus ' + (t.label || t.nama || 'tingkat')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusT(t._k)}><Trash2 size={16} /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title={`Sistem Ujian (${d.sistemUjian.length})`} icon={ClipboardCheck} action={<Btn kind="soft" onClick={tambahS} disabled={d.sistemUjian.length >= 4}>Tambah sistem</Btn>}>
+        <div className="space-y-3">
+          {d.sistemUjian.map((sis) => {
+            const dipakai = d.tingkat.filter((t) => rapikan(t.nama) && (t.sistemUjian || d.sistemUjian[0].id) === sis.id).map((t) => t.singkat || t.label || t.nama);
+            return (
+              <div key={sis._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[200px] flex-1"><Label htmlFor={'su-' + sis._k} hint="(mis. Semester, Catur Wulan)">Nama sistem</Label><input id={'su-' + sis._k} className="field" maxLength={40} placeholder="Nama sistem ujian" value={sis.label} onChange={(e) => setS(sis._k, { label: e.target.value })} /></div>
+                  <p className="pb-2 text-xs text-mute">{dipakai.length ? `Dipakai: ${dipakai.join(', ')}` : 'Belum dipakai tingkat mana pun'}</p>
+                  <button type="button" aria-label={'Hapus sistem ' + (sis.label || 'ujian')} className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={d.sistemUjian.length <= 1} onClick={() => hapusS(sis._k)}><Trash2 size={16} /></button>
+                </div>
+                <ol className="space-y-1.5">
+                  {sis.periode.map((per, i) => (
+                    <li key={per._k} className="flex items-center gap-2">
+                      <span className="w-6 text-right text-xs font-semibold text-mute">{i + 1}.</span>
+                      <input aria-label={`Nama ujian ke-${i + 1} sistem ${sis.label || 'baru'}`} className="field min-w-0 flex-1" maxLength={60} placeholder="mis. UTS Semester 1 (Ganjil)" value={per.label} onChange={(e) => setP(sis._k, per._k, { label: e.target.value })} />
+                      <button type="button" aria-label="Naikkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === 0} onClick={() => geserP(sis._k, per._k, -1)}>↑</button>
+                      <button type="button" aria-label="Turunkan urutan" className="rounded-lg px-2 py-1 text-sm font-bold hover:bg-soft disabled:opacity-30" disabled={i === sis.periode.length - 1} onClick={() => geserP(sis._k, per._k, 1)}>↓</button>
+                      <button type="button" aria-label={'Hapus ' + (per.label || 'periode')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusP(sis._k, per._k)}><Trash2 size={16} /></button>
+                    </li>
+                  ))}
+                </ol>
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => tambahP(sis._k)} disabled={sis.periode.length >= 6}>Tambah ujian ({sis.periode.length}/6)</Btn>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title={`Mata Pelajaran (${d.mapel.length})`} icon={BookOpen} action={<Btn kind="soft" onClick={tambahM}>Tambah mapel</Btn>}>
+        <div className="space-y-2">
+          {d.mapel.map((m) => (
+            <div key={m._k} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-bg p-3">
+              <input aria-label="Nama mata pelajaran" className="field min-w-[160px] flex-1" maxLength={60} placeholder="Nama mata pelajaran" value={m.nama} onChange={(e) => setM(m._k, { nama: e.target.value })} />
+              <TingkatChecks daftar={d.tingkat} value={m.tingkat} onChange={(v) => setM(m._k, { tingkat: v })} />
+              <AktifCek checked={m.aktif} onChange={(v) => setM(m._k, { aktif: v })} />
+              <button type="button" aria-label={'Hapus ' + (m.nama || 'mapel')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusM(m._k)}><Trash2 size={16} /></button>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title={`Katalog Kitab (${d.kitab.length})`} icon={Library} action={<Btn kind="soft" onClick={tambahK}>Tambah kitab</Btn>}>
+        <div className="space-y-3">
+          <input aria-label="Cari kitab" className="field" placeholder="Cari nama kitab (Latin atau Arab), pengarang, atau mapel…" value={cari} onChange={(e) => { setCari(e.target.value); setBatas(30); }} />
+          <div className="space-y-2">
+            {kitabTampil.slice(0, batas).map((b) => (
+              <div key={b._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+                <div className="grid gap-2 sm:grid-cols-12">
+                  <input aria-label="Nama kitab" className="field sm:col-span-6" maxLength={120} placeholder="Nama kitab (Latin)" value={b.nama} onChange={(e) => setK(b._k, { nama: e.target.value })} />
+                  <input aria-label="Nama kitab dalam huruf Arab" dir="rtl" lang="ar" className="field ar-input sm:col-span-6" maxLength={120} placeholder="اسم الكتاب" value={b.namaArab || ''} onChange={(e) => setK(b._k, { namaArab: e.target.value })} />
+                  <input aria-label="Pengarang" className="field sm:col-span-6" maxLength={100} placeholder="Pengarang (opsional)" value={b.pengarang || ''} onChange={(e) => setK(b._k, { pengarang: e.target.value })} />
+                  <input aria-label="Pengarang dalam huruf Arab" dir="rtl" lang="ar" className="field ar-input sm:col-span-6" maxLength={100} placeholder="اسم المؤلف" value={b.pengarangArab || ''} onChange={(e) => setK(b._k, { pengarangArab: e.target.value })} />
+                  <input aria-label="Tautan kitab" type="text" inputMode="url" autoCapitalize="none" spellCheck={false} className="field sm:col-span-9" maxLength={300} placeholder="Tautan kitab (opsional), mis. https://shamela.ws/book/823" value={b.tautan || ''} onChange={(e) => setK(b._k, { tautan: e.target.value })} />
+                  <select aria-label="Mata pelajaran kitab" className="field sm:col-span-3" value={b.mapel || ''} onChange={(e) => setK(b._k, { mapel: e.target.value })}>
+                    <option value="">(tanpa mapel)</option>
+                    {[...new Set([...namaMapel, b.mapel].filter(Boolean))].map((n) => <option key={n}>{n}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <TingkatChecks daftar={d.tingkat} value={b.tingkat} onChange={(v) => setK(b._k, { tingkat: v })} />
+                  <AktifCek checked={b.aktif} onChange={(v) => setK(b._k, { aktif: v })} />
+                  <button type="button" aria-label={'Hapus ' + (b.nama || 'kitab')} className="ml-auto rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusK(b._k)}><Trash2 size={16} /></button>
+                </div>
+                <div className="rounded-lg bg-soft p-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-0.5 text-xs text-soft-ink">
+                      <p className="font-semibold">Kelas &amp; ujian</p>
+                      {Uj.ringkasPenempatan(cur, b).map((r, i) => <p key={i} className="break-words">{r}</p>)}
+                      {Uj.penempatanYatim(cur, b).length > 0 && <p className="font-semibold text-warn">{Uj.penempatanYatim(cur, b).length} pemetaan merujuk kelas atau ujian yang sudah tidak ada; akan dibuang saat disimpan.</p>}
+                    </div>
+                    <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => setBukaPeta((x) => ({ ...x, [b._k]: !x[b._k] }))} disabled={!b.tingkat.length}>{bukaPeta[b._k] ? 'Tutup' : 'Atur kelas & ujian'}</Btn>
+                  </div>
+                  {bukaPeta[b._k] && (
+                    <div className="mt-3 space-y-3">
+                      {d.tingkat.filter((t) => rapikan(t.nama) && b.tingkat.includes(rapikan(t.nama))).map((t) => {
+                        const n = rapikan(t.nama); const kls = kelasDari(t); const per = periodeTingkat(t); const pet = (b.penempatan || []).filter((p) => p.tingkat === n);
+                        return (
+                          <div key={t._k} className="space-y-2 rounded-lg border border-line bg-surface p-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-xs font-bold">{t.label || t.nama}</p>
+                              <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => semuaKelas(b._k, t)} disabled={!kls.length}>Centang semua kelas</Btn>
+                              <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => kosongkanPen(b._k, t)} disabled={!pet.length}>Kosongkan (berlaku semua)</Btn>
+                            </div>
+                            {!kls.length && <p className="text-xs text-mute">Tingkat ini belum punya kelas. Isi kolom Kelas pada Tingkatan di atas.</p>}
+                            {!pet.length && kls.length > 0 && <p className="text-xs text-mute">Belum ada kelas dicentang: kitab berlaku untuk semua kelas dan ujian tingkat ini.</p>}
+                            {kls.map((k) => {
+                              const p = pet.find((x) => x.kelas === k); const terisi = p ? p.periode.filter((y) => y.cakupan).length : 0;
+                              return (
+                                <div key={k} className="space-y-1.5 border-t border-line pt-2 first:border-t-0 first:pt-0">
+                                  <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={!!p} onChange={(e) => toggleKelas(b._k, t, k, e.target.checked)} />Kelas {k}</label>
+                                  {p && (
+                                    <div className="space-y-1.5 pl-6">
+                                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                        {per.map((y) => (
+                                          <label key={y.kode} className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={aktifPeriode(p, y.kode)} onChange={() => togglePeriode(b._k, t, k, y.kode)} />{y.label || '(tanpa nama)'}</label>
+                                        ))}
+                                      </div>
+                                      <details>
+                                        <summary className="cursor-pointer text-xs font-semibold text-soft-ink">Cakupan materi per ujian (opsional){terisi ? ` · ${terisi} terisi` : ''}</summary>
+                                        <div className="mt-1.5 space-y-1.5">
+                                          {per.filter((y) => aktifPeriode(p, y.kode)).map((y) => (
+                                            <div key={y.kode} className="flex flex-wrap items-center gap-2">
+                                              <span className="w-full text-xs text-mute sm:w-56">{y.label || '(tanpa nama)'}</span>
+                                              <input aria-label={`Cakupan ${b.nama || 'kitab'} kelas ${k} ${y.label}`} className="field min-w-0 flex-1 !py-1.5" maxLength={120} placeholder="mis. Kitab Thaharah, bab wudhu sampai tayammum" value={((p.periode.find((z) => z.kode === y.kode) || {}).cakupan) || ''} onChange={(e) => setCakupan(b._k, t, k, y.kode, e.target.value)} />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </details>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {!kitabTampil.length && <p className="text-sm text-mute">Tidak ada kitab yang cocok.</p>}
+            {kitabTampil.length > batas && <Btn kind="ghost" className="w-full" onClick={() => setBatas((n) => n + 30)}>Tampilkan lebih banyak ({kitabTampil.length - batas} lagi)</Btn>}
+          </div>
+          <div className="space-y-2 rounded-xl border border-dashed border-line p-3">
+            <Label htmlFor="massal" hint="(satu kitab per baris)">Tempel banyak kitab</Label>
+            <textarea id="massal" rows={4} className="field" placeholder={'Nama | Pengarang | Mapel | Tautan | Nama Arab | Pengarang Arab (kolom 4-6 opsional)\nFathul Qarib | Ibnu Qasim al-Ghazzi | Fiqih | | فتح القريب المجيب | ابن قاسم الغزي'} value={massal} onChange={(e) => setMassal(e.target.value)} />
+            <Btn kind="soft" onClick={tambahMassal} disabled={!massal.trim()}>Tambahkan ke daftar</Btn>
+          </div>
+        </div>
+      </Section>
+
+      {err && <ErrorBox e={err} />}
+      <div className="flex flex-wrap gap-2">
+        <Btn kind="primary" onClick={simpan} disabled={!!busy || !dirty}>{busy === 'simpan' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan konfigurasi</Btn>
+        <Btn kind="ghost" onClick={() => { setD(bubuhId(cfg)); setErr(null); }} disabled={!!busy || !dirty}>Batalkan perubahan</Btn>
+        <Btn kind="danger" onClick={pulihkan} disabled={!!busy || !kustom}>{busy === 'reset' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Kembali ke bawaan aplikasi</Btn>
+        <Btn kind="ghost" onClick={unduhCfg} disabled={!kustom}><Download size={16} />Unduh konfigurasi (.json)</Btn>
+      </div>
+
+      <RiwayatCfg jenis="app" versi={diubahAt || null} dirty={dirty} onRestored={onSaved} toast={toast} />
+    </div>
+  );
+}
+
+/* ---------- Pengguna (admin) ---------- */
+function UserAdmin({ me, toast }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => firebase.firestore().collection('users').orderBy('createdAt', 'desc').onSnapshot(
+    (snap) => setRows(snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))),
+    () => setRows([]),
+  ), []);
+  const setRole = async (id, role) => {
+    try { await firebase.firestore().doc('users/' + id).update({ role }); toast('Peran diperbarui.'); }
+    catch (e) { toast('Gagal mengubah peran.'); }
+  };
+  if (!rows) return <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>;
+  const waiting = rows.filter((r) => r.role === 'pending').length;
+  return (
+    <div className="fade-in space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-mute">
+        Pengguna baru masuk dengan status <b className="text-ink">Menunggu persetujuan</b>. Beri peran agar mereka bisa bekerja.
+        Penyusun membuat soal, editor meninjau, admin mengelola semuanya.{waiting > 0 && <b className="ml-1 text-warn">{waiting} menunggu.</b>}
+      </div>
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+        <table className="w-full min-w-[620px] text-left text-sm">
+          <thead className="border-b border-line text-xs uppercase tracking-wide text-mute">
+            <tr><th className="px-4 py-3">Pengguna</th><th className="px-4 py-3">Peran</th><th className="px-4 py-3">Terakhir masuk</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-line last:border-0">
+                <td className="px-4 py-3"><p className="font-semibold">{r.name || r.email}</p><p className="text-xs text-mute">{r.email}</p></td>
+                <td className="px-4 py-3">
+                  <select aria-label={'Peran ' + (r.name || r.email)} className="field !w-auto" value={r.role} disabled={r.id === me.uid} onChange={(e) => setRole(r.id, e.target.value)}>
+                    {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                  {r.id === me.uid && <span className="ml-2 text-xs text-mute">(Anda)</span>}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-xs text-mute">{(() => { try { const d = r.lastLoginAt && r.lastLoginAt.toDate ? r.lastLoginAt.toDate() : null; return d ? d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'; } catch (e) { return '-'; } })()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- App ---------- */
+/* ---------- Pegonizer: alih aksara Latin ke Pegon (standar al-Qolam '24), mesin aturan di browser + bantuan AI lewat server ---------- */
+// Pustaka berat dimuat malas dari paket npm (ikut dibundel Vite, dipisah jadi potongan sendiri); bukan lagi dari CDN.
+const muatMammoth = async () => { const m = await import('mammoth/mammoth.browser.min.js'); return m.extractRawText ? m : m.default; };
+const muatPdfjs = async () => {
+  const [m, worker] = await Promise.all([import('pdfjs-dist/build/pdf.js'), import('pdfjs-dist/build/pdf.worker.min.js?url')]);
+  const lib = m.getDocument ? m : m.default;
+  lib.GlobalWorkerOptions.workerSrc = worker.default;
+  return lib;
+};
+
+async function bacaFile(file) {
+  const nama = file.name.toLowerCase();
+  if (nama.endsWith('.docx')) {
+    const mammoth = await muatMammoth();
+    return { teks: (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, arab: false };
+  }
+  if (file.type === 'application/pdf' || nama.endsWith('.pdf')) {
+    const pdfjsLib = await muatPdfjs();
+    const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
+    const halaman = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const content = await (await doc.getPage(i)).getTextContent();
+      let out = '', lastY = null, lastH = 12;
+      for (const it of content.items) {
+        const y = it.transform[5], h = Math.abs(it.transform[3]) || 12;
+        if (lastY !== null && Math.abs(y - lastY) > 2) out += Math.abs(y - lastY) > lastH * 1.7 ? '\n\n' : ' ';
+        out += it.str; lastY = y; lastH = h;
+      }
+      halaman.push(out.replace(/ {2,}/g, ' ').trim());
+    }
+    const teks = halaman.join('\n\n');
+    return { teks, arab: /[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/.test(teks) };
+  }
+  throw { code: 'FILE', message: 'Format file tidak didukung. Gunakan .docx atau .pdf.' };
+}
+
+// Foto diperkecil di browser (maks. 1600 px bawaan, JPEG) agar muat dalam batas isi permintaan server.
+const siapkanFoto = (file, maksPx = 1600) => new Promise((res, rej) => {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, maksPx / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    res({ mime: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] });
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); rej({ code: 'FILE', message: 'Foto tidak bisa dibaca. Coba foto lain.' }); };
+  img.src = url;
+});
+
+const simpanBerkas = (nama, blob) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nama;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+};
+
+const pegonDocx = (teks) => {
+  const D = window.docx;
+  if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+  const paras = String(teks || '').split(/\n+/).filter((p) => p.trim()).map((p) => new D.Paragraph({
+    bidirectional: true, spacing: { after: 160 },
+    children: [new D.TextRun({ text: p, font: 'Traditional Arabic', size: 36, rightToLeft: true })],
+  }));
+  return D.Packer.toBlob(new D.Document({ sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: paras }] }));
+};
+
+function PegonKamus({ onChange }) {
+  const P = window.Pegon;
+  const [, setTick] = useState(0);
+  const [cari, setCari] = useState('');
+  const FKAMUS = { lat: '', ar: '', e: '', tipe: 'keras', suf: '' };
+  const [f, setF] = useState(() => bacaPref('pegonKamusForm', FKAMUS));
+  useDraftSync('pegonKamusForm', f, JSON.stringify(f) === JSON.stringify(FKAMUS));
+  const [pesan, setPesan] = useState('');
+  const sync = () => { setTick((n) => n + 1); onChange && onChange(); };
+  const act = (r) => { setPesan(r && r.ok === false ? r.pesan : ''); if (!r || r.ok !== false) sync(); return !r || r.ok !== false; };
+  const bawaan = useMemo(() => Object.entries(P.kamus.bawaan().arab).sort((a, b) => a[0].localeCompare(b[0])), []);
+  const k = P.kamus.kustom();
+  const q = cari.trim().toLowerCase();
+  const hit = q ? bawaan.filter(([l, a]) => l.includes(q) || a.includes(q)) : [];
+  const Chip2 = ({ children, onDel }) => (
+    <span className="inline-flex items-center gap-2 rounded-lg border border-line bg-bg px-2.5 py-1 text-sm">{children}
+      {onDel && <button type="button" aria-label="Hapus" onClick={onDel} className="text-mute hover:text-bad"><X size={14} /></button>}
+    </span>
+  );
+  const impor = async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    try { const r = P.kamus.impor(await file.text()); setPesan(`Kamus digabung: ${r.masuk} entri masuk${r.lewat ? `, ${r.lewat} dilewati karena tidak valid` : ''}.`); sync(); }
+    catch (err) { setPesan('Gagal membaca berkas kamus (harus .json hasil ekspor aplikasi ini).'); }
+  };
+  const kc = useKamus();
+  const [bagi, setBagi] = useState(false);
+  const bersamaDocs = useMemo(() => [...kc.docs].sort((a, b) => String(a.kata).localeCompare(String(b.kata))), [kc.docs]);
+  const bersamaHit = q ? bersamaDocs.filter((d) => String(d.kata).includes(q) || String(d.arab || '').includes(q)) : bersamaDocs;
+  const lokal = P.kamus.entriLokal();
+  const bentrok = P.kamus.bentrok();
+  const bagikanLokal = async () => {
+    if (!lokal.entri.length) return setPesan('Belum ada tambahan di perangkat ini untuk dibagikan.');
+    if (!window.confirm(`Bagikan ${lokal.entri.length} entri dari perangkat ini ke kamus bersama? Semua pengguna akan memakainya, dan entri yang sama di kamus bersama akan tertimpa.`)) return;
+    setBagi(true);
+    try {
+      const ok = await kc.simpan(lokal.entri);
+      // Entri yang sudah dibagikan dicabut dari lokal: kalau dibiarkan, salinan lokal yang usang akan menimpa koreksi editor lain di perangkat ini.
+      for (const en of ok) { if (en.jenis === 'arab') P.kamus.hapusArab(en.kata); else if (en.jenis === 'e') P.kamus.hapusE(en.kata); else P.kamus.hapusSuffixExc(en.kata); }
+      setPesan(`${ok.length} entri dibagikan dan dipindah dari perangkat ini ke kamus bersama.${lokal.lewat ? ` ${lokal.lewat} entri lokal dilewati karena tidak memenuhi aturan kamus bersama (hanya huruf Arab dasar).` : ''}`);
+      sync();
+    } catch (e) { setPesan(e && e.code === 'permission-denied' ? 'Ditolak server: peran Anda tidak boleh mengubah kamus bersama.' : (e && e.message) || 'Gagal membagikan. Periksa koneksi lalu coba lagi.'); }
+    finally { setBagi(false); }
+  };
+  const hapusBersama = async (d) => {
+    if (!window.confirm(`Hapus "${d.kata}" dari kamus bersama? Semua pengguna akan kembali ke kamus bawaan untuk kata ini.`)) return;
+    try { await kc.hapus(d.id); } catch (e) { setPesan((e && e.message) || 'Gagal menghapus.'); }
+  };
+  const pakaiBersama = () => { for (const b of bentrok) { if (b.jenis === 'arab') P.kamus.hapusArab(b.kata); else P.kamus.hapusE(b.kata); } sync(); setPesan('Entri perangkat yang berbeda dari kamus bersama sudah dibuang.'); };
+  return (
+    <div className="space-y-5 text-sm">
+      <div className="rounded-xl border border-line p-3">
+        <Label hint={`(${bersamaDocs.length} entri, dipakai semua pengguna)`}>Kamus bersama madrasah</Label>
+        <p className="mt-1 text-mute">Urutan pemakaian mesin: kamus bawaan, lalu kamus bersama, lalu tambahan di perangkat ini (yang terakhir menang di perangkat ini saja).{' '}
+          {kc.canShare ? 'Sebagai editor/admin Anda dapat menambah dan menghapus entri bersama; semua perubahan terlihat oleh seluruh pengguna.' : 'Perubahan kamus bersama hanya oleh editor atau admin. Koreksi Anda tersimpan di perangkat ini; untuk membagikannya, ekspor lalu serahkan berkasnya ke editor.'}</p>
+        {kc.err && <p role="alert" className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-bad">{kc.err}</p>}
+        {bentrok.length > 0 && (
+          <div className="mt-2 rounded-lg bg-warn-bg px-3 py-2 text-warn">
+            <p className="font-semibold">{bentrok.length} entri perangkat ini berbeda dari kamus bersama, sehingga hasil Pegon di sini bisa berbeda dari rekan Anda:</p>
+            <p className="mt-1">{bentrok.map((b) => `${b.kata} (${b.jenis === 'arab' ? b.lokal + ' ≠ ' + b.bersama : b.lokal + ' ≠ ' + b.bersama})`).join(', ')}</p>
+            <div className="mt-2"><Btn onClick={pakaiBersama}>Pakai kamus bersama</Btn></div>
+          </div>
+        )}
+        {kc.canShare && <div className="mt-3"><Btn kind="soft" disabled={bagi} onClick={bagikanLokal}>{bagi ? 'Membagikan…' : `Bagikan tambahan perangkat ini (${lokal.entri.length})`}</Btn></div>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {bersamaHit.slice(0, 80).map((d) => (
+            <span key={d.id} title={d.updatedByName ? 'Oleh ' + d.updatedByName : ''} className="inline-flex items-center gap-2 rounded-lg border border-line bg-bg px-2.5 py-1 text-sm">
+              {d.jenis === 'arab' && <span className="ar-sm" dir="rtl">{d.arab}</span>}
+              <span className="text-mute">{d.kata}{d.jenis === 'e' ? ' · e ' + d.tipe : d.jenis === 'suf' ? ' · akar' : ''}</span>
+              {kc.canShare && <button type="button" aria-label="Hapus dari kamus bersama" onClick={() => hapusBersama(d)} className="text-mute hover:text-bad"><X size={14} /></button>}
+            </span>
+          ))}
+          {!bersamaDocs.length && <span className="text-mute">Belum ada entri bersama.</span>}
+          {bersamaHit.length > 80 && <span className="text-mute">…dan {bersamaHit.length - 80} lagi (persempit dengan kolom cari di bawah).</span>}
+        </div>
+      </div>
+      <p className="text-mute">Tambahan di bawah tersimpan di browser perangkat ini saja. Gunakan ekspor dan impor untuk memindahkannya ke perangkat atau rekan lain.</p>
+      <div className="flex flex-wrap gap-2">
+        <Btn onClick={() => { if (P.kamus.kosong()) return setPesan('Belum ada tambahan untuk diekspor.'); simpanBerkas('kamus-pegon.json', new Blob([P.kamus.ekspor()], { type: 'application/json' })); }}>Ekspor kamus</Btn>
+        <label className="inline-flex cursor-pointer items-center rounded-lg border border-line px-4 py-2 text-sm font-semibold hover:bg-soft">Impor kamus<input type="file" accept="application/json,.json" className="hidden" onChange={impor} /></label>
+      </div>
+      {pesan && <p role="status" className="rounded-lg bg-warn-bg px-3 py-2 text-warn">{pesan}</p>}
+
+      <div>
+        <Label>Kata serapan Arab</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <input className="field" placeholder="Kata Latin, mis. tawakal" value={f.lat} onChange={(e) => setF({ ...f, lat: e.target.value })} />
+          <input className="field ar-sm" dir="rtl" lang="ar" placeholder="Ejaan Arab, mis. توكل" value={f.ar} onChange={(e) => setF({ ...f, ar: e.target.value })} />
+          <Btn onClick={() => act(P.kamus.tambahArab(f.lat, f.ar)) && setF({ ...f, lat: '', ar: '' })}>Tambah</Btn>
+        </div>
+        <input className="field mt-3" placeholder={`Cari di ${bawaan.length} kata bawaan (mis. hisab, wajib, dalil)`} value={cari} onChange={(e) => setCari(e.target.value)} />
+        {q && <div className="mt-2 flex flex-wrap gap-2">{hit.length ? hit.slice(0, 60).map(([l, a]) => <Chip2 key={l}><span className="ar-sm" dir="rtl">{a}</span><span className="text-mute">{l}</span></Chip2>) : <span className="text-mute">Tidak ada yang cocok.</span>}{hit.length > 60 && <span className="text-mute">…dan {hit.length - 60} lainnya.</span>}</div>}
+        <div className="mt-3 flex flex-wrap gap-2">{Object.entries(k.arab).length ? Object.entries(k.arab).map(([l, a]) => <Chip2 key={l} onDel={() => { P.kamus.hapusArab(l); sync(); }}><span className="ar-sm" dir="rtl">{a}</span><span className="text-mute">{l}</span></Chip2>) : <span className="text-mute">Belum ada tambahan Anda.</span>}</div>
+      </div>
+
+      <div>
+        <Label>Kata dengan bunyi "e"</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <input className="field" placeholder="Kata, mis. reken" value={f.e} onChange={(e) => setF({ ...f, e: e.target.value })} />
+          <Select value={f.tipe} onChange={(v) => setF({ ...f, tipe: v })}><option value="keras">e keras (ي)</option><option value="pepet">e pepet (tidak ditulis)</option></Select>
+          <Btn onClick={() => act(P.kamus.tambahE(f.e, f.tipe)) && setF({ ...f, e: '' })}>Tambah</Btn>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">{[...k.keras.map((w) => [w, 'e keras']), ...k.pepet.map((w) => [w, 'e pepet'])].map(([w, t]) => <Chip2 key={w} onDel={() => { P.kamus.hapusE(w); sync(); }}>{w}<span className="text-mute">{t}</span></Chip2>)}</div>
+      </div>
+
+      <div>
+        <Label hint="(kata berakhiran kan/kah/lah yang bukan akhiran, mis. seolah)">Akar pengecualian</Label>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input className="field" placeholder="Kata, mis. seolah" value={f.suf} onChange={(e) => setF({ ...f, suf: e.target.value })} />
+          <Btn onClick={() => act(P.kamus.tambahSuffixExc(f.suf)) && setF({ ...f, suf: '' })}>Tambah</Btn>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">{k.suffixExc.map((w) => <Chip2 key={w} onDel={() => { P.kamus.hapusSuffixExc(w); sync(); }}>{w}</Chip2>)}</div>
+      </div>
+    </div>
+  );
+}
+
+function PegonTab({ toast }) {
+  const P = window.Pegon;
+  // Mode dan teks Latin dipulihkan setelah muat ulang. Foto (berkas), hasil konversi, dan hasil suntingan manual tidak ikut: konversi ulang dengan satu klik.
+  const pgAwal = useRef(undefined); if (pgAwal.current === undefined) { const d = Draft.read('pegonTab'); pgAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [mode, setMode] = useState(() => (['teks', 'file', 'foto'].includes(pgAwal.current.mode) ? pgAwal.current.mode : 'teks')); // teks | file | foto
+  const [latin, setLatin] = useState(() => (typeof pgAwal.current.latin === 'string' ? pgAwal.current.latin : ''));
+  const [fileInfo, setFileInfo] = useState(() => { const x = pgAwal.current.fileInfo; return x && typeof x === 'object' && typeof x.nama === 'string' ? { nama: x.nama.slice(0, 200), arab: x.arab === true } : null; }); // { nama, arab }
+  useEffect(() => {
+    if (latin === 'Mengekstrak teks…') return; // keadaan sementara saat membaca berkas
+    if (!latin.trim()) Draft.remove('pegonTab'); else Draft.save('pegonTab', { mode, latin, fileInfo });
+  }, [mode, latin, fileInfo]);
+  const [foto, setFoto] = useState(null);         // File
+  const [hasil, setHasil] = useState(null);       // { id, html, details, tag, latin }
+  const [warns, setWarns] = useState([]);
+  const [rincian, setRincian] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState(null);
+  const [mic, setMic] = useState({ on: false, hint: '' });
+  const box = useRef(null);
+  const rec = useRef(null);
+  const base = useRef('');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const teksHasil = () => (box.current ? box.current.innerText : '');
+  const tampil = (html, details, tag, asal) => { setHasil({ id: Date.now(), html, details, tag, latin: asal }); setWarns([]); setRincian(false); };
+
+  const konversi = async () => {
+    setErr(null);
+    if (mode === 'foto') return konversiFoto();
+    if (!latin.trim()) return toast('Isi teks terlebih dahulu (atau unggah file / foto).');
+    const r = P.convertText(latin);
+    tampil(r.html, r.details, 'mesin aturan', latin);
+  };
+  const konversiFoto = async () => {
+    if (!foto) return toast('Pilih foto terlebih dahulu.');
+    setBusy('Membaca & mengonversi foto…');
+    try {
+      const gambar = await siapkanFoto(foto);
+      const d = await callApi('/api/assist', { aksi: 'pegonfoto', gambar });
+      tampil(P.escapeHtml(d.hasil.pegon).replace(/\n/g, '<br>'), [], 'AI · baca foto', d.hasil.latin);
+      setWarns(d.hasil.peringatan || []);
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const perkuat = async () => {
+    if (!hasil || !hasil.latin.trim()) return toast('Konversi teks dulu sebelum diperkuat dengan AI.');
+    setErr(null); setBusy('Meminta AI memeriksa & memperkuat hasil…');
+    try {
+      const d = await callApi('/api/assist', { aksi: 'pegon', teks: hasil.latin, hasilMesin: teksHasil() });
+      if (box.current) box.current.innerText = d.hasil.pegon;
+      setHasil((h) => ({ ...h, tag: 'diperkuat AI', details: [] })); setWarns(d.hasil.peringatan || []); setRincian(false);
+    } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
+  };
+  const pilihFile = async (file) => {
+    if (!file) return;
+    setErr(null); setFileInfo({ nama: file.name, arab: false }); setLatin('Mengekstrak teks…');
+    try {
+      const r = await bacaFile(file);
+      setLatin(r.teks.trim() || '(Tidak ada teks yang terbaca. Mungkin PDF hasil pindaian: coba mode Foto.)');
+      setFileInfo({ nama: file.name, arab: r.arab });
+    } catch (e) { setLatin(''); setFileInfo(null); setErr(e && e.code ? e : { code: 'FILE', message: 'Gagal membaca file: ' + ((e && e.message) || e) }); }
+  };
+  const bersihkan = () => { setLatin(''); setFileInfo(null); setFoto(null); setHasil(null); setWarns([]); setErr(null); };
+
+  const bicara = () => {
+    if (!SR) return;
+    if (mic.on) { rec.current && rec.current.stop(); return; }
+    const r = new SR(); r.lang = 'id-ID'; r.continuous = false; r.interimResults = true;
+    base.current = latin;
+    r.onresult = (e) => { let fin = '', tmp = ''; for (let i = 0; i < e.results.length; i++) (e.results[i].isFinal ? (fin += e.results[i][0].transcript) : (tmp += e.results[i][0].transcript)); setLatin((base.current + ' ' + fin + tmp).trim()); };
+    r.onerror = (e) => setMic({ on: false, hint: e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Izin mikrofon ditolak. Aktifkan di pengaturan browser.' : e.error === 'no-speech' || e.error === 'aborted' ? '' : 'Gagal mengenali suara (' + e.error + ').' });
+    r.onend = () => setMic((m) => ({ ...m, on: false }));
+    rec.current = r; setMic({ on: true, hint: '' }); r.start();
+  };
+  useEffect(() => () => { try { rec.current && rec.current.abort(); } catch (e) {} }, []);
+
+  const salin = async () => { try { await navigator.clipboard.writeText(teksHasil()); toast('Hasil Pegon disalin.'); } catch (e) { toast('Penyalinan ditolak browser. Pilih teks lalu salin manual.'); } };
+  const unduhDocx = async () => { try { simpanBerkas('hasil-pegon.docx', await pegonDocx(teksHasil())); toast('File diunduh.'); } catch (e) { toast('Gagal membuat file: ' + (e.message || e)); } };
+  const flagged = hasil ? hasil.details.filter((d) => d.flagged).length : 0;
+
+  const MODES = [['teks', 'Teks'], ['file', 'File (Word/PDF)'], ['foto', 'Foto']];
+  return (
+    <div className="fade-in grid gap-5 lg:grid-cols-12">
+      <div className="min-w-0 space-y-5 lg:col-span-5">
+        <Section title="Teks Latin" icon={Languages}>
+          <div role="tablist" className="mb-3 flex gap-1.5">
+            {MODES.map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={mode === id} onClick={() => setMode(id)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${mode === id ? 'bg-soft text-soft-ink' : 'border border-line text-mute hover:bg-soft'}`}>{label}</button>
+            ))}
+          </div>
+          {mode === 'teks' && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Btn onClick={bicara} disabled={!SR}><Mic size={16} />{mic.on ? 'Mendengarkan… (ketuk untuk berhenti)' : 'Bicara (Indonesia)'}</Btn>
+                <span className="text-xs text-mute">{!SR ? 'Tidak didukung di browser ini. Coba Chrome di Android.' : mic.hint}</span>
+              </div>
+              <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Tempel atau ketik teks Latin di sini…" />
+            </div>
+          )}
+          {mode === 'file' && (
+            <div className="space-y-2">
+              <label className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm hover:bg-soft">
+                <Upload size={20} /><span><b>Unggah file</b> Word (.docx) atau PDF</span>
+                <input type="file" className="hidden" accept=".docx,.pdf,application/pdf" onChange={(e) => { pilihFile(e.target.files[0]); e.target.value = ''; }} />
+              </label>
+              {fileInfo && <p className="text-xs text-mute">{fileInfo.nama}</p>}
+              {fileInfo && fileInfo.arab && <p className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">File ini memuat aksara Arab. Dari PDF, teks Arab sering terbaca rusak (huruf bersambung hilang). Aksara Arab tidak diubah oleh mesin, tetapi periksa hasil ekstraksinya.</p>}
+              <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Teks hasil ekstraksi muncul di sini, bisa diedit sebelum dikonversi." />
+            </div>
+          )}
+          {mode === 'foto' && (
+            <div className="space-y-2">
+              <label className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm hover:bg-soft">
+                <Camera size={20} /><span><b>Ambil / unggah foto</b> teks Latin</span>
+                <span className="text-xs text-mute">Dibaca dan dikonversi oleh AI server (memakai kuota AI madrasah)</span>
+                <input type="file" className="hidden" accept="image/*" capture="environment" onChange={(e) => { setFoto(e.target.files[0] || null); e.target.value = ''; }} />
+              </label>
+              {foto && <p className="text-xs text-mute">{foto.name}</p>}
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Btn kind="primary" onClick={konversi} disabled={!!busy}>Konversi ke Pegon</Btn>
+            <Btn onClick={bersihkan}>Bersihkan</Btn>
+          </div>
+        </Section>
+        <details className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+          <summary className="cursor-pointer text-sm font-bold uppercase tracking-wide text-soft-ink">Kelola kamus tambahan</summary>
+          <div className="mt-4"><PegonKamus onChange={() => {}} /></div>
+        </details>
+      </div>
+
+      <div className="min-w-0 space-y-5 lg:col-span-7">
+        {busy && <Spin>{busy}</Spin>}
+        {err && <ErrorBox e={err} />}
+        {!hasil ? (
+          <Empty icon={Languages} title="Belum ada hasil" text="Ketik, unggah, atau foto teks Latin, lalu tekan Konversi ke Pegon." />
+        ) : (
+          <Section title={`Hasil Pegon · ${hasil.tag}`} icon={Languages}>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <Btn onClick={salin}><Copy size={16} />Salin</Btn>
+              <Btn onClick={() => simpanBerkas('hasil-pegon.txt', new Blob([teksHasil()], { type: 'text/plain;charset=utf-8' }))}><Download size={16} />.txt</Btn>
+              <Btn onClick={unduhDocx}><FileText size={16} />.docx</Btn>
+              <Btn kind="soft" onClick={perkuat} disabled={!!busy}><Sparkles size={16} />Perkuat dengan AI</Btn>
+              {hasil.details.length > 0 && <Btn onClick={() => setRincian((v) => !v)}>{rincian ? 'Sembunyikan rincian' : 'Rincian per kata'}</Btn>}
+            </div>
+            <div key={hasil.id} ref={box} dir="rtl" lang="ar" contentEditable suppressContentEditableWarning spellCheck={false}
+              className="ar rounded-xl border border-line bg-bg p-4 outline-none focus-visible:border-brand [&_.flag]:rounded [&_.flag]:bg-warn-bg [&_.flag]:px-0.5"
+              dangerouslySetInnerHTML={{ __html: hasil.html }} />
+            <p className="mt-2 text-xs text-mute">Hasil bisa diedit langsung. Transliterasi otomatis: periksa ulang oleh yang menguasai Pegon sebelum dipakai resmi.</p>
+            {(flagged > 0 || warns.length > 0) && (
+              <div className="mt-4 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+                <p className="font-bold">Perlu diperiksa manual{flagged ? ` (${flagged} kata bersorot)` : ''}</p>
+                {warns.map((w, i) => <p key={i} className="mt-1"><b>{w.kata}</b> — {w.catatan}</p>)}
+              </div>
+            )}
+            {hasil.tag.includes('foto') && hasil.latin && <p className="mt-3 text-xs text-mute">Teks Latin terbaca: {hasil.latin}</p>}
+            {rincian && (
+              <div className="mt-4 max-h-[360px] overflow-auto rounded-xl border border-line">
+                <table className="w-full text-sm"><thead className="bg-soft text-left text-soft-ink"><tr><th className="p-2">Latin</th><th className="p-2">Pegon</th><th className="p-2">Ket.</th></tr></thead>
+                  <tbody>{hasil.details.map((d, i) => <tr key={i} className={d.flagged ? 'bg-warn-bg' : ''}><td className="p-2">{d.latin}</td><td className="ar-sm p-2" dir="rtl">{d.pegon}</td><td className="p-2 text-xs text-mute">{d.note}</td></tr>)}</tbody></table>
+              </div>
+            )}
+          </Section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App({ user, profile }) {
+  const db = firebase.firestore();
+  const col = db.collection('soal');
+  const ts = () => firebase.firestore.FieldValue.serverTimestamp();
+  const me = { uid: user.uid, role: profile.role };
+  // Draf otomatis dipisah per akun. Dijalankan sebelum state di bawah dibaca, dan sekali per akun.
+  const drafUid = useRef(null); if (drafUid.current !== user.uid) { Draft.setUser(user.uid); drafUid.current = user.uid; }
+  const displayName = user.displayName || user.email;
+  const isAdmin = profile.role === 'admin';
+  const canReview = profile.role === 'editor' || isAdmin;
+
+  // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
+  const [tab, setTabRaw] = useState(() => {
+    const h = (window.location.hash || '').slice(1);
+    return ['compose', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+  });
+  const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const [saran, setSaran] = useState(null); // hasil saran bab terakhir (tidak dipulihkan setelah refresh: memakai kuota AI)
+  const keluar = () => {
+    // Isian yang belum disimpan tidak hilang: tetap ada sebagai draf di perangkat ini untuk akun Anda dan muncul lagi saat Anda masuk.
+    // Di komputer bersama, kosongkan form dulu (tombol Kosongkan) bila isiannya tidak boleh terlihat orang lain.
+    if (formBerisi(form) && !window.confirm('Isian soal yang belum disimpan akan tetap tersimpan sebagai draf di perangkat ini dan muncul lagi saat Anda masuk. Di komputer bersama, tekan Batal lalu klik Kosongkan terlebih dahulu. Tetap keluar?')) return;
+    Draft.flush();
+    setMenuOpen(false);
+    // Komputer bersama: setelah keluar, hapus cache offline Firestore (soal + kunci jawaban) dari IndexedDB lalu muat ulang.
+    (async () => {
+      try { await firebase.auth().signOut(); } catch (e) { /* tetap lanjut membersihkan */ }
+      try { const db = firebase.firestore(); await db.terminate(); await db.clearPersistence(); } catch (e) { /* cache tidak aktif atau sudah bersih */ }
+      window.location.reload();
+    })();
+  };
+  const pilihTab = (id) => { setTab(id); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const klikLuar = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const tekanEsc = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', klikLuar); document.addEventListener('touchstart', klikLuar); document.addEventListener('keydown', tekanEsc);
+    return () => { document.removeEventListener('mousedown', klikLuar); document.removeEventListener('touchstart', klikLuar); document.removeEventListener('keydown', tekanEsc); };
+  }, [menuOpen]);
+  const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
+  const [cfgInfo, setCfgInfo] = useState({ kustom: false });
+  const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
+  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
+  useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
+  // Bank soal dimuat berhalaman agar hemat kuota baca Firestore (paket Spark: 50.000 baca/hari):
+  //  - recent : HALAMAN soal terbaru (realtime), bisa dipersempit per tingkat (lingkup)
+  //  - pendingQs : semua soal berstatus pending (realtime; hanya editor/admin) agar antrean review tidak terlewat walau soalnya lama
+  //  - milik : draf dan soal revisi milik pengguna sendiri (realtime), agar tetap bisa diedit walau lama
+  //  - extra : halaman tambahan yang dimuat lewat tombol "Muat lagi" (sekali baca, tidak realtime)
+  const HALAMAN = 100;
+  const [recent, setRecent] = useState([]);
+  const [pendingQs, setPendingQs] = useState([]);
+  const [milik, setMilik] = useState([]);
+  const [extra, setExtra] = useState([]);
+  const [lingkup, setLingkup] = useState(''); // '' = semua tingkat
+  const [masihAda, setMasihAda] = useState(false);
+  const [memuat, setMemuat] = useState(false);
+  const kursor = useRef(null); const sudahLagi = useRef(false);
+  const qs = useMemo(() => {
+    const m = new Map();
+    for (const arr of [extra, pendingQs, milik, recent]) for (const q of arr) m.set(q.id, q); // pendengar realtime paling segar, menang terakhir
+    const ms = (q) => (q.updatedAt && typeof q.updatedAt.toMillis === 'function' ? q.updatedAt.toMillis() : Number.MAX_SAFE_INTEGER);
+    return [...m.values()].sort((a, b) => ms(b) - ms(a));
+  }, [extra, pendingQs, milik, recent]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
+  // Form soal dipulihkan dari draf otomatis bila ada (muat ulang halaman, tab tertutup).
+  const awalForm = useRef(undefined); if (awalForm.current === undefined) awalForm.current = Draft.read('form') || null;
+  const [form, setForm] = useState(() => (awalForm.current && awalForm.current.form ? normalForm(awalForm.current.form) : emptyForm()));
+  const [editingId, setEditingId] = useState(() => (awalForm.current && typeof awalForm.current.editingId === 'string' && awalForm.current.editingId ? awalForm.current.editingId : null));
+  const formDraf = useMemo(() => ({ form, editingId }), [form, editingId]);
+  useDraftSync('form', formDraf, !editingId && !formBeda(form));
+  // Bila browser memblokir penyimpanan lokal (mode privat tertentu), draf tidak bisa diselamatkan: setidaknya tanyakan sebelum tab ditutup atau dimuat ulang.
+  const berisi = formBerisi(form);
+  useEffect(() => {
+    if (Draft.tersedia || !berisi) return undefined;
+    const tanya = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', tanya); return () => window.removeEventListener('beforeunload', tanya);
+  }, [berisi]);
+  const [composeKey, setComposeKey] = useState(0); // naik tiap form dikosongkan/disimpan, supaya state lokal Compose (tautan, hasil AI) ikut bersih
+  const [msg, setMsg] = useState('');
+  const timer = useRef(null);
+  const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 3500); };
+  useEffect(() => {
+    const a = awalForm.current; if (!a || !a.form) return;
+    if (formBerisi(normalForm(a.form))) toast(a.editingId ? 'Draf perbaikan soal dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.' : 'Draf soal yang belum disimpan dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.');
+  }, []);
+
+  const dariDoc = (d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) });
+  useEffect(() => {
+    let q = lingkup ? col.where('tingkat', '==', lingkup) : col;
+    q = q.orderBy('updatedAt', 'desc').limit(HALAMAN);
+    setExtra([]); sudahLagi.current = false; kursor.current = null;
+    return q.onSnapshot(
+      (snap) => {
+        setRecent(snap.docs.map(dariDoc)); setLoaded(true); setLoadErr('');
+        if (!sudahLagi.current) { kursor.current = snap.docs[snap.docs.length - 1] || null; setMasihAda(snap.docs.length >= HALAMAN); }
+      },
+      (e) => {
+        if (lingkup && e && e.code === 'failed-precondition') { toast('Indeks Firestore untuk lingkup tingkat belum dipasang (jalankan: firebase deploy --only firestore:indexes). Memakai semua tingkat.'); setLingkup(''); return; }
+        setLoadErr('Bank soal tidak bisa dimuat. Periksa koneksi, atau minta admin memastikan peran Anda aktif.'); setLoaded(true);
+      },
+    );
+  }, [lingkup]);
+  useEffect(() => (canReview
+    ? col.where('status', '==', 'pending').limit(300).onSnapshot((snap) => setPendingQs(snap.docs.map(dariDoc)), () => setPendingQs([]))
+    : undefined), [canReview]);
+  useEffect(() => col.where('authorUid', '==', user.uid).where('status', 'in', ['draft', 'revision']).limit(200)
+    .onSnapshot((snap) => setMilik(snap.docs.map(dariDoc)), () => setMilik([])), [user.uid]);
+  const muatLagi = async () => {
+    if (memuat || !kursor.current) return;
+    setMemuat(true);
+    try {
+      let q = lingkup ? col.where('tingkat', '==', lingkup) : col;
+      const snap = await q.orderBy('updatedAt', 'desc').startAfter(kursor.current).limit(HALAMAN).get();
+      sudahLagi.current = true;
+      setExtra((e) => [...e, ...snap.docs.map(dariDoc)]);
+      if (snap.docs.length) kursor.current = snap.docs[snap.docs.length - 1];
+      setMasihAda(snap.docs.length >= HALAMAN);
+    } catch (e) { toast('Gagal memuat soal berikutnya. Periksa koneksi lalu coba lagi.'); } finally { setMemuat(false); }
+  };
+
+  // ---- Kamus Pegon bersama ----
+  // Dibaca semua staf. Ditulis hanya editor/admin (aturan Firestore). Setiap dokumen divalidasi ulang di mesin (muatBersama).
+  const [kamusDocs, setKamusDocs] = useState([]);
+  const [kamusVer, setKamusVer] = useState(0);
+  const [kamusErr, setKamusErr] = useState(null);
+  useEffect(() => db.collection('kamusPegon').onSnapshot(
+    (snap) => {
+      const docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+      if (window.Pegon) window.Pegon.kamus.muatBersama(docs);
+      setKamusDocs(docs); setKamusErr(null); setKamusVer((n) => n + 1);
+    },
+    () => setKamusErr('Kamus bersama tidak dapat dimuat. Pegon memakai kamus bawaan dan kamus perangkat ini.'),
+  ), []);
+  const kamusSimpan = async (daftar) => {
+    if (!canReview) throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.');
+    const P = window.Pegon; const ok = [];
+    // Satu per satu (paralel kecil), bukan batch: aturan memanggil get() ke profil peran, dan batas panggilan akses per permintaan batch tidak pasti.
+    for (let i = 0; i < daftar.length; i += 10) {
+      await Promise.all(daftar.slice(i, i + 10).map(async (en) => {
+        const r = P.kamus.bentukEntri(en); if (!r.ok) return;
+        await db.collection('kamusPegon').doc(P.kamus.idEntri(r.entri)).set({ ...r.entri, updatedAt: ts(), updatedByUid: user.uid, updatedByName: String(displayName || '').slice(0, 120) });
+        ok.push(r.entri);
+      }));
+    }
+    return ok;
+  };
+  const kamusHapus = async (id) => { if (!canReview) throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.'); await db.collection('kamusPegon').doc(id).delete(); };
+  const kamusCtx = useMemo(() => ({ docs: kamusDocs, ver: kamusVer, err: kamusErr, canShare: canReview, simpan: kamusSimpan, hapus: kamusHapus }), [kamusDocs, kamusVer, kamusErr, canReview]);
+
+  const failMsg = (e) => (e && e.code === 'permission-denied'
+    ? 'Ditolak: Anda tidak berhak melakukan ini, atau soal sudah diubah orang lain.'
+    : 'Gagal menyimpan. Periksa koneksi lalu coba lagi.');
+
+  // Jejak audit disimpan bersama soal; editor melihatnya dan aturan Firestore memakainya sebagai gerbang persetujuan.
+  const aiMeta = () => {
+    const K = window.Kutipan; const a = form.ai || {};
+    let v = '';
+    if (K && form.teks && form.pembahasan) { try { v = K.periksaKutipan(K.bidangDariSoal(form), form.teks).status; } catch (e) { v = ''; } }
+    // Soal buatan AI tanpa teks kitab tidak bisa diperiksa kutipannya: tandai 'tanpa_teks' (jangan dikosongkan diam-diam).
+    else if (K && !String(form.teks || '').trim() && form.pembahasan && a.dibuat) v = 'tanpa_teks';
+    return { dibuat: !!a.dibuat, model: String(a.model || '').slice(0, 60), verifikasi: v, buta: a.buta || '' };
+  };
+  const content = () => {
+    const sel = Bt.selaraskan(form); // opsi dan kunci mengikuti bentuk soal (mis. isian tanpa opsi, benar-salah hanya A/B)
+    const c = Object.fromEntries(FIELDS.map((k) => [k, sel[k]]));
+    const lama = editingId ? (qs.find((x) => x.id === editingId) || {}) : {};
+    for (const k of ['kelas', 'periode', 'bab', 'jawaban', 'rubrik']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
+    if (c.bentuk === 'pilgan' && !('bentuk' in lama)) delete c.bentuk; // pilihan ganda = bawaan: soal biasa tetap sama persis dengan sebelum fitur bentuk
+    return { ...c, ai: aiMeta() };
+  };
+  // Hapus form dan semua draf terkait (dipanggil setelah berhasil disimpan ke server, atau saat pengguna mengosongkan form).
+  const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
+  const commit = async (status) => {
+    try {
+      if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
+      else await col.add({ ...content(), status, catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
+      kosongkanForm();
+      return true;
+    } catch (e) { toast(failMsg(e)); return false; } // gagal: isian dan drafnya tetap ada
+  };
+  const saveDraft = async () => { if (await commit('draft')) toast('Draft tersimpan (status Draft). Cari di tab Bank Soal.'); };
+  const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
+  const review = async (id, status, note, okMsg) => {
+    try {
+      await col.doc(id).update({ status, catatan: note, reviewerUid: user.uid, reviewerName: displayName, reviewedAt: ts(), updatedAt: ts() });
+      Draft.remove('catatan:' + id); // catatan sudah tersimpan bersama soal
+      toast(okMsg);
+    } catch (e) { toast(failMsg(e)); }
+  };
+  const approve = (id, note = '') => review(id, 'approved', note, 'Soal disetujui dan masuk Bank Soal.');
+  const revise = (id, note) => review(id, 'revision', note, 'Permintaan revisi dikirim ke penyusun.');
+  const edit = (q) => {
+    // Memuat soal lain ke form menimpa isian di form; jangan diam-diam membuang isian yang belum disimpan.
+    if (editingId !== q.id && formBerisi(form) && !window.confirm('Form Penyusunan Soal berisi isian yang belum disimpan. Mengedit soal ini akan menggantinya. Lanjutkan?')) return;
+    Draft.remove('composeEx'); setComposeKey((n) => n + 1);
+    const base = emptyForm();
+    setForm({ ...base, ...Object.fromEntries(FIELDS.map((k) => [k, q[k] ?? base[k]])), bentuk: Bt.bentukDari(q), opsi: { ...base.opsi, ...q.opsi }, ai: { ...base.ai, ...(q.ai || {}) } });
+    setEditingId(q.id); setTab('compose');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const del = async (id) => { try { await col.doc(id).delete(); setExtra((e) => e.filter((x) => x.id !== id)); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
+  const canEdit = (q) => isAdmin || (q.authorUid === user.uid && (q.status === 'draft' || q.status === 'revision'));
+
+  // Dari saran bab ke form soal. Form kosong: kitab, jenjang, dan bab diisi. Form berisi: HANYA kolom Bab (isian yang sedang diketik tidak diubah).
+  const pakaiBab = (o) => {
+    const kosong = !formBerisi(form);
+    setForm((f) => {
+      if (!kosong) return { ...f, bab: o.bab };
+      const l = mapelUntuk(appCfg, o.tingkat);
+      return { ...f, bab: o.bab, nama: o.nama || f.nama, tingkat: o.tingkat || f.tingkat, kelas: o.kelas || '', periode: o.periode || '', mapel: l.includes(o.mapel) ? o.mapel : f.mapel };
+    });
+    toast(kosong ? `Form diisi untuk bab “${o.bab}”. Tempel teks kitab bab ini lalu susun soalnya.` : `Kolom Bab diisi “${o.bab}”. Kitab dan jenjang di form tidak diubah karena form sedang berisi.`);
+    setTab('compose'); window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const saranCtx = { saran, setSaran, pakaiBab };
+
+  const pending = qs.filter((q) => q.status === 'pending');
+  const approvedN = qs.filter((q) => q.status === 'approved').length;
+  const TABS = [
+    { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
+    { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
+    { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
+    { id: 'export', label: 'Export/Download', icon: Download },
+    { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
+    { id: 'pegon', label: 'Pegonizer', icon: Languages },
+    ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
+    ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
+  ];
+  const needsData = tab === 'review' || tab === 'bank' || tab === 'export' || tab === 'fokus';
+  const aktif = TABS.find((t) => t.id === tab);
+  const pendingBadge = canReview ? pending.length : 0;
+
+  return (
+    <div className="font-sans">
+      <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
+        <div className="mx-auto max-w-6xl pb-4 pt-6 sm:pb-5 sm:pt-8">
+          <div className="flex min-w-0 items-start gap-4">
+            <AppLogo size={56} className="shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
+              <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+              <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Bilah beku: tetap di atas saat halaman digulir */}
+      <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
+        <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
+          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="shrink-0 rounded-lg"><AppLogo size={36} /></button>
+          <div ref={menuRef} className="relative min-w-0 flex-1">
+            <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
+              className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0">{menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
+              <span className="sr-only">Menu navigasi</span>
+              <span className="flex min-w-0 items-center gap-2 rounded-md bg-white/10 px-2.5 py-1">
+                {aktif && <aktif.icon size={15} className="shrink-0" />}<span className="truncate">{aktif ? aktif.label : 'Menu'}</span>
+                {pendingBadge > 0 && !menuOpen && <span aria-label={pendingBadge + ' soal menunggu review'} className="h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
+              </span>
+            </button>
+            {menuOpen && (
+              <nav id="menu-tab" aria-label="Navigasi utama" className="fade-in absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink shadow-xl">
+                {TABS.map((t) => (
+                  <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${tab === t.id ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+                    <t.icon size={17} className="shrink-0" /><span className="flex-1">{t.label}</span>
+                    {t.n > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{t.n}</span>}
+                  </button>
+                ))}
+                <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
+                  <p className="truncate text-xs font-semibold">{displayName}</p>
+                  <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
+                </div>
+                <button type="button" onClick={keluar} className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-bad transition hover:bg-bad-bg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg><span>Keluar</span></button>
+              </nav>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
+            <div className="hidden text-right text-xs md:block"><p className="font-semibold">{displayName}</p><p className="opacity-75">{ROLE_LABEL[profile.role]}</p></div>
+            <button type="button" id="tombol-keluar" aria-label="Keluar" title="Keluar" onClick={keluar} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold hover:bg-white/10"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg><span className="hidden sm:inline">Keluar</span></button>
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-6xl py-6 sm:py-8">
+        <AppCfgCtx.Provider value={appCfg}>
+        <KamusCtx.Provider value={kamusCtx}>
+        <SaranCtx.Provider value={saranCtx}>
+        {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
+        {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
+          onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
+        {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
+        {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">
+            <span className="text-mute">Dimuat {qs.length} soal{masihAda ? ' terbaru (masih ada yang lebih lama)' : ' (semua yang tersedia)'}.</span>
+            <label className="flex items-center gap-2 font-semibold">Lingkup tingkat
+              <select className="field !w-auto" value={lingkup} onChange={(e) => setLingkup(e.target.value)} aria-label="Lingkup tingkat yang dimuat">
+                <option value="">Semua tingkat</option>
+                {appCfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.nama}</option>)}
+              </select>
+            </label>
+            {masihAda && <Btn kind="ghost" onClick={muatLagi} disabled={memuat}>{memuat ? <Loader2 size={15} className="spin" /> : null}Muat {HALAMAN} lagi</Btn>}
+            {tab !== 'bank' && masihAda && <span className="text-xs text-mute">Ekspor dan Fokus Ujian hanya memakai soal yang sudah dimuat.</span>}
+          </div>
+        )}
+        {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
+        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
+        {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
+        {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
+        {tab === 'pegon' && <PegonTab toast={toast} />}
+        {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
+        {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
+        </SaranCtx.Provider>
+        </KamusCtx.Provider>
+        </AppCfgCtx.Provider>
+      </main>
+      <footer className="mx-auto max-w-6xl px-4 pb-8 pt-2 text-center text-xs text-mute">
+        <p>Powered By Achmad Afifuddin / achfif-dev</p>
+        <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
+      </footer>
+      <Toast t={msg} />
+    </div>
+  );
+}
+
+/* ---------- Backup ke Google Drive (editor dan admin) ---------- */
+// Soal dibaca dari Firestore di browser, diunggah ke Drive milik akun Google yang dipilih pengguna (izin drive.file), lalu diunduh kembali dan
+// dibandingkan; cadangan baru dianggap berhasil bila isinya identik. Soal hanya boleh dihapus dari Firestore (arsip, khusus admin) setelah itu.
+// Logika murninya ada di public/drive.js (tes: test/backup.test.js). Pemulihan lewat /api/backup (Admin SDK).
+const GIS_SRC = 'https://accounts.google.com/gsi/client';
+function muatGis() {
+  if (window.google && window.google.accounts && window.google.accounts.oauth2) return Promise.resolve();
+  if (window.__gisJanji) return window.__gisJanji;
+  window.__gisJanji = new Promise((selesai, gagal) => {
+    const s = document.createElement('script'); s.src = GIS_SRC; s.async = true;
+    s.onload = () => selesai();
+    s.onerror = () => { window.__gisJanji = null; gagal(new Error('Skrip Google tidak bisa dimuat. Periksa koneksi internet atau pemblokir iklan.')); };
+    document.head.appendChild(s);
+  });
+  return window.__gisJanji;
+}
+const ukuranBerkas = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+const waktuLokal = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }); };
+const tautanDriveAman = (u) => (/^https:\/\/(drive|docs)\.google\.com\//.test(String(u || '')) ? u : '');
+
+function BackupTab({ user, isAdmin, toast, onCfg }) {
+  const Drv = window.LabDrive;
+  const [info, setInfo] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [status, setStatus] = useState('');
+  const [hasil, setHasil] = useState(null);      // cadangan terakhir yang sudah terverifikasi di Drive (soalnya dipakai untuk arsip)
+  const [hari, setHari] = useState('180');
+  const [arsipRes, setArsipRes] = useState(null);
+  const [files, setFiles] = useState(null);
+  const [pilih, setPilih] = useState(null);      // cadangan yang akan dipulihkan
+  const [mode, setMode] = useState('lewati');
+  const [pulihKitab, setPulihKitab] = useState(false);
+  const [pulihRes, setPulihRes] = useState(null);
+  const tokenRef = useRef({ v: '', exp: 0 });
+  useEffect(() => {
+    muatGis().catch(() => {}); // dimuat lebih awal supaya jendela izin tidak terblokir saat tombol diklik
+    callApi('/api/backup', { aksi: 'info' }).then(setInfo).catch((e) => setErr(apiErr(e)));
+  }, []);
+  if (!Drv) return <ErrorBox e={{ code: 'DRIVE_ERROR', message: 'Modul Drive tidak termuat. Muat ulang halaman dengan Ctrl+Shift+R.' }} />;
+
+  // Token hanya di memori (hilang saat halaman ditutup, kedaluwarsa sekitar satu jam), tidak pernah ke localStorage atau server.
+  const ambilToken = async () => {
+    const t = tokenRef.current;
+    if (t.v && Date.now() < t.exp - 60000) return t.v;
+    if (!info || !info.driveClientId) throw new Drv.DriveError('DRIVE_BELUM_DIATUR', 'Client ID Google Drive belum diisi di server (GOOGLE_DRIVE_CLIENT_ID). Lihat README, bagian Backup.');
+    await muatGis();
+    return new Promise((selesai, gagal) => {
+      const klien = window.google.accounts.oauth2.initTokenClient({
+        client_id: info.driveClientId, scope: Drv.SCOPE, login_hint: user.email || undefined,
+        callback: (r) => {
+          if (r && r.access_token) { tokenRef.current = { v: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; selesai(r.access_token); }
+          else gagal(new Drv.DriveError('DRIVE_IZIN', 'Izin Google Drive tidak diberikan.'));
+        },
+        error_callback: (e) => gagal(new Drv.DriveError('DRIVE_IZIN', e && e.type === 'popup_closed' ? 'Jendela izin ditutup sebelum selesai.' : e && e.type === 'popup_failed_to_open' ? 'Browser memblokir jendela izin. Izinkan pop-up untuk situs ini lalu ulangi.' : 'Izin Google Drive gagal diminta.')),
+      });
+      klien.requestAccessToken({ prompt: '' });
+    });
+  };
+  const jalan = async (nama, fn) => {
+    setErr(null); setBusy(nama);
+    try { await fn(); }
+    catch (e) { if (e && e.code === 'DRIVE_TOKEN') tokenRef.current = { v: '', exp: 0 }; setErr(apiErr(e)); }
+    finally { setBusy(''); setStatus(''); }
+  };
+
+  const bacaSemuaSoal = async () => {
+    const db = firebase.firestore(); const out = []; let akhir = null;
+    for (;;) {
+      let q = db.collection('soal').orderBy(firebase.firestore.FieldPath.documentId()).limit(300);
+      if (akhir) q = q.startAfter(akhir);
+      const snap = await q.get({ source: 'server' }); // paksa server: salinan lokal yang usang tidak boleh masuk cadangan
+      snap.docs.forEach((d) => out.push(Drv.serialisasiSoal(d.id, d.data())));
+      setStatus(`Membaca soal dari Firestore: ${out.length}...`);
+      if (snap.docs.length < 300) break;
+      akhir = snap.docs[snap.docs.length - 1];
+      if (out.length >= 50000) throw { code: 'BACKUP_INVALID', message: 'Jumlah soal melebihi 50.000; cadangan dihentikan.' };
+    }
+    return out;
+  };
+
+  const cadangkan = () => jalan('backup', async () => {
+    setHasil(null); setArsipRes(null);
+    setStatus('Meminta izin Google Drive...');
+    await ambilToken(); // pertama, supaya jendela izin muncul dari klik pengguna
+    const drive = Drv.buatDrive({ ambilToken });
+    const soal = await bacaSemuaSoal();
+    setStatus('Membaca katalog kitab...');
+    const cfg = await callApi('/api/app-config', { aksi: 'baca' });
+    const cad = Drv.buatBackup({ soal, config: cfg.config, kustom: cfg.kustom, oleh: user.email || user.uid });
+    const isi = JSON.stringify(cad); const nama = Drv.namaBerkas();
+    setStatus('Mengunggah ke Google Drive...');
+    const f = await drive.unggah(await drive.siapkanFolder(), nama, isi);
+    setStatus('Memeriksa berkas di Google Drive...');
+    if ((await drive.unduh(f.id)) !== isi) throw new Drv.DriveError('DRIVE_VERIFIKASI', 'Berkas di Google Drive tidak sama dengan data yang dikirim, jadi cadangan tidak dianggap berhasil dan tidak ada soal yang dihapus. Coba lagi.');
+    setHasil({ nama, link: f.webViewLink || '', soal: cad.soal, jumlah: cad.jumlah, ukuran: new Blob([isi]).size, waktu: cad.dibuat });
+    setFiles(null);
+    toast('Cadangan tersimpan dan terverifikasi di Google Drive.');
+  });
+
+  // ---- Arsip (admin): hapus dari Firestore soal Disetujui yang lama tidak berubah, hanya yang ada di cadangan terverifikasi ----
+  const kand = hasil && isAdmin ? Drv.kandidatArsip(hasil.soal, { hari: Number(hari) }) : [];
+  const arsipkan = () => jalan('arsip', async () => {
+    if (!kand.length) return;
+    if (!window.confirm(`Hapus ${kand.length} soal berstatus Disetujui (terakhir diubah lebih dari ${hari} hari lalu) dari Firestore?\n\nSalinannya ada di "${hasil.nama}" di Google Drive. Soal itu tidak akan tampil di Bank Soal dan Export sampai dipulihkan dari cadangan.`)) return;
+    const db = firebase.firestore(); let dihapus = 0; let berubah = 0;
+    for (const bagian of Drv.potong(kand, 100)) {
+      setStatus(`Menghapus dari Firestore: ${dihapus + berubah} / ${kand.length}...`);
+      // Transaksi: soal yang diubah sejak cadangan dibuat (updatedAt berbeda) tidak dihapus, supaya suntingan terbaru tidak hilang.
+      const r = await db.runTransaction(async (tx) => {
+        const snaps = await Promise.all(bagian.map((q) => tx.get(db.collection('soal').doc(q.id))));
+        let d = 0; let b = 0;
+        snaps.forEach((s, j) => {
+          if (!s.exists) return;
+          const t = s.data().updatedAt;
+          const sama = s.data().status === 'approved' && t && typeof t.toMillis === 'function' && new Date(t.toMillis()).toISOString() === bagian[j].updatedAt;
+          if (sama) { tx.delete(s.ref); d++; } else b++;
+        });
+        return { d, b };
+      });
+      dihapus += r.d; berubah += r.b;
+    }
+    setArsipRes({ dihapus, berubah });
+    toast(`${dihapus} soal dihapus dari Firestore.`);
+  });
+
+  // ---- Daftar cadangan di Drive dan pemulihan ----
+  const muatDaftar = () => jalan('daftar', async () => {
+    setStatus('Meminta izin Google Drive...'); await ambilToken();
+    const drive = Drv.buatDrive({ ambilToken });
+    setStatus('Membaca daftar cadangan...');
+    setFiles(await drive.daftar(await drive.siapkanFolder()));
+  });
+  const bacaCadangan = (teks, nama) => {
+    let obj; try { obj = JSON.parse(teks); } catch (e) { throw { code: 'BACKUP_INVALID', message: 'Berkas bukan JSON yang valid.' }; }
+    let r; try { r = Drv.periksaBackup(obj); } catch (e) { throw { code: 'BACKUP_INVALID', message: e.message }; }
+    setPilih({ nama, ...r }); setPulihRes(null); setPulihKitab(false); setMode('lewati');
+  };
+  const pilihDariDrive = (f) => jalan('baca', async () => { setStatus('Mengunduh cadangan...'); bacaCadangan(await Drv.buatDrive({ ambilToken }).unduh(f.id), f.name); });
+  const pilihLokal = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    jalan('baca', async () => {
+      if (f.size > 40 * 1048576) throw { code: 'BACKUP_INVALID', message: 'Berkas terlalu besar (maks. 40 MB).' };
+      bacaCadangan(await f.text(), f.name);
+    });
+  };
+  const pulihkan = () => jalan('pulih', async () => {
+    if (!pilih) return;
+    if (!window.confirm(`Pulihkan ${pilih.soal.length} soal${pulihKitab ? ' dan katalog kitab beserta kelas dan sistem ujian (menimpa pengaturan saat ini)' : ''} dari "${pilih.nama}"?\n\n` + (mode === 'timpa' ? 'Soal dengan ID yang sama akan DITIMPA isi cadangan.' : 'Soal yang sudah ada dibiarkan.'))) return;
+    const tot = { ditulis: 0, dilewati: 0, ditolak: [] }; let n = 0;
+    for (const b of Drv.potong(pilih.soal, 100)) {
+      setStatus(`Memulihkan soal: ${n} / ${pilih.soal.length}...`);
+      const r = await callApi('/api/backup', { aksi: 'pulihkan', mode, soal: b });
+      tot.ditulis += r.ditulis; tot.dilewati += r.dilewati; tot.ditolak.push(...r.ditolak); n += b.length;
+    }
+    let kitabOk = false;
+    if (pulihKitab && pilih.konfigurasi) { setStatus('Memulihkan katalog kitab...'); onCfg(await callApi('/api/app-config', { aksi: 'simpan', config: pilih.konfigurasi })); kitabOk = true; }
+    setPulihRes({ ...tot, kitabOk });
+    toast('Pemulihan selesai.');
+  });
+
+  const siap = !!(info && info.driveClientId);
+  const sibuk = !!busy;
+  return (
+    <div className="fade-in space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
+        Semua soal (termasuk draf) dan katalog kitab disimpan sebagai satu berkas JSON ke <b className="text-ink">Google Drive</b> akun yang Anda pilih di jendela izin, dalam folder “LABSOUMA Backup”.
+        Aplikasi hanya melihat berkas yang dibuatnya sendiri. Gunakan akun Google madrasah, bukan akun pribadi, supaya cadangan tidak ikut hilang saat pengelola berganti.
+        <p className="mt-2">Satu cadangan membaca seluruh soal dari Firestore: satu dokumen sama dengan satu bacaan dari jatah gratis harian. Cadangan sendiri tidak mengosongkan Firestore; untuk itu pakai <b className="text-ink">Arsipkan</b> (khusus admin) setelah cadangan terverifikasi.</p>
+      </div>
+      {err && <ErrorBox e={err} />}
+      {info && !siap && (
+        <p role="alert" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+          Backup ke Google Drive belum diatur: Client ID OAuth belum diisi di server. {isAdmin ? 'Isi' : 'Minta admin mengisi'} variabel <code>GOOGLE_DRIVE_CLIENT_ID</code> di Vercel lalu Redeploy (langkahnya ada di README, bagian Backup).
+        </p>
+      )}
+
+      <Section title="Cadangkan sekarang" icon={CloudUpload}>
+        <Btn kind="primary" onClick={cadangkan} disabled={sibuk || !siap}>{busy === 'backup' ? <Loader2 size={16} className="spin" /> : <CloudUpload size={16} />}Cadangkan ke Google Drive</Btn>
+        {busy && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+        {hasil && (
+          <div className="mt-4 rounded-xl bg-ok-bg px-4 py-3 text-sm text-ok">
+            <p className="flex items-center gap-2 font-bold"><CheckCircle2 size={16} className="shrink-0" />Tersimpan dan terverifikasi di Google Drive</p>
+            <p className="mt-1 leading-relaxed">{hasil.nama} · {hasil.jumlah.soal} soal, {hasil.jumlah.kitab} kitab · {ukuranBerkas(hasil.ukuran)}
+              {tautanDriveAman(hasil.link) && <> · <a href={tautanDriveAman(hasil.link)} target="_blank" rel="noopener noreferrer" className="underline">Buka di Drive</a></>}</p>
+          </div>
+        )}
+      </Section>
+
+      {hasil && isAdmin && (
+        <Section title="Arsipkan dari Firestore (admin)" icon={Trash2}>
+          <p className="text-sm leading-relaxed text-mute">
+            Hapus dari Firestore soal berstatus <b className="text-ink">Disetujui</b> yang terakhir diubah lebih dari
+            {' '}<span className="inline-block w-28 align-middle"><Select id="arsip-hari" value={hari} onChange={setHari}><option value="90">90 hari</option><option value="180">180 hari</option><option value="365">365 hari</option></Select></span>{' '}lalu.
+            Draf, soal menunggu review, dan soal perlu revisi tidak pernah dihapus. Soal yang diarsipkan hilang dari Bank Soal dan Export sampai dipulihkan dari cadangan.
+            Pemeriksaan ulang tiap soal sebelum dihapus memakai satu bacaan lagi per soal.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Btn kind="danger" onClick={arsipkan} disabled={sibuk || !kand.length}>{busy === 'arsip' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}Hapus {kand.length} soal dari Firestore</Btn>
+            {!kand.length && <span className="text-sm text-mute">Tidak ada soal yang memenuhi syarat.</span>}
+          </div>
+          {arsipRes && <p role="status" className="mt-3 text-sm text-ink">{arsipRes.dihapus} soal dihapus dari Firestore{arsipRes.berubah > 0 ? `; ${arsipRes.berubah} soal dilewati karena berubah sejak cadangan dibuat` : ''}.</p>}
+        </Section>
+      )}
+
+      <Section title="Cadangan di Google Drive" icon={Library} action={<Btn kind="ghost" onClick={muatDaftar} disabled={sibuk || !siap}>{busy === 'daftar' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Muat daftar</Btn>}>
+        {files === null && <p className="text-sm text-mute">Klik “Muat daftar” untuk melihat cadangan yang tersimpan di Drive.</p>}
+        {files && !files.length && <p className="text-sm text-mute">Belum ada cadangan di folder “LABSOUMA Backup”.</p>}
+        {files && files.length > 0 && (
+          <ul className="divide-y divide-line text-sm">
+            {files.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <div className="min-w-0"><p className="truncate font-semibold">{f.name}</p><p className="text-xs text-mute">{waktuLokal(f.modifiedTime)} · {ukuranBerkas(Number(f.size) || 0)}</p></div>
+                {isAdmin && <Btn kind="soft" onClick={() => pilihDariDrive(f)} disabled={sibuk}>Pulihkan…</Btn>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!isAdmin && <p className="mt-3 text-xs text-mute">Pemulihan hanya dapat dilakukan admin.</p>}
+        {isAdmin && (
+          <div className="mt-4 border-t border-line pt-4">
+            <Label htmlFor="cad-lokal" hint="(alternatif: berkas .json yang sudah diunduh dari Drive)">Pulihkan dari berkas di komputer</Label>
+            <input id="cad-lokal" type="file" accept=".json,application/json" onChange={pilihLokal} disabled={sibuk} className="block w-full text-sm" />
+          </div>
+        )}
+        {busy === 'baca' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Membaca...'}</p>}
+      </Section>
+
+      {isAdmin && pilih && (
+        <Section title="Pulihkan dari cadangan" icon={RotateCcw}>
+          <p className="text-sm leading-relaxed">
+            <b>{pilih.nama}</b><br />
+            <span className="text-mute">Dibuat {pilih.dibuat ? waktuLokal(pilih.dibuat) : '-'}{pilih.oleh ? ' oleh ' + pilih.oleh : ''} · {pilih.soal.length} soal · {pilih.jumlahKitab} kitab</span>
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="pulih-mode">Bila soal dengan ID yang sama sudah ada</Label>
+              <Select id="pulih-mode" value={mode} onChange={setMode}><option value="lewati">Lewati (aman, bisa diulang)</option><option value="timpa">Timpa dengan isi cadangan</option></Select>
+            </div>
+            <label className="flex items-start gap-2 self-end text-sm">
+              <input type="checkbox" checked={pulihKitab} disabled={!pilih.konfigurasi} onChange={(e) => setPulihKitab(e.target.checked)} className="mt-1" />
+              <span>Pulihkan juga katalog kitab, mapel, tingkat, kelas, dan sistem ujian <span className="text-mute">(menimpa pengaturan saat ini{pilih.konfigurasi ? '' : '; cadangan ini tidak memuatnya'})</span></span>
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Btn kind="primary" onClick={pulihkan} disabled={sibuk}>{busy === 'pulih' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Pulihkan</Btn>
+            <Btn kind="ghost" onClick={() => { setPilih(null); setPulihRes(null); }} disabled={sibuk}>Batal</Btn>
+          </div>
+          {busy === 'pulih' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+          {pulihRes && (
+            <div role="status" className="mt-4 rounded-xl bg-soft px-4 py-3 text-sm">
+              <p className="font-bold">{pulihRes.ditulis} soal ditulis, {pulihRes.dilewati} dilewati (sudah ada), {pulihRes.ditolak.length} ditolak{pulihRes.kitabOk ? ', katalog kitab dipulihkan' : ''}.</p>
+              {pulihRes.ditolak.slice(0, 10).map((x, i) => <p key={i} className="mt-1 text-xs text-bad">{x.id}: {x.alasan}</p>)}
+              {pulihRes.ditolak.length > 10 && <p className="mt-1 text-xs text-mute">...dan {pulihRes.ditolak.length - 10} lainnya.</p>}
+            </div>
+          )}
+        </Section>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Login & penjaga akses ---------- */
+const Centered = ({ children }) => (
+  <div className="mx-auto flex min-h-[80vh] max-w-md flex-col items-center justify-center gap-4 py-10 text-center">{children}</div>
+);
+const AppLogo = ({ size = 48, className = '' }) => (
+  <img src="/logo.png" width={size} height={size} alt="Logo LABSOUMA" decoding="async" className={className} style={{ width: size, height: size }} />
+);
+const Logo = () => <AppLogo size={64} />;
+
+function Login() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const signIn = async () => {
+    setError(''); setBusy(true);
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try { await firebase.auth().signInWithPopup(provider); }
+    catch (e) {
+      if (e.code === 'auth/popup-blocked') { try { await firebase.auth().signInWithRedirect(provider); return; } catch (e2) {} }
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+        setError(e.code === 'auth/unauthorized-domain' ? 'Domain ini belum diizinkan di Firebase Authentication (Settings > Authorized domains).' : 'Gagal masuk. Coba lagi.');
+      }
+    } finally { setBusy(false); }
+  };
+  return (
+    <Centered>
+      <Logo />
+      <h1 className="text-2xl font-extrabold" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
+      <p className="text-sm font-medium text-mute">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+      <p dir="rtl" lang="ar" className="ar" style={{ fontSize: '1.4rem', lineHeight: 2 }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+      <p className="text-sm text-mute">Masuk dengan akun Google untuk menyusun, meninjau, dan mengekspor soal.</p>
+      <Btn kind="primary" className="w-full" onClick={signIn} disabled={busy}>
+        {busy ? <Loader2 size={16} className="spin" /> : <LogIn size={16} />}Masuk dengan Google
+      </Btn>
+      {error && <p role="alert" className="rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{error}</p>}
+    </Centered>
+  );
+}
+
+function Blocked({ title, text, user }) {
+  return (
+    <Centered>
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-warn-bg text-warn"><ShieldCheck size={28} /></div>
+      <h1 className="text-xl font-extrabold">{title}</h1>
+      <p className="text-sm leading-relaxed text-mute">{text}</p>
+      {user && <p className="text-xs text-mute">Masuk sebagai {user.email}</p>}
+      <Btn kind="ghost" onClick={() => firebase.auth().signOut()}><LogOut size={16} />Keluar</Btn>
+    </Centered>
+  );
+}
+
+function Root() {
+  const [user, setUser] = useState(undefined); // undefined = memuat, null = belum masuk
+  const [profile, setProfile] = useState(undefined);
+  const [sessErr, setSessErr] = useState(null);
+
+  useEffect(() => firebase.auth().onAuthStateChanged((u) => { setUser(u); setProfile(undefined); setSessErr(null); }), []);
+  useEffect(() => {
+    if (!user) return undefined;
+    let dead = false;
+    let unsub = () => {};
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const r = await fetch('/api/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw (d.error || { message: 'Server mengembalikan error ' + r.status + '.' });
+        if (dead) return;
+        unsub = firebase.firestore().doc('users/' + user.uid).onSnapshot((snap) => setProfile(snap.exists ? snap.data() : null), () => setProfile(null));
+      } catch (e) { if (!dead) setSessErr(e); }
+    })();
+    return () => { dead = true; unsub(); };
+  }, [user && user.uid]);
+
+  const Spinner = <Centered><Loader2 className="spin text-mute" size={28} /></Centered>;
+  if (user === undefined) return Spinner;
+  if (user === null) return <Login />;
+  if (sessErr) return <Blocked user={user} title="Tidak bisa masuk" text={sessErr.message || 'Terjadi kesalahan saat memuat profil Anda.'} />;
+  if (profile === undefined) return Spinner;
+  if (!profile || profile.role === 'pending') return <Blocked user={user} title="Menunggu persetujuan admin" text="Akun Anda sudah terdaftar. Admin perlu memberi peran (penyusun, editor, atau admin) sebelum Anda bisa memakai aplikasi. Muat ulang halaman ini setelah disetujui." />;
+  if (profile.role === 'nonaktif') return <Blocked user={user} title="Akun dinonaktifkan" text="Akses akun ini telah dinonaktifkan oleh admin." />;
+  return <App user={user} profile={profile} />;
+}
+
+function SetupError() {
+  return (
+    <Centered>
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bad-bg text-bad"><AlertTriangle size={28} /></div>
+      <h1 className="text-xl font-extrabold">Konfigurasi Firebase tidak ditemukan</h1>
+      <p className="text-sm leading-relaxed text-mute">Konfigurasi belum lengkap. Administrator perlu mengisi variabel <code>FIREBASE_WEB_CONFIG</code> di Vercel, lalu deploy ulang.</p>
+    </Centered>
+  );
+}
+
+/* ---------- Penangkap galat tampilan ---------- */
+// Tanpa ini, satu galat saat render membuat seluruh halaman blank tanpa pesan. Draf di localStorage tidak ikut hilang.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { try { Draft.flush(); } catch (e) { /* abaikan */ } try { console.error(err); } catch (e) { /* abaikan */ } }
+  buangDraf = () => {
+    // Jalan keluar bila draf yang rusak membuat halaman gagal tampil berulang kali.
+    if (!window.confirm('Semua draf isian di perangkat ini akan dihapus. Lanjutkan?')) return;
+    try {
+      const hapus = [];
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('labsouma:v1:')) hapus.push(k); }
+      hapus.forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* abaikan */ }
+    window.location.reload();
+  };
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <Centered>
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bad-bg text-bad"><AlertTriangle size={28} /></div>
+        <h1 className="text-xl font-extrabold">Halaman gagal ditampilkan</h1>
+        <p className="text-sm leading-relaxed text-mute">Terjadi galat tak terduga. Isian yang belum disimpan tetap aman sebagai draf di perangkat ini. Muat ulang halaman untuk memulihkannya.</p>
+        <p className="break-words text-xs text-mute" dir="ltr">{String((this.state.err && this.state.err.message) || this.state.err)}</p>
+        <Btn kind="primary" onClick={() => window.location.reload()}><RotateCcw size={16} />Muat ulang</Btn>
+        <button type="button" className="text-xs text-mute underline" onClick={this.buangDraf}>Masih gagal? Hapus draf di perangkat ini</button>
+      </Centered>
+    );
+  }
+}
+
+export { Root, ErrorBoundary, SetupError };

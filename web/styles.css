@@ -1,0 +1,57 @@
+  /* Layout: sticky green masthead with tab bar, then a two-column workspace (kitab reference left, naskah soal right) */
+  :root {
+    --bg: #f2f6f3; --surface: #ffffff; --ink: #10231b; --mute: #566b61; --line: #d6e2db;
+    --brand: #0f6b4f; --brand-fg: #ffffff; --soft: #e2f1e9; --soft-ink: #0b4f3a;
+    --head: #0b4d39; --head-ink: #eaf7f0;
+    --warn: #7a5200; --warn-bg: #fcf1d6; --bad: #a3231c; --bad-bg: #fbe6e3; --ok: #0b5c3f; --ok-bg: #d9f0e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
+      --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
+      --head: #0a2f24; --head-ink: #e5f4ec;
+      --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
+    --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
+    --head: #0a2f24; --head-ink: #e5f4ec;
+    --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
+    color-scheme: dark;
+  }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0; color: var(--ink); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .ar {
+    font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif;
+    direction: rtl; text-align: right; font-size: 1.65rem; line-height: 2.3;
+  }
+  .ar-sm { font-size: 1.35rem; line-height: 2.1; }
+  /* Nama Arab (kitab, pengarang, tingkat) yang disisipkan di baris teks Latin: kecil, rata kanan-ke-kiri, terisolasi dari teks Latin di sekitarnya */
+  .ar-nama { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; unicode-bidi: isolate; font-size: 1.2em; line-height: 1.7; color: var(--ink); }
+  .ar-input { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 1.2rem; line-height: 1.8; }
+  textarea.ar { resize: vertical; }
+  .field { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+           padding: 9px 12px; font-size: 14px; }
+  .field:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .field::placeholder { color: var(--mute); opacity: .7; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs { scrollbar-width: none; }
+  .fade-in { animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .spin { animation: none !important; } }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--head); z-index: 45; }
+  .pattern {
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 0);
+    background-size: 16px 16px;
+  }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
