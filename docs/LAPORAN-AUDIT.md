@@ -335,93 +335,112 @@ Firestore dan Firebase sungguhan (transaksi, `select()`, urutan `orderBy` pada s
 
 1. Tempel `firestore.rules` di Firebase Console dan **Publish**. 2. Deploy aplikasi. 3. Buka Konfigurasi, periksa bagian "Cadangan & Riwayat", dan tandai setelan yang sekarang berlaku sebagai **titik pulih** pertama.
 
+## 16. Audit 24 Oktober 2026: kondisi aplikasi dan evaluasi proposal "Perpustakaan Kitab" (BELUM diimplementasikan)
 
-## 16. Audit lanjutan 23 Oktober 2026: status temuan terbuka dan catatan perencanaan Perpustakaan Kitab
+Bagian ini **pengingat**, bukan laporan perubahan. Tidak ada kode yang diubah. Dibaca langsung dari berkas zip; `node --test` dijalankan ulang. Proposal yang dievaluasi berasal dari sesi lain (teks per halaman di Firestore, berkas asli opsional, OCR foto, koreksi editor) dan dibandingkan dengan kode serta `docs/SKEMA-KITAB.md`.
 
-Cakupan: pohon kode dari zip (`src/`, `api/`, `public/`, `firestore.rules`, `firestore.indexes.json`, `vercel.json`, CI, `docs/`) dan dokumen usulan "perpustakaan kitab" yang ditempel dari sesi lain (di bawah disebut **usulan sesi**). Kode dibaca langsung, tes dijalankan ulang, dan angka kuota atau batas pihak ketiga dicek ke dokumentasinya (16.5).
-**Tidak ada perubahan kode pada sesi ini.** Bagian ini hanya catatan pengingat untuk dikerjakan kemudian.
+### 16.1 Kondisi aplikasi saat ini
 
-### 16.1 Kondisi saat diperiksa
+- **Tes:** 232 tes, 230 lulus, 1 dilewati, 1 berkas gagal (`test/bentukUi.test.js`: `Cannot find module 'jszip'`). Penyebabnya paket tidak terpasang di lingkungan audit (tanpa `npm install` penuh), bukan bug kode. Jalankan `npm ci` lalu `npm test` untuk memastikan.
+- **Status temuan lama:**
 
-- Tes: 232. Hasil: 230 lulus, 1 berkas gagal, 1 dilewati. Berkas yang gagal adalah `test/bentukUi.test.js` dengan galat `Cannot find module 'jszip'`. Penyebabnya `node_modules` tidak ada di sandbox pemeriksa (tanpa registry npm), bukan cacat yang terlihat di kode. `package-lock.json` memuat `jszip` dan `ci.yml` memakai `npm ci`, jadi di CI seharusnya lulus, tetapi **belum saya buktikan**.
-- Perpustakaan kitab **belum ada di kode**: tidak ada `kitabId`, `halId`, `kitab-impor`, maupun koleksi `kitab` di `firestore.rules`. Yang ada hanya rancangan `docs/SKEMA-KITAB.md` dan tiga fitur terkait yang sudah jalan: `api/kitab.js` (ambil satu halaman dari situs), `src/fotoKitab.js` (OCR satu foto per panggilan), dan katalog kitab di Konfigurasi.
-
-### 16.2 Status temuan lama (diperiksa ulang di kode)
-
-| # | Status sekarang |
+| # | Status 24 Okt 2026 |
 |---|---|
-| B1 (lockfile) | **Selesai.** `package-lock.json` ada, `ci.yml` memakai `npm ci`. |
-| B2, B3, H8 (CSP Report-Only, `unsafe-inline`/`unsafe-eval`, skrip CDN tanpa SRI) | **Terbuka.** `vercel.json` masih `Content-Security-Policy-Report-Only`. `index.html` memuat 9 tag skrip eksternal (Tailwind, React, ReactDOM, Babel, lucide, docx, 3 modul Firebase), tidak satu pun punya `integrity`. Perbaikan akarnya tetap build step (Vite). |
-| H4 (`/api/session` tanpa batas laju) | **Terbuka.** `ensureProfile` tidak membatasi laju, dan bila `ALLOWED_EMAIL_DOMAIN` kosong, akun Google terverifikasi mana pun mendapat profil `pending`. |
-| H5 (daftar host kitab) | **Terbuka.** Contoh `KITAB_ALLOWED_HOSTS` di `.env.example` tidak memuat `ketabonline.com`, padahal ada di `DEFAULT_HOSTS`. |
-| H9 (cache offline di komputer bersama) | **Selesai.** `keluar()` memanggil `terminate()` lalu `clearPersistence()` (`public/index.html`, sekitar baris 2954). |
-| H10 (nama paket) | **Terbuka.** `package.json` masih `bank-soal-madrasah`, sedangkan README bernama LABSOUMA. |
-| `kamus-bersama-pegonkan.patch` | **Selesai.** Tidak ada lagi di pohon. |
-| H1 sampai H3, H6, H7 | Tidak diperiksa ulang secara rinci di sesi ini. |
+| B1 lockfile | Selesai: `package-lock.json` ada. |
+| B2 CSP | **Masih terbuka.** Tetap *Report-Only* dengan `unsafe-inline` dan `unsafe-eval`; `unpkg.com` juga ada di `script-src`. |
+| B3 SRI | **Masih terbuka.** Ada **9** tag skrip CDN tanpa `integrity` (Tailwind, React, ReactDOM, Babel, lucide via unpkg, docx, tiga skrip Firebase). Bagian lama menyebut tujuh. Akar masalah sama: perlu langkah build (Vite). |
+| H4 akun asing | Terbuka. `ALLOWED_EMAIL_DOMAIN` kosong secara bawaan. |
+| H5 daftar host | Terbuka. Kode mengizinkan `ketabonline.com`; komentar `.env.example` dan README tidak menyebutnya. Bila `KITAB_ALLOWED_HOSTS` diisi mengikuti komentar itu, tautan ketabonline ditolak. |
+| H9 cache offline | **Sebagian selesai:** menu Keluar kini memanggil `clearPersistence()`. Tidak berlaku bila tab ditutup tanpa Keluar. Menjadi lebih penting bila teks kitab nanti ikut tersimpan (lihat K9). |
+| H10 nama paket | Terbuka (`bank-soal-madrasah`). Kosmetik. |
 
-Catatan kebersihan dokumen ini: penomoran bagian tidak berurutan. Ada dua bagian bernomor "9" (satu setelah bagian 8, satu di antara bagian 14 dan 15). Rapikan saat dokumen ini diedit berikutnya.
+- **Kebersihan dokumen ini:** ada dua bagian bernomor 9 (draf otomatis, dan bentuk soal). Belum direnumerasi supaya rujukan lama tidak bergeser.
+- **Fakta yang relevan untuk perpustakaan kitab:**
+  - `docs/SKEMA-KITAB.md` ada, berstatus rancangan. Pencarian `kitabId`, `halId`, dan koleksi `kitab/` di seluruh kode, aturan, dan cadangan: **nol hasil**. Belum ada satu pun bagian yang dipasang.
+  - OCR foto kitab **sudah ada**: aksi `fotokitab` di `/api/assist` (`src/fotoKitab.js`), mengembalikan `teks`, `kualitas` (jelas/sedang/buruk), dan daftar kata `ragu`. Yang belum ada hanya penyimpanan hasilnya.
+  - `kitabFetch` mengambil teks dari situs (Shamela dan lainnya) dan hanya menyimpannya di cache memori server, tidak di database.
 
-### 16.3 Temuan baru
+### 16.2 Temuan pada proposal perpustakaan kitab
 
-| # | Tingkat | Temuan | Saran |
+| # | Tingkat | Temuan | Tindakan saat implementasi |
 |---|---|---|---|
-| N1 | Sedang (privasi) | Bawaan memakai kunci Gemini gratis. Menurut ketentuan Gemini API, konten dan respons pada kuota gratis dipakai Google untuk memperbaiki produknya dan dapat dibaca peninjau manusia (kecuali di EEA, Swiss, Inggris). README sudah memperingatkan, tetapi hanya menyebut "data siswa atau nilai". Yang tidak disebut: **draf soal ujian** (rahasia sebelum ujian) dan **foto halaman kitab** (isu hak cipta, lihat N9). | Tambahkan dua hal itu pada peringatan di README dan di layar Pengaturan AI. Untuk soal ujian sungguhan, pertimbangkan kunci berbayar atau Claude. Keputusan kepala madrasah. |
-| N2 | Sedang (kapasitas) | OCR kitab massal tidak muat dalam batas AI bawaan. `fotokitab` lewat `/api/assist` dan `enforceAi`: 5 per menit dan 60 per hari per pengguna, plus plafon 1.000 per hari untuk seluruh madrasah (`LIMIT_GLOBAL_PER_DAY`). Satu foto adalah satu halaman dan satu panggilan. Kitab 300 halaman butuh minimal 5 hari bagi satu pengguna; bila dikerjakan sekali jalan oleh beberapa pengguna, 300 panggilan menghabiskan 30% plafon harian madrasah dan penyusun lain kehabisan kuota. | Jalur impor admin dengan kuota OCR sendiri (mis. `LIMIT_OCR_PER_DAY`), bisa dilanjutkan keesokan harinya, atau OCR per bab. |
-| N3 | Sedang (desain) | Batas panjang teks tidak sejalan: `MAX_TEKS = 6000` (form, prompt AI; OCR memotong di 6.000 dan memberi penanda `terpotong`), aturan `soal.teks` maksimal 8.000, dan SKEMA `halaman.teks` maksimal 12.000. Halaman utuh di atas 6.000 huruf tidak bisa dikirim ke AI sebagai satu kutipan. Selain itu huruf Arab 2 byte di UTF-8 dan harakat dihitung sebagai karakter sendiri, jadi estimasi 5 KB per halaman hanya berlaku untuk sekitar 2.500 karakter tanpa harakat penuh. | Pemilih halaman harus membolehkan memilih potongan (maksimal `MAX_TEKS`). Satukan angka batas di satu konstanta dan catat di SKEMA. Ukur satu halaman nyata (berharakat dan tidak) sebelum memakai estimasi simpanan. |
-| N4 | Sedang (simpanan) | `firestore.indexes.json` berisi `fieldOverrides: []`, jadi setiap field string (`teks` sampai 8.000 karakter, `pembahasan`, dll.) diindeks otomatis. Dokumentasi Firestore: nilai terindeks dipotong di 1.500 byte; entri indeks ikut dihitung dalam simpanan (besarnya belum saya ukur). Query yang ada hanya memakai `tingkat`, `updatedAt`, `status`, `authorUid`, dan ID dokumen, tidak ada yang menyaring atau mengurutkan `teks` atau `pembahasan`, jadi mematikan indeks keduanya aman. Usulan di SKEMA belum diterapkan. | Terapkan `fieldOverrides` (`halaman.teks`, `soal.teks`, `soal.pembahasan`) sebelum impor pertama. |
-| N5 | Sedang (rancangan) | Usulan sesi dan `docs/SKEMA-KITAB.md` tidak sejalan di beberapa hal penting (tabel 16.4). | Pakai rancangan gabungan di 16.4. |
-| N6 | Sedang (desain) | Kitab di Konfigurasi hanya dikenali lewat `nama` (unik tanpa peduli huruf besar), tidak ada id stabil. Menautkan ke `kitab/{kitabId}` lewat nama akan putus bila kitab diganti nama (sama seperti T5 untuk pemetaan kelas). | Tambahkan `kitabId` (slug stabil) pada entri Konfigurasi, opsional di `sanitizeAppConfig` agar konfigurasi dan cadangan lama tetap sah; isi dari nama saat pertama kali. |
-| N7 | Rendah (biaya baca) | Aturan memanggil `exists()` dan `get()` ke `users/{uid}` pada setiap `isStaff()`. Halaman harga Firestore menyatakan baca untuk evaluasi aturan ikut dihitung. Jadi membaca satu halaman kira-kira 2 baca, bukan 1, dan query 5 halaman kira-kira 6 (perkiraan, cek Usage). Pencarian lokal di SKEMA (unduh seluruh kitab) menjadi sekitar 501 baca, bukan 500. | Cukup untuk skala satu madrasah (50.000 baca per hari), tetapi hitung dengan angka ini. Baca lewat endpoint server (Admin SDK) tidak kena baca aturan. |
-| N8 | Rendah (tahap 2) | Cadangan Drive sekarang memakai scope `drive.file` (hanya berkas buatan aplikasi, di Drive akun yang dipilih pengguna) dan hanya memuat soal dan katalog, **bukan halaman kitab**. Akibatnya (a) koleksi halaman perlu ikut dicadangkan atau dikecualikan dengan sadar, dan (b) untuk berkas asli bersama, berkas yang diunggah satu akun belum tentu terbaca akun staf lain di bawah scope ini (belum diuji). | Jangan menganggap Drive "paling mudah" untuk berkas asli sebelum diuji dengan dua akun berbeda. |
-| N9 | Tinggi (hukum, menahan keputusan) | Hak cipta: sependapat dengan usulan sesi bahwa edisi tahqiq dan terbitan modern dilindungi. Tambahan dari kode: `kitabFetch` sudah mengambil halaman dari situs seperti Shamela dengan cache memori. Tombol "Simpan ke perpustakaan" di SKEMA mengubahnya menjadi salinan permanen, yang menaikkan risiko terhadap syarat layanan situs sumber. Ini bukan nasihat hukum. | Simpan hanya kutipan sebagian halaman untuk soal ujian internal, isi `edisi` dan `hakCipta` (bawaan `belum-dicek`), jangan bagikan ke publik. Konsultasi bila akan dibagi antarmadrasah. |
-| N10 | Info | Klaim biaya OCR di usulan sesi (Haiku, sekitar $0,3 sampai $0,6 per kitab) tidak saya verifikasi, dan tidak sesuai bawaan aplikasi (Gemini gratis, lihat N1). Model Claude yang tersedia di aplikasi: `claude-sonnet-5-5` dan `claude-haiku-5-5`. | Hitung ulang dengan tarif terbaru dan jumlah token halaman nyata sebelum dijadikan dasar keputusan. |
-| N11 | Info | CI tidak menjalankan `npm audit`. `.github/workflows/kunci.yml` sudah tidak diperlukan (lockfile ada, CI memakai `npm ci`) dan membawa izin `contents: write`. | Hapus `kunci.yml`. Pertimbangkan `npm audit --omit=dev` di CI. |
+| K1 | Sedang | Proposal tumpang tindih dengan `SKEMA-KITAB.md`, dan keduanya berbeda. `SKEMA` punya `daftar/isi`, metadata `hakCipta` dan `sumber`, `revisi`, pencarian lokal di IndexedDB. Proposal menambah status draf/terverifikasi, nama pengoreksi, dan OCR. | Pakai satu dokumen. Usul: struktur koleksi dari `SKEMA`, ditambah `status` dan `dikoreksiOleh` dari proposal. Perbarui `SKEMA-KITAB.md`, jangan buat dokumen ketiga. |
+| K2 | Tinggi (desain) | Proposal membiarkan editor mengoreksi halaman, sedangkan `SKEMA` menetapkan klien **tidak boleh menulis** ke `kitab/*` (`allow write: if false`, impor lewat Admin SDK). Dua rancangan ini bertabrakan. | Putuskan jalur tulis dulu. Rekomendasi: endpoint server (mis. `/api/kitab-halaman`) dengan peran editor/admin, polanya seperti `pulihkanSoal`, supaya aturan Firestore tetap tertutup dan validasi terpusat. |
+| K3 | Sedang | Proposal menyebut "OCR foto yang baru kita buat", padahal sudah ada. Hasil OCR dipotong di `MAX_TEKS` = 6000 karakter. Satu foto = satu panggilan AI, kena `LIMIT_PER_DAY` = 60 per pengguna dan `LIMIT_GLOBAL_PER_DAY` = 1000 untuk seluruh madrasah. Satu kitab 300 halaman = 300 panggilan: lima hari kerja bagi satu pengguna dan sepertiga plafon harian madrasah. | Simpan `kualitas` dan `ragu` sebagai metadata halaman (kualitas "buruk" atau ada `ragu` = otomatis belum terverifikasi). Rencanakan antrean atau unggah bertahap. Angka biaya proposal ($0,3 sampai $0,6 per kitab dengan Haiku) tidak dihitung ulang; bawaan aplikasi memakai Gemini. |
+| K4 | **Tinggi** | Menambah `kitabId` dan `halId` ke soal menyentuh banyak tempat, dengan satu jebakan: `bersihkanSoal` di `src/backup.js` membangun objek dari daftar field eksplisit, sehingga field baru **diam-diam terbuang saat pemulihan cadangan**. Selain itu, jalur admin (jalur 3) di `firestore.rules` punya daftar kunci sendiri yang tidak memakai `opsiKeys()`. | Ubah bersamaan: `firestore.rules` (`opsiKeys`, `validContent`, **dan** daftar kunci admin), `src/backup.js` (`bersihkanSoal`), `test/ujian.test.js` (tes yang mengunci daftar kunci), form di `index.html`, README. Tambahkan tes pemulihan yang memastikan kedua field bertahan. Rilis: Publish `firestore.rules` dulu, baru deploy (urutan bagian 13 dan 14). |
+| K5 | Sedang | Peringatan "belum terverifikasi" pada pemeriksa kutipan tidak punya tempat: `validAi` hanya mengizinkan `ai.verifikasi` bernilai `''`, `lolos`, `periksa`, `gagal`, `tanpa_teks`. | Pilih: pakai nilai yang ada, atau tambah nilai baru di **tiga tempat sekaligus** (`firestore.rules`, `VERIFIKASI` di `src/backup.js`, `public/kutipan.js`) beserta tesnya. |
+| K6 | Sedang | Katalog kitab di `config/app` **tidak punya ID stabil**: kitab dikenali dari `nama` (unik tanpa peduli huruf besar). Mengganti nama kitab akan memutus tautan ke halamannya. Proposal menyebut katalog "tinggal ditambah penanda", padahal bentuk katalog perlu berubah (saat ini `versi: 3`). | Simpan `kitabId` (slug stabil) di koleksi `kitab`, dan di katalog cukup penunjuk `kitabId`. Naikkan versi katalog dan sediakan migrasi. Ingat batas 800.000 byte untuk `config/app`. |
+| K7 | Sedang | Estimasi ukuran 3 sampai 6 KB per halaman kemungkinan terlalu rendah untuk teks **berharakat**: huruf Arab 2 byte di UTF-8, dan setiap harakat menambah karakter. 2.500 huruf polos sekitar 5 KB; berharakat penuh bisa sekitar 8 sampai 10 KB (perkiraan, belum diukur). 100 kitab x 300 halaman x 10 KB sekitar 300 MB, belum termasuk indeks. `fieldOverrides` di `firestore.indexes.json` saat ini kosong. | Ukur dengan satu kitab nyata sebelum bergantung pada angka. Pasang pengecualian indeks untuk `halaman.teks` (usul `SKEMA`) sejak awal. |
+| K8 | Sedang | Soal sudah menyimpan **salinan** `teks` (maks 8000 di aturan, 6000 di server). Menyimpan teks lagi di perpustakaan menggandakannya, dan salinan itu ikut cadangan Drive. Pilihan "halaman lalu teks masuk otomatis" harus memotong atau membatasi satu halaman agar tidak melewati `MAX_TEKS`. | Pertahankan salinan di soal (benar menurut `SKEMA`: soal yang sudah disetujui tidak boleh berubah diam-diam bila halaman dikoreksi). Batasi pemilih ke satu halaman atau rentang yang muat 6000 karakter. |
+| K9 | **Tinggi (hukum dan kebijakan)** | Ini perubahan sikap: sekarang teks kitab **tidak disimpan** di database (hanya cache memori server dan salinan per soal), dan proposal membuatnya disimpan permanen. Proposal sudah menandai hak cipta dan syarat penggunaan Shamela sebagai risiko terbesar. Tambahan dari kode: cache offline Firestore (IndexedDB) akan ikut menyimpan halaman kitab di perangkat (lihat H9), dan foto kitab fisik hampir pasti edisi modern bertahqiq. Ini bukan nasihat hukum. | Tetapkan kebijakan tertulis sebelum menulis kode: hanya kutipan sebagian untuk soal internal, tidak menyimpan kitab utuh, tidak dibagi publik, isi `hakCipta.status`, `edisi`, dan penerbit per kitab. Pertanyaan yang menentukan semuanya (belum dijawab): perpustakaan untuk satu madrasah atau dibagi antar madrasah. `SKEMA` mengasumsikan satu madrasah, satu proyek Firebase. |
+| K10 | Sedang | Cadangan Drive saat ini hanya soal dan katalog (`src/backup.js`, `public/drive.js`); halaman kitab tidak ikut. Halaman hasil impor bisa diimpor ulang, tetapi **koreksi manual editor tidak bisa**. | Putuskan sadar: koleksi halaman ikut cadangan, atau dikecualikan. Bila dikecualikan, koreksi editor perlu jalur ekspor sendiri. Pemulihan halaman juga butuh jalur server. |
+| K11 | Rendah | Pencarian: `SKEMA` mengusulkan pencarian lokal di IndexedDB, proposal hanya penelusuran per kitab dan halaman. Keduanya sepakat tidak ada pencarian teks penuh di tahap 1. `normalisasi()` di `public/kutipan.js` (harakat diabaikan) bisa dipakai bila pencarian lokal dibuat. | Tahap 1: navigasi per kitab, bab, halaman saja. |
+| K12 | Info | Semua angka eksternal di proposal maupun `SKEMA` berasal dari ingatan dan **belum diverifikasi hari ini**: kuota Firestore gratis (1 GiB, 50.000 baca, 20.000 tulis per hari), Firebase Storage yang disebut butuh paket Blaze, batas isi permintaan Vercel sekitar 4,5 MB, dan harga Haiku. Aturan Firestore memakai `exists()` dan `get()` pada `users`; apakah itu menambah hitungan baca per kueri halaman belum diukur. | Cek Firebase Console > Usage dan halaman harga resmi sebelum memutuskan. |
 
-### 16.4 Perbandingan usulan sesi dan `docs/SKEMA-KITAB.md`
+### 16.3 Keputusan yang harus diambil sebelum mulai
 
-| Aspek | Usulan sesi | SKEMA-KITAB.md | Saran gabungan |
-|---|---|---|---|
-| ID halaman | `kitab/{id}/halaman/{nomor}` | `halId` berbentuk `j01h00045` | Pakai `halId`: mendukung kitab berjilid dan query rentang lewat ID dokumen. |
-| Siapa menulis | Penyusun menambah, editor memverifikasi (menyiratkan tulis dari klien) | Klien tidak menulis (`write: false`), impor lewat server | Server saja: endpoint khusus dengan cek peran di server (Admin SDK), aturan Firestore tetap `write: false`. Verifikasi juga lewat endpoint. |
-| Status verifikasi | `draf` atau `terverifikasi`, plus siapa yang mengoreksi | Tidak ada (hanya `halEstimasi`) | Tambahkan `status`, `sumberTeks` (`ketik`, `txt`, `situs`, `ocr`), `diverifikasiOleh`, `diverifikasiAt`, dan `revisi` per halaman. |
-| Hak cipta dan edisi | Hanya disebut sebagai peringatan | Field `hakCipta` dan `edisi` ada | Pakai SKEMA. |
-| Katalog | Penanda "ada di perpustakaan internal" di Konfigurasi | Koleksi `kitab` terpisah | Konfigurasi tetap menjadi sumber untuk pemetaan kelas dan ujian; `kitab/*` hanya isi teks. Hubungkan dengan `kitabId` (N6). Hindari dua sumber kebenaran untuk metadata yang sama. |
-| Sumber teks | Ketik, impor `.txt`, Shamela, foto OCR | `.txt` Syamilah, ambil dari situs, tempel (hanya untuk soal) | Gabungkan keempat jalur. Tempelan manual masuk perpustakaan hanya setelah disetujui editor (aturan SKEMA). |
-| Pencarian | Per kitab dan halaman; layanan eksternal bila perlu | Daftar isi plus pencarian lokal di IndexedDB | Tunda ke tahap 2 dan pakai rancangan SKEMA. |
-| Peringatan teks belum diverifikasi | Ada di pemeriksaan kutipan | Tidak ada | Tambahkan di `public/kutipan.js` untuk halaman berstatus `draf`. |
+1. Untuk satu madrasah, atau dibagi antar madrasah? (menentukan hak cipta, peran, dan perlunya koleksi `lembaga`)
+2. Siapa yang boleh menulis halaman, dan lewat jalur apa? (K2; rekomendasi: server)
+3. Bentuk ID kitab dan migrasi katalog (K6).
+4. Halaman ikut cadangan Drive atau tidak (K10).
+5. Nilai status "belum terverifikasi": pakai yang ada atau tambah baru (K5).
 
-### 16.5 Klaim eksternal yang diverifikasi (23 Oktober 2026)
+### 16.4 Urutan implementasi bila dilanjutkan
 
-- **Firestore Spark:** 1 GiB simpanan, 50.000 baca, 20.000 tulis, 20.000 hapus per hari: cocok (halaman harga Google Cloud). Baca untuk evaluasi aturan ikut dihitung.
-- **Batas Firestore:** nilai terindeks dipotong di 1.500 byte, dokumen maksimal 1 MiB, permintaan API maksimal 10 MiB (halaman kuota Firestore).
-- **Vercel Functions:** badan permintaan maksimal 4,5 MB; solusi resmi adalah unggah langsung dari klien ke Vercel Blob (dokumentasi Vercel). Karena itu `validateFoto` menolak foto besar dan impor harus dipecah.
-- **Cloud Storage for Firebase tidak lagi tersedia di Spark sejak 2 Februari 2026:** hanya dari satu sumber sekunder (artikel komunitas). **Cek dokumentasi resmi Firebase** sebelum memilih Storage.
-- **Gemini API kuota gratis:** konten dipakai untuk memperbaiki produk Google dan dapat dibaca peninjau manusia; EEA, Swiss, dan Inggris dikecualikan (Gemini API Additional Terms of Service).
-- **Tidak diperiksa:** tarif OCR Claude, kuota gratis Gemini per model saat ini, dan nama model Gemini di `DEFAULT_MODELS`.
+0. Jawab 16.3 dan perbarui `docs/SKEMA-KITAB.md` menjadi satu rancangan.
+1. Minta satu berkas contoh (mis. Safinatun Naja) dan **ukur** ukuran per halaman (K7).
+2. Aturan `kitab/*` (tertutup untuk klien), pengecualian indeks, `kitabId` dan `halId` opsional di `soal`, perbaikan `bersihkanSoal` dan tes pemulihannya (K4). **Publish `firestore.rules` sebelum deploy.**
+3. Endpoint server untuk impor dan koreksi halaman, beserta tes.
+4. Antarmuka pemilih kitab, bab, halaman di Penyusunan Soal; simpan hasil `fotokitab` ke halaman dengan status sesuai `kualitas` (K3).
+5. Peringatan di pemeriksa kutipan untuk halaman belum terverifikasi (K5).
+6. Pencarian lokal atau berkas asli di Drive: hanya bila tahap 1 sudah terpakai dan benar-benar dibutuhkan.
 
-### 16.6 Keputusan yang perlu diambil sebelum implementasi
+### 16.5 Yang BELUM saya uji
 
-1. **Perpustakaan untuk satu madrasah atau dibagi antarmadrasah?** Pertanyaan ini diajukan di sesi lain dan belum terjawab. Jawabannya menentukan batas hak cipta, peran pengguna, dan perlu tidaknya koleksi `lembaga`.
-2. **Penyedia AI untuk OCR dan soal ujian sungguhan:** gratis (data dipakai Google, N1) atau berbayar.
-3. **Kutipan sebagian atau kitab utuh.** Saran: kutipan saja (N9).
-4. **Siapa boleh menulis ke perpustakaan:** penyusun, editor, atau admin saja.
+Seluruhnya analisis baca-kode. Tidak diuji: aturan Firestore di emulator, ukuran dokumen nyata, biaya atau kuota nyata, perilaku OCR pada kitab sungguhan, dan tes yang membutuhkan `jszip` atau `docx` (paket tidak terpasang di lingkungan audit).
 
-### 16.7 Urutan implementasi yang disarankan (gabungan)
+## 17. Migrasi ke Vite, tahap 1 (24 Oktober 2026)
 
-0. Putuskan 16.6. Minta contoh berkas `.txt` ekspor Syamilah (satu kitab kecil, mis. Safinatun Naja): parser tidak bisa ditulis benar tanpa contoh.
-1. Ukur satu halaman nyata (byte, dengan dan tanpa harakat) untuk mengoreksi estimasi simpanan (N3).
-2. Pasang `fieldOverrides` (N4), aturan `kitab/*` (`read: isStaff()`, `write: false`), `kitabId` dan `halId` sebagai field **opsional** di `soal` lewat `opsiKeys()` (perbarui tes `ujian.test.js` yang mengunci daftar kunci), dan `kitabId` stabil di Konfigurasi (N6).
-3. Endpoint impor di server dengan kuota OCR terpisah (N2) dan batas ukuran badan permintaan jauh di bawah 4,5 MB. Tulis parser dan tesnya memakai berkas contoh.
-4. Antarmuka pemilih kitab, bab, halaman, dan potongan di Penyusunan Soal. Salinan `teks` tetap disimpan di soal, supaya soal yang sudah disetujui tidak berubah diam-diam bila halaman dikoreksi (alasan di SKEMA).
-5. Status verifikasi, peringatan di pemeriksaan kutipan, dan riwayat atau penanda versi halaman.
-6. Cadangan halaman ke Drive, atau pengecualian yang disengaja (N8).
-7. Tahap 2: pencarian lokal di IndexedDB; berkas asli (Vercel Blob, Drive setelah diuji, atau Firebase Storage bila memakai Blaze).
+**Tujuan:** menutup B2 dan B3. Babel dan Tailwind tidak lagi jalan di browser, dan tidak ada skrip CDN yang dimuat saat halaman dibuka.
 
-Urutan rilis tiap tahap tetap sama seperti bagian 13 dan 15: **Publish `firestore.rules` dan indeks lebih dulu**, baru deploy aplikasi.
+**Pendekatan: pindahkan dulu, pecah kemudian.** Seluruh kode `<script type="text/babel">` dipindahkan apa adanya ke `web/App.jsx` (3.543 baris); perilaku sengaja tidak diubah. Memecah menjadi komponen per tab tanpa bisa menjalankan aplikasinya terlalu berisiko, jadi itu tahap 2.
 
-### 16.8 Yang BELUM saya uji (jujur)
+| Sebelum | Sesudah |
+|---|---|
+| `public/index.html` (CDN, Babel, `<style>`, 3.500 baris JSX) | `index.html` (kerangka), `web/main.jsx` (boot), `web/App.jsx`, `web/styles.css`, `tailwind.config.js` |
+| `public/{kutipan,sikap,pegon,draft,drive,ujian,kisi,bentuk}.js` | `web/lib/*.js`; `src/*.js` meneruskan ke lokasi baru; tes dan server tidak berubah perilakunya |
+| React, ReactDOM, Babel, lucide, docx, Firebase, Tailwind dari CDN | paket npm, dibundel Vite |
+| mammoth dan pdf.js dimuat dari cdnjs lewat `<script>` | paket npm, `import()` malas (potongan terpisah) |
+| `window.docx`, `window.Pegon`, dan sejenisnya dipasang modul di HTML | `web/globals.js` memasangnya; harus diimpor pertama di `main.jsx` |
+| `vercel.json`: `outputDirectory: public` | `framework: vite`, `outputDirectory: dist`, `devCommand: vite --port $PORT` |
+| CSP Report-Only dengan `unsafe-inline`, `unsafe-eval`, 5 host CDN | CSP Report-Only tanpa `unsafe-inline` dan `unsafe-eval` untuk skrip, tanpa host CDN; `worker-src 'self' blob:` |
 
-- Tes dijalankan tanpa `node_modules`, jadi `bentukUi.test.js` gagal karena `jszip`. Hasil di CI belum diketahui.
-- Aturan Firestore tidak dijalankan di emulator. Tidak ada pengukuran simpanan atau indeks nyata, tidak ada uji di browser, dan OCR dengan model nyata tidak diuji.
-- Klaim eksternal dicek lewat pencarian pada tanggal di atas; angka dan syarat bisa berubah.
-- `public/index.html` (sekitar 280 KB) tidak saya baca baris demi baris. Pemeriksaan terarah: cache offline, query Firestore, tag skrip CDN, dan `innerHTML`.
+Perubahan lain: `ci.yml` menambah `npm run build`; `.gitignore` menambah `dist/`; README (struktur, preset Vercel); `test/bentukUi.test.js` kini membaca `web/App.jsx`. Tombol PDF memakai `isEvalSupported: false` agar pdf.js tidak memicu `unsafe-eval`.
+
+**Status temuan lama:** B3 (SRI) **selesai** untuk semua skrip aplikasi. B2 **sebagian**: CSP sudah ketat tetapi masih Report-Only (lihat "Langkah Anda" nomor 4). Yang tetap dimuat dari luar adalah skrip Google (`accounts.google.com/gsi/client` untuk Drive, dan `apis.google.com` untuk login Firebase); itu sengaja diizinkan di CSP dan tidak bisa diberi SRI.
+
+### Pengujian (apa yang benar-benar dijalankan)
+
+- Bundel esbuild seluruh `web/main.jsx` berhasil (sintaks JSX dan jalur impor valid).
+- Pemeriksaan nama tak terdefinisi dengan compiler TypeScript pada `App.jsx`, `main.jsx`, `globals.js`: bersih. Pemeriksa diuji dengan menyisipkan nama palsu (terdeteksi).
+- Bundel dimuat di Chromium sungguhan (Playwright; Firebase dan lucide diganti stub kosong, `/api/config` dibuat gagal): halaman menampilkan layar "Konfigurasi Firebase tidak ditemukan", sembilan objek `window.*` terpasang, tanpa galat JavaScript. Ini hanya membuktikan urutan pemuatan modul dan kode tingkat atas tidak jatuh; bukan alur aplikasi.
+- `node --test`: 232 tes. Dengan paket `docx` dan `jszip` tersedia, 5 tes `bentukUi` lulus terhadap `App.jsx` yang baru; tanpa kedua paket itu (seperti di lingkungan audit) berkas itu gagal seperti sebelum migrasi.
+
+### Yang BELUM diuji (penting)
+
+- **`npm install` dan `vite build` belum pernah dijalankan.** Sandbox tanpa akses registry. Nomor versi di `package.json` (Vite `^7.0.0`, `@vitejs/plugin-react` `^5.0.0`, Tailwind 3.4.17, postcss, autoprefixer, React 18.3.1, Firebase 10.14.1, lucide-react 0.468.0, mammoth 1.12.2, pdfjs-dist 3.11.174, docx `^9.6.1`) saya tulis dari pengetahuan, bukan dari registry. Bila ada yang tidak ditemukan, `npm install` akan menyebutnya.
+- **Tailwind hasil build belum dibandingkan dengan CDN.** Build hanya memuat kelas yang tertulis utuh di kode. Pemeriksaan saya menemukan tidak ada kelas yang dirangkai dari potongan (`bg-${x}`), tetapi tampilan harus dilihat dengan mata.
+- Impor `mammoth` dan `pdfjs-dist` (unggah Word dan PDF di Pegonizer), nama ikon lucide (stub saya menerima semuanya), login Google, Firestore sungguhan, cadangan Drive, dan seluruh alur tab: tidak diuji di browser.
+- `docx` di browser naik dari 8.5.0 (CDN) ke 9.6.1, versi yang selama ini dipakai tes. Cek sekali unduhan DOCX (soal, Pegon, kisi-kisi) di Word atau WPS.
+- Peringatan esbuild: kunci `tarawih` ganda di kamus `web/lib/pegon.js` baris 152. Sudah ada sejak aplikasi Pegon asli, tidak berbahaya (yang terakhir menang), tidak diubah karena berkas itu dijaga identik dengan aslinya.
+
+### Langkah Anda (urut)
+
+1. `npm install` di komputer, lalu **commit `package-lock.json`** yang baru. Lockfile lama tidak memuat paket baru, jadi `npm ci` di CI gagal sampai itu dilakukan. Alternatif: jalankan workflow **Buat package-lock.json** dari tab Actions.
+2. `npm run build`, lalu `npx vite preview`. Buka semua tab; bandingkan tampilan dengan versi lama. Coba unggah satu `.docx` dan satu `.pdf` di Pegonizer, serta satu unduhan DOCX.
+3. Di Vercel, Framework Preset otomatis menjadi Vite lewat `vercel.json`; deploy, hard refresh (Ctrl+Shift+R).
+4. Buka konsol browser: bila **tidak ada** laporan pelanggaran `Content-Security-Policy-Report-Only` selama pemakaian normal (login, Drive, unggah file), ganti nama header di `vercel.json` dari `Content-Security-Policy-Report-Only` menjadi `Content-Security-Policy` agar benar-benar memblokir. Bila ada pelanggaran yang sah, tambahkan host-nya, jangan kembalikan `unsafe-eval`.
+
+### Tahap 2 (opsional, nanti)
+
+Ganti Proxy dan `window.*` di `App.jsx` dengan `import` langsung lalu hapus `web/globals.js` (tes `bentukUi` memerlukan penyesuaian karena memberi `window` palsu); pecah `App.jsx` per tab; hapus kode cadangan ("modul tidak termuat") yang tidak mungkin terjadi lagi di bundel.

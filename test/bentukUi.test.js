@@ -1,5 +1,5 @@
-// Pembuat ekspor di public/index.html (GIFT, Moodle XML, CSV, DOCX) untuk semua bentuk soal.
-// Kodenya diambil langsung dari index.html (bagian "Export builders") dan dijalankan di Node dengan pustaka docx asli.
+// Pembuat ekspor di web/App.jsx (GIFT, Moodle XML, CSV, DOCX) untuk semua bentuk soal.
+// Kodenya diambil langsung dari web/App.jsx (bagian "Export builders") dan dijalankan di Node dengan pustaka docx asli.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import * as Pegon from '../src/pegon.js';
 const require = createRequire(import.meta.url);
 const docx = require('docx');
 const JSZip = require('jszip');
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
 const a = html.indexOf('const optsOf = ');
 const b = html.indexOf('const FORMATS = [');
 assert.ok(a > 0 && b > a, 'bagian Export builders tidak ditemukan di index.html');

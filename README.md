@@ -46,7 +46,7 @@ git push -u origin main
 Pastikan `git status` tidak menampilkan `.env` atau file kunci JSON. Repositori Private disarankan.
 
 ### 4. Vercel
-1. https://vercel.com/new > pilih repositori. Framework Preset = **Other**. Jangan ubah Build Command.
+1. https://vercel.com/new > pilih repositori. Framework Preset = **Vite** (build `vite build`, output `dist`; sudah diatur di `vercel.json`, jangan diubah).
 2. Buka **Environment Variables** dan isi (lihat `.env.example`):
 
    | Nama | Isi |
@@ -67,7 +67,7 @@ Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: la
 
 Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortografi al-Qolam '24). Dipakai semua pengguna aktif.
 
-- **Mesin aturan** berjalan di browser tanpa kuota AI: `public/pegon.js` (sumber tunggal; `src/pegon.js` hanya meneruskannya ke server dan tes, sama seperti `kutipan.js`). Aturan master untuk prompt AI ada di `src/pegonRules.js`.
+- **Mesin aturan** berjalan di browser tanpa kuota AI: `web/lib/pegon.js` (sumber tunggal; `src/pegon.js` hanya meneruskannya ke server dan tes, sama seperti `kutipan.js`). Aturan master untuk prompt AI ada di `src/pegonRules.js`.
 - **Masukan:** teks, suara (Web Speech API bawaan browser), file Word/PDF (pustaka mammoth dan pdf.js dimuat hanya saat dibutuhkan), dan foto.
 - **Bantuan AI** lewat `/api/assist`, aksi `pegon` (memperkuat hasil mesin) dan `pegonfoto` (membaca teks Latin dari foto). Memakai login, peran, batas pemakaian, plafon harian madrasah, dan pengembalian kuota yang sama dengan fitur AI lain. Foto diperkecil di browser (maks. 1600 px) dan dibatasi di server. Adapter Gemini kini mendukung gambar, jadi kedua penyedia AI bisa membaca foto.
 - **Ekspor soal:** di tab Export/Download ada format **Soal Pegon (DOCX)**. Teks soal, opsi, kunci, dan pembahasan ditulis Pegon (aksara Arab di dalam teks tidak diubah); kata yang diragukan mesin disorot kuning agar diperiksa editor. Setiap sorotan diberi komentar Word berisi alasannya. Format **Soal Pegon + Latin (DOCX)** menambahkan baris Latin asli di bawah tiap paragraf Pegon. Angka, nominal (Rp1.000,00), URL, email, dan kode (C2) tidak dialihaksarakan.
@@ -236,7 +236,7 @@ Form Penyusunan Soal punya selektor **Bentuk Soal**. Soal lama (tanpa field `ben
 | `isian` Melanjutkan (isian) | kalimat dengan `.....` yang diisi sendiri | field `jawaban` (pisahkan penulisan lain dengan ` / `) |
 | `uraian` Uraian | pertanyaan/perintah terbuka | `jawaban` model + `rubrik` (poin, skor, skor maksimal) |
 
-- **Saran per jenjang** (`BENTUK_PER_TINGKAT` di `public/bentuk.js`, tanda ★ di form): MI: melanjutkan, benar-salah, isian, pilgan; MTs: pilgan, melanjutkan, isian, uraian, benar-salah; MA: pilgan, uraian, isian, melanjutkan. Ini saran awal, bukan pembatasan; semua bentuk tetap bisa dipilih, dan tingkat buatan admin mendapat semua bentuk.
+- **Saran per jenjang** (`BENTUK_PER_TINGKAT` di `web/lib/bentuk.js`, tanda ★ di form): MI: melanjutkan, benar-salah, isian, pilgan; MTs: pilgan, melanjutkan, isian, uraian, benar-salah; MA: pilgan, uraian, isian, melanjutkan. Ini saran awal, bukan pembatasan; semua bentuk tetap bisa dipilih, dan tingkat buatan admin mendapat semua bentuk.
 - **AI**: `/api/generate` dan aksi `telaah` menerima `bentuk`. Tiap bentuk punya skema alat dan aturan prompt sendiri (`ATURAN_BENTUK` di `src/soalService.js`); prompt pilihan ganda tidak berubah. Keluaran yang tidak sesuai bentuk (mis. soal melanjutkan tanpa titik-titik, uraian tanpa rubrik) ditolak sebagai `AI_BAD_OUTPUT` dan kuota dikembalikan.
 - **Uji jawab buta** hanya untuk bentuk berpilihan (pilgan, melanjutkan-pilihan, benar-salah). Isian dan uraian ditelaah dengan **Telaah &amp; Perbaiki**; server menolak `cekbuta` untuk keduanya dengan kode `BENTUK_TANPA_OPSI`.
 - **Ekspor**: Word (semua mode, termasuk Pegon), CSV, GIFT dan Moodle XML (benar-salah = `truefalse`, isian = `shortanswer`, uraian = `essay`). CSV RDM menambah kolom Bentuk, Jawaban, Rubrik di akhir. Kisi-kisi mencatat bentuk tiap butir. Tab Bank dan Export punya filter Bentuk Soal.
@@ -269,11 +269,26 @@ Nama menu mengikuti tampilan Google Cloud saat ini ("Google Auth Platform"). Bil
 
 Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mismatch* (alamat yang dipakai tidak terdaftar di langkah 4), dan *access_denied* (email belum menjadi Test user, langkah 3). Cadangan yang sangat besar (di atas sekitar 5 MB) diunggah sekali jalan; bila gagal, verifikasi menolaknya dan tidak ada soal yang dihapus.
 
+## Pengembangan lokal
+
+```bash
+npm install
+npm test            # tes server dan logika murni (tanpa kunci, tanpa internet)
+npm run build       # bundel frontend ke dist/ (Vite)
+vercel dev          # frontend (vite) dan fungsi api/ bersama; butuh variabel lingkungan seperti di Vercel
+```
+
+Frontend ada di `web/` (Vite, React, Tailwind sebagai build; tidak ada skrip CDN). Setelah mengubah `package.json`, commit juga `package-lock.json`.
+
 ## Struktur
 
 ```
-public/index.html        frontend React (satu file)
-public/drive.js          cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
+index.html              pintu masuk Vite
+web/main.jsx            memulai aplikasi (Firebase, React); web/globals.js memasang modul murni ke window
+web/App.jsx             frontend React (satu berkas; dipecah per komponen di tahap berikutnya)
+web/styles.css          gaya halaman + lapisan Tailwind (tailwind.config.js)
+public/                 berkas statis: ikon, manifest
+web/lib/drive.js        cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
 api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup
 src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
 src/gemini.js            adapter Gemini (tanpa dependensi)
@@ -283,14 +298,14 @@ src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
 src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
 src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
 src/appConfig.js         konfigurasi aplikasi: tingkatan, kelas, sistem ujian, mata pelajaran, katalog kitab (dan pemetaannya)
-public/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
+web/lib/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
 src/configBackup.js      cadangan dan riwayat konfigurasi (otomatis, titik pulih, perbandingan, pangkas)
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
-src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
-src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)
+src/kutipan.js           pemeriksa kutipan Arab (kode asli: web/lib/kutipan.js)
+src/sikap.js             pemeriksa nada soal (kode asli: web/lib/sikap.js)
 src/babService.js       saran bab penting (aksi bab di /api/assist): validasi, pencocokan daftar isi, alokasi soal
 src/aswaja.js            kerangka haluan Ahlussunnah wal Jamaah untuk prompt saran bab
-public/kisi.js           kisi-kisi dari soal: kelompok bab, cakupan, DOCX/CSV/teks (kode asli; src/kisi.js untuk server dan tes)
+web/lib/kisi.js           kisi-kisi dari soal: kelompok bab, cakupan, DOCX/CSV/teks (kode asli; src/kisi.js untuk server dan tes)
 src/cekButa.js           uji jawab buta oleh model penguji
 eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
 .github/workflows/       ci.yml (npm test) dan eval.yml (evaluasi manual)
@@ -301,4 +316,4 @@ test/                    npm test (tanpa kunci, tanpa internet)
 
 ## Draf otomatis
 
-Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/LAPORAN-AUDIT.md` bagian 9. Kodenya di `public/draft.js`.
+Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/LAPORAN-AUDIT.md` bagian 9. Kodenya di `web/lib/draft.js`.
