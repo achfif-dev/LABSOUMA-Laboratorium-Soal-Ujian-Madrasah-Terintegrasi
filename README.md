@@ -198,6 +198,16 @@ Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model d
 - **Terjemahkan**, **Analisis teks** (ide soal per level, calon pengecoh), dan **Telaah & Perbaiki** (editor punya **Telaah AI** di tab Review). Semuanya berdasar teks Arab yang diberikan, dengan konteks Ahlussunnah wal Jamaah yang moderat. Hasil AI perlu ditelaah manusia.
 - Pastikan pemakaian teks sesuai ketentuan situs sumber dan hak cipta edisi kitabnya.
 
+## Saran bab penting dan kisi-kisi
+
+Tab **Fokus Ujian & Kisi-kisi** (editor dan admin):
+
+1. **Saran AI.** Pilih tingkat, kelas, ujian, mapel, dan kitab. Tempelkan daftar isi kitab bila ada: dengan daftar isi, tiap bab yang disarankan diperiksa ulang dan yang tidak ada ditandai; tanpa daftar isi, hasil ditandai *perlu diverifikasi*. Saran disusun dengan haluan Ahlussunnah wal Jamaah yang moderat dan setia pada teks kitab. Ini bahan pertimbangan; guru atau ustadz yang menetapkan bab ujian. Memakai 1 kuota AI.
+2. **Tandai bab pada soal.** Isi kolom *Bab / Materi* di form soal (atau klik *Susun soal untuk bab ini*).
+3. **Kisi-kisi.** Pilih soal Approved, lalu unduh *Kisi-kisi guru*, *Lembar Fokus murid*, gabungan (DOCX), CSV, atau salin teksnya. Kunci jawaban, opsi, dan pembahasan tidak pernah dimasukkan. Bila saran AI tersedia, muncul analisis bab inti yang belum punya soal.
+
+Rilis: tempel `firestore.rules` terbaru di Firebase Console dan **Publish** (field `bab` baru), lalu deploy.
+
 ## Backup ke Google Drive
 
 Menu **Backup Drive** (editor dan admin) menyalin semua soal, termasuk draf, dan katalog kitab, mapel, serta tingkat ke satu berkas JSON di folder "LABSOUMA Backup" pada Google Drive akun yang dipilih di jendela izin. Gunakan akun Google madrasah, bukan akun pribadi.
@@ -242,6 +252,9 @@ public/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan uji
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
 src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
 src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)
+src/babService.js       saran bab penting (aksi bab di /api/assist): validasi, pencocokan daftar isi, alokasi soal
+src/aswaja.js            kerangka haluan Ahlussunnah wal Jamaah untuk prompt saran bab
+public/kisi.js           kisi-kisi dari soal: kelompok bab, cakupan, DOCX/CSV/teks (kode asli; src/kisi.js untuk server dan tes)
 src/cekButa.js           uji jawab buta oleh model penguji
 eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
 .github/workflows/       ci.yml (npm test) dan eval.yml (evaluasi manual)

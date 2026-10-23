@@ -57,8 +57,8 @@ export function bersihkanSoal(raw) {
   if (!VERIFIKASI.includes(verifikasi) || !BUTA.includes(buta)) throw bad('Jejak AI memuat nilai yang tidak dikenal.');
   const ai = { dibuat: sa.dibuat === true, model: teks(sa.model, 60, 'Model AI'), verifikasi, buta };
 
-  // Opsional (soal lama tidak punya): kelas dan kode periode ujian. Hanya ditulis bila terisi, supaya soal lama tetap sama persis.
-  const kelas = teks(raw.kelas, 20, 'Kelas'); const periode = teks(raw.periode, 20, 'Periode ujian');
+  // Opsional (soal lama tidak punya): kelas, kode periode ujian, dan bab kitab. Hanya ditulis bila terisi, supaya soal lama tetap sama persis.
+  const kelas = teks(raw.kelas, 20, 'Kelas'); const periode = teks(raw.periode, 20, 'Periode ujian'); const bab = teks(raw.bab, 120, 'Bab');
   const authorUid = teks(raw.authorUid, 128, 'ID penyusun');
   if (!authorUid) throw bad('ID penyusun kosong.');
   const data = {
@@ -73,6 +73,7 @@ export function bersihkanSoal(raw) {
   };
   if (kelas) data.kelas = kelas;
   if (periode) data.periode = periode;
+  if (bab) data.bab = bab;
   const reviewerUid = teks(raw.reviewerUid, 128, 'ID peninjau');
   if (reviewerUid) {
     data.reviewerUid = reviewerUid;

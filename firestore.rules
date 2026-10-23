@@ -35,6 +35,7 @@ service cloud.firestore {
           && d().mapel is string && d().mapel.size() <= 60
           && (!('kelas' in d()) || (d().kelas is string && d().kelas.size() <= 20))
           && (!('periode' in d()) || (d().periode is string && d().periode.size() <= 20))
+          && (!('bab' in d()) || (d().bab is string && d().bab.size() <= 120))
           && d().nama is string && d().nama.size() <= 120
           && d().juz is string && d().juz.size() <= 20
           && d().hal is string && d().hal.size() <= 20
@@ -89,8 +90,8 @@ service cloud.firestore {
         return ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                 'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai', 'updatedAt'];
       }
-      // Kelas dan kode periode ujian: OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap).
-      function opsiKeys() { return ['kelas', 'periode']; }
+      // Kelas, kode periode ujian, dan bab kitab (untuk kisi-kisi): OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap).
+      function opsiKeys() { return ['kelas', 'periode', 'bab']; }
       function reviewKeys() {
         return ['status', 'catatan', 'reviewerUid', 'reviewerName', 'reviewedAt', 'updatedAt'];
       }
@@ -134,7 +135,7 @@ service cloud.firestore {
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                               'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
-                              'reviewerUid', 'reviewerName', 'reviewedAt', 'kelas', 'periode'])
+                              'reviewerUid', 'reviewerName', 'reviewedAt', 'kelas', 'periode', 'bab'])
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']

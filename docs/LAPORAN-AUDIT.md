@@ -223,3 +223,34 @@ Urutan rilis: (1) tempel `firestore.rules` di Firebase Console dan **Publish**, 
 
 Diuji: logika murni (`public/ujian.js`), validasi dan pembersihan server (`sanitizeAppConfig`, penempatan, batas ukuran, konfigurasi lama), validasi cadangan, isi prompt AI, kesesuaian teks `firestore.rules`, dan sintaks JSX seluruh blok `text/babel` beserta pemeriksaan nama yang tidak terdefinisi.
 **Belum diuji:** tampilan dan interaksi di browser sungguhan (tidak ada browser atau React di sandbox), yaitu editor Sistem Ujian, matriks kelas dan ujian, pemulihan draf konfigurasi, filter, dan unduhan ekspor. Aturan Firestore diuji hanya lewat pencocokan teks, bukan di emulator. Cek sekali di browser: ubah nama ujian, petakan satu kitab ke dua kelas, simpan, muat ulang halaman, lalu susun satu soal dan ekspor CSV.
+
+## 14. Fitur: saran bab penting (AI, haluan Aswaja) dan kisi-kisi (23 Oktober 2026)
+
+### Temuan saat audit
+- `clean()` di `src/soalService.js` tidak membuang tag `</daftar_isi>`. Daftar isi tempelan bisa menyelipkan instruksi keluar dari blok data. Diperbaiki, diuji lewat unit dan handler.
+- `simpanBerkas` ternyata sudah dideklarasikan di bagian Pegonizer. Deklarasi ganda `const` pada satu blok Babel membuat seluruh aplikasi gagal dimuat. Tertangkap karena blok asli dijalankan di Node, bukan dari cek sintaks (cek sintaks lolos). Salinan dihapus.
+- Lebar kolom tabel DOCX kisi-kisi diabaikan LibreOffice (persentase pada sel). Diganti lebar tetap DXA dan tata letak tetap; hasilnya dilihat lewat render PDF.
+- Masih terbuka dari audit lama: tidak ada `package-lock.json`, CSP masih Report-Only dengan `unsafe-inline`/`unsafe-eval`, skrip CDN tanpa SRI.
+
+### Yang ditambahkan
+- Tab **Fokus Ujian & Kisi-kisi**. Aksi `bab` di `/api/assist` (`src/babService.js`, kerangka di `src/aswaja.js`): saran bab dengan prioritas inti/penting/pendukung, alokasi soal (dihitung server, jumlahnya tepat), penanda khilafiyah, dan catatan pendekatan.
+- Bila daftar isi ditempel, tiap bab dicocokkan ulang oleh server; bab di luar daftar isi ditandai. Tanpa daftar isi, hasil bertanda **perlu diverifikasi**. Nada teks bebas model diperiksa `periksaSikap` (hanya penanda).
+- Field opsional `bab` pada soal: form, chip, CSV RDM (kolom ditambah di akhir), cadangan, `firestore.rules`.
+- Kisi-kisi (`public/kisi.js`): DOCX guru, Lembar Fokus murid, gabungan, CSV, teks. Kunci, opsi, dan pembahasan tidak pernah ikut. Analisis cakupan terhadap saran AI.
+
+### Keputusan desain
+- Saran AI tidak disimpan setelah refresh (memakai kuota AI). Bab yang dipilih tersimpan pada soal.
+- Saran hanya dipakai untuk urutan dan analisis kisi-kisi bila untuk kitab yang sama dengan soal terpilih.
+- Tombol "Susun soal untuk bab ini": form kosong diisi (kitab, jenjang, bab); form berisi hanya kolom Bab yang diisi.
+- Nomor soal kisi-kisi mengikuti urutan soal terpilih; samakan filter dan pilihan dengan tab Export agar nomor cocok. Halaman yang tertulis adalah halaman sumber soal, bukan seluruh bab.
+
+### Cara memverifikasi
+```bash
+npm test     # 184 tes, semuanya lulus pada 23 Oktober 2026
+```
+Urutan rilis: (1) tempel `firestore.rules` di Firebase Console dan **Publish**, (2) deploy aplikasi.
+
+### Yang BELUM saya uji (jujur)
+Diuji: logika kisi-kisi dan saran bab, handler `/api/assist` aksi `bab` (sukses, validasi sebelum kuota, injeksi tag, peran pending, pengembalian kuota), render komponen baru dengan React 19 di Node, dan DOCX lewat render LibreOffice (kolom dan Lembar Fokus dilihat).
+**Belum diuji:** klik dan alur di browser sungguhan, panggilan Gemini nyata, DOCX dengan pustaka `docx` 8.5.0 dari CDN (tes memakai 9.x), dan aturan Firestore di emulator. Cek sekali: minta saran bab untuk satu kitab, klik "Susun soal untuk bab ini", simpan satu soal, lalu unduh Kisi-kisi + Lembar Fokus.
+

@@ -85,7 +85,7 @@ export const clean = (v, max) =>
   String(v ?? '')
     // buang karakter kontrol dan penutup tag pembatas agar tidak bisa "keluar" dari blok data
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .replace(/<\/?\s*(teks_kitab|soal_draft|metadata)\s*>/gi, '')
+    .replace(/<\/?\s*(teks_kitab|soal_draft|metadata|daftar_isi)\s*>/gi, '')
     .trim()
     .slice(0, max);
 
