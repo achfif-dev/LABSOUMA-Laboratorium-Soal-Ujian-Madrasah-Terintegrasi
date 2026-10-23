@@ -969,7 +969,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     r.readAsText(file, 'utf-8');
   };
   // Baca teks Arab dari foto halaman kitab fisik (OCR oleh AI). Hasil selalu perlu dikoreksi pengguna: harakat dan huruf bisa salah baca.
-  const fotoRef = useRef(null);
+  const fotoRef = useRef(null); const kameraRef = useRef(null);
   const [fotoBusy, setFotoBusy] = useState(false);
   const [fotoInfo, setFotoInfo] = useState(null); // { kualitas, ragu[], terpotong }
   const bacaFoto = async (file) => {
@@ -1130,8 +1130,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               <div className="flex flex-wrap gap-2 pt-1">
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fileRef.current && fileRef.current.click()}><FileText size={14} />Impor file .txt</Btn>
                 <input ref={fileRef} type="file" accept=".txt,.htm,.html,text/plain,text/html" className="hidden" aria-label="Impor file teks kitab" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
-                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fotoRef.current && fotoRef.current.click()} disabled={fotoBusy}>{fotoBusy ? <Loader2 size={14} className="spin" /> : <Camera size={14} />}{fotoBusy ? 'Membaca foto…' : 'Foto halaman kitab'}</Btn>
-                <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" className="hidden" aria-label="Foto halaman kitab" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => kameraRef.current && kameraRef.current.click()} disabled={fotoBusy}>{fotoBusy ? <Loader2 size={14} className="spin" /> : <Camera size={14} />}{fotoBusy ? 'Membaca foto…' : 'Foto kitab (kamera)'}</Btn>
+                <input ref={kameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Ambil foto halaman kitab dengan kamera" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fotoRef.current && fotoRef.current.click()} disabled={fotoBusy}><Upload size={14} />Foto dari penyimpanan</Btn>
+                <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" aria-label="Pilih foto halaman kitab dari penyimpanan" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={cleanText} disabled={!form.teks.trim()}>Bersihkan teks</Btn>
               </div>
               <p className="text-xs leading-relaxed text-mute">Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p>
