@@ -1,4 +1,4 @@
-# LABSOUMA: Laboratorium Soal Ujian Madrasah Terintegrasi (Vercel + Firebase Spark + Gemini gratis)
+# LABSOUMA: Laboratorium Soal Ujian Madrasah Terintegrasi (Vercel + Firebase Spark + Gemini gratis + Claude Ai (Wajib Tautkan Kredit/ Debit Card dan Deposit Min 5$))
 
 Susunan tanpa kartu kredit:
 
