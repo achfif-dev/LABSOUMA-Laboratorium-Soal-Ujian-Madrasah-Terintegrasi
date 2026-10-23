@@ -590,7 +590,7 @@ const ERR_TITLES = {
   AI_KEY_MISSING: 'Kunci API belum ada', AI_TEST_KEY: 'Kunci API ditolak', AI_MODEL_NOT_FOUND: 'Model tidak ditemukan', AI_TEST_REJECTED: 'Permintaan uji ditolak',
   AI_UNREACHABLE: 'Layanan AI tidak terjangkau', AI_REQUEST_REJECTED: 'Permintaan ke AI ditolak', SERVER_AUTH: 'Kunci API server ditolak',
   SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', CONFIG_READ_FAILED: 'Pengaturan tidak bisa dibaca', CONFIG_INVALID: 'Isian tidak valid',
-  BACKUP_INVALID: 'Cadangan tidak bisa dipakai', DRIVE_BELUM_DIATUR: 'Backup belum diatur', DRIVE_IZIN: 'Izin Google Drive diperlukan', DRIVE_TOKEN: 'Izin Google Drive berakhir',
+  BACKUP_INVALID: 'Cadangan tidak bisa dipakai', CONFIG_CONFLICT: 'Konfigurasi sudah diubah admin lain', RIWAYAT_INVALID: 'Permintaan tidak bisa diproses', RIWAYAT_NOT_FOUND: 'Cadangan tidak ditemukan', DRIVE_BELUM_DIATUR: 'Backup belum diatur', DRIVE_IZIN: 'Izin Google Drive diperlukan', DRIVE_TOKEN: 'Izin Google Drive berakhir',
   DRIVE_API_OFF: 'Google Drive API belum aktif', DRIVE_PENUH: 'Google Drive penuh', DRIVE_RATE: 'Terlalu banyak permintaan', DRIVE_DITOLAK: 'Google Drive menolak',
   DRIVE_TIDAK_ADA: 'Tidak ditemukan di Drive', DRIVE_VERIFIKASI: 'Cadangan gagal diverifikasi', DRIVE_ERROR: 'Galat Google Drive',
 };
@@ -1957,7 +1957,118 @@ function AiConfig({ toast }) {
         <Btn kind="soft" onClick={ujiAi} disabled={!!busy}>{busy === 'uji' ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}{dirty ? 'Uji isian ini (belum disimpan)' : 'Uji koneksi AI'}</Btn>
       </div>
       <p className="text-xs text-mute">Uji koneksi memakai satu permintaan dari kuota AI Anda dan boleh dijalankan sebelum menyimpan: kunci dan model yang baru diketik diuji tanpa disimpan. Bila gagal, pesan galat menyebut penyebabnya (kunci, model, kuota, atau jaringan). Kuota gratis Gemini berlaku per proyek Google, bukan per kunci: kunci kedua dari proyek yang sama tidak menambah kuota.</p>
+      <RiwayatCfg jenis="ai" versi={st} dirty={dirty} onRestored={terapkan} toast={toast} />
     </div>
+  );
+}
+
+/* ---------- Cadangan dan riwayat konfigurasi (admin): kembalikan ke setelan buatan madrasah, bukan bawaan aplikasi ---------- */
+const ALASAN_RIWAYAT = { 'sebelum-simpan': 'Sebelum disimpan', 'sebelum-reset': 'Sebelum "kembali ke bawaan"', 'sebelum-pulih': 'Sebelum pemulihan', titik: 'Titik pulih' };
+const tglWaktu = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }); };
+const barisPerubahan = (jenis, p) => {
+  if (!p) return [];
+  if (p.sama) return ['Sama persis dengan yang berlaku sekarang.'];
+  const out = [];
+  if (jenis === 'app') {
+    for (const [k, nama] of [['tingkat', 'Tingkat'], ['mapel', 'Mata pelajaran'], ['kitab', 'Kitab']]) {
+      const x = p[k]; const daftar = (a, n) => a.join(', ') + (n > a.length ? ` … (+${n - a.length})` : '');
+      if (x.jumlah.kembali) out.push(`${nama} yang akan muncul lagi (${x.jumlah.kembali}): ${daftar(x.kembali, x.jumlah.kembali)}`);
+      if (x.jumlah.hilang) out.push(`${nama} yang akan DIHAPUS karena tidak ada di cadangan (${x.jumlah.hilang}): ${daftar(x.hilang, x.jumlah.hilang)}`);
+      if (x.jumlah.beda) out.push(`${nama} yang isinya kembali ke versi cadangan (${x.jumlah.beda}): ${daftar(x.beda, x.jumlah.beda)}`);
+    }
+    if (p.sistemUjianBeda) out.push('Sistem ujian kembali ke versi cadangan.');
+  } else {
+    if (p.providerBeda) out.push(`Penyedia AI: ${p.provider.sekarang || '(dari environment)'} menjadi ${p.provider.cadangan || '(dari environment)'}`);
+    for (const m of p.model) out.push(`Model ${m.provider}: "${m.sekarang || 'bawaan'}" menjadi "${m.cadangan || 'bawaan'}"`);
+  }
+  return out;
+};
+function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
+  const label = jenis === 'app' ? 'konfigurasi' : 'pengaturan AI';
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [nama, setNama] = useState('');
+  const [lihat, setLihat] = useState(null);
+  const muat = async () => {
+    try { const r = await callApi('/api/config-backup', { aksi: 'daftar', jenis }); setList(r.riwayat); setErr(null); }
+    catch (e) { setErr(apiErr(e)); setList((x) => x || []); }
+  };
+  useEffect(() => { muat(); }, [versi]); // versi berubah (disimpan, dikembalikan ke bawaan, atau dipulihkan): daftar riwayat ikut disegarkan
+  const jalan = async (kunci, fn) => { setBusy(kunci); setErr(null); try { await fn(); } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); } };
+  const tandai = () => jalan('titik', async () => {
+    await callApi('/api/config-backup', { aksi: 'titik', jenis, nama });
+    setNama(''); toast(`Titik pulih disimpan dari ${label} yang tersimpan di server.`); await muat();
+  });
+  const bukaLihat = (r) => {
+    if (lihat && lihat.id === r.id) { setLihat(null); return; }
+    jalan('lihat-' + r.id, async () => { setLihat({ id: r.id, ...(await callApi('/api/config-backup', { aksi: 'lihat', jenis, id: r.id })) }); });
+  };
+  const pulihkan = (r) => {
+    const judul = r.tipe === 'titik' ? `titik pulih "${r.nama}"` : `cadangan ${tglWaktu(r.dibuatAt)}`;
+    if (!window.confirm(`Pulihkan ${label} ke ${judul}?\n\nKeadaan yang berlaku sekarang disimpan dulu sebagai cadangan, jadi pemulihan ini masih bisa dibatalkan.${dirty ? '\n\nPerubahan di layar yang belum disimpan akan dibuang.' : ''}${jenis === 'ai' ? '\n\nKunci API tidak ikut berubah (kunci tidak pernah dicadangkan).' : ''}`)) return;
+    jalan('pulih-' + r.id, async () => { onRestored(await callApi('/api/config-backup', { aksi: 'pulihkan', jenis, id: r.id })); setLihat(null); toast(`${label[0].toUpperCase() + label.slice(1)} dipulihkan.`); });
+  };
+  const hapus = (r) => {
+    if (!window.confirm(`Hapus titik pulih "${r.nama}"? Ini tidak bisa dibatalkan.`)) return;
+    jalan('hapus-' + r.id, async () => { await callApi('/api/config-backup', { aksi: 'hapus', jenis, id: r.id }); if (lihat && lihat.id === r.id) setLihat(null); toast('Titik pulih dihapus.'); await muat(); });
+  };
+  const titik = (list || []).filter((r) => r.tipe === 'titik'); const otomatis = (list || []).filter((r) => r.tipe !== 'titik');
+  const ringkasan = (r) => (jenis === 'app'
+    ? `${r.ringkas.tingkat} tingkat, ${r.ringkas.mapel} mapel, ${r.ringkas.kitab} kitab${r.ringkas.penempatan ? `, ${r.ringkas.penempatan} pemetaan kelas` : ''}`
+    : `${r.ringkas.provider || 'penyedia dari environment'}${Object.entries(r.ringkas.models || {}).map(([k, v]) => ` · ${k}: ${v}`).join('')}`);
+  const baris = (r) => (
+    <li key={r.id} className="space-y-2 rounded-xl border border-line bg-bg p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 text-sm">
+          <p className="font-semibold">{r.tipe === 'titik' ? r.nama : (ALASAN_RIWAYAT[r.alasan] || 'Cadangan otomatis')}</p>
+          <p className="text-xs text-mute">Dicadangkan {tglWaktu(r.dibuatAt)}{r.dibuatOleh ? ` oleh ${r.dibuatOleh}` : ''}</p>
+          {r.sumberAt && <p className="text-xs text-mute">Isinya disimpan {tglWaktu(r.sumberAt)}{r.sumberOleh ? ` oleh ${r.sumberOleh}` : ''}</p>}
+          <p className="mt-1 text-xs text-soft-ink">{ringkasan(r)}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => bukaLihat(r)} disabled={!!busy}>{busy === 'lihat-' + r.id ? <Loader2 size={14} className="spin" /> : null}{lihat && lihat.id === r.id ? 'Tutup' : 'Lihat perubahan'}</Btn>
+          <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => pulihkan(r)} disabled={!!busy}>{busy === 'pulih-' + r.id ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}Pulihkan</Btn>
+          {r.tipe === 'titik' && <button type="button" aria-label={'Hapus titik pulih ' + r.nama} className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={!!busy} onClick={() => hapus(r)}><Trash2 size={15} /></button>}
+        </div>
+      </div>
+      {lihat && lihat.id === r.id && (
+        <div className="rounded-lg bg-soft p-2.5 text-xs leading-relaxed text-soft-ink">
+          <p className="font-semibold">Bila dipulihkan, dibandingkan dengan yang berlaku sekarang:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">{barisPerubahan(jenis, lihat.perubahan).map((b, i) => <li key={i} className="break-words">{b}</li>)}</ul>
+          {!lihat.dapatDipulihkan && <p className="mt-1 font-semibold text-bad">Cadangan ini tidak lagi lolos pemeriksaan dan tidak bisa dipulihkan: {lihat.alasanTolak}</p>}
+        </div>
+      )}
+    </li>
+  );
+  return (
+    <Section title="Cadangan & Riwayat" icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
+      <div className="space-y-4">
+        <p className="text-xs leading-relaxed text-mute">
+          Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal 30 terakhir). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
+          {jenis === 'ai' && ' Kunci API tidak pernah ikut dicadangkan; bila terhapus, tempel ulang kuncinya.'}
+        </p>
+        <div className="rounded-xl border border-dashed border-line p-3">
+          <Label htmlFor={'titik-' + jenis} hint="(dari yang tersimpan di server sekarang; tidak ikut terhapus otomatis)">Tandai setelan yang sudah benar sebagai titik pulih</Label>
+          <div className="flex flex-wrap gap-2">
+            <input id={'titik-' + jenis} className="field min-w-[200px] flex-1" maxLength={80} placeholder="mis. Setelan awal tahun ajaran 2026/2027" value={nama} onChange={(e) => setNama(e.target.value)} />
+            <Btn kind="primary" onClick={tandai} disabled={!!busy || !nama.trim()}>{busy === 'titik' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan titik pulih</Btn>
+          </div>
+          {dirty && <p className="mt-1 text-xs text-warn">Ada perubahan di layar yang belum disimpan; yang ditandai adalah versi yang sudah tersimpan di server.</p>}
+        </div>
+        {err && <ErrorBox e={err} />}
+        {!list ? <div className="flex justify-center py-6 text-mute"><Loader2 className="spin" /></div> : (
+          <>
+            <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Titik pulih ({titik.length})</h3>
+              {titik.length ? <ul className="space-y-2">{titik.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Tandai setelan yang sudah benar agar mudah dikembalikan.</p>}
+            </div>
+            <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Cadangan otomatis ({otomatis.length})</h3>
+              {otomatis.length ? <ul className="space-y-2">{otomatis.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Cadangan pertama dibuat saat {label} yang sudah tersimpan diubah.</p>}
+            </div>
+          </>
+        )}
+      </div>
+    </Section>
   );
 }
 
@@ -1977,7 +2088,7 @@ const AktifCek = ({ checked, onChange }) => (
     <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />Aktif
   </label>
 );
-function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
+function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
   const seq = useRef(0);
   const bubuhId = (c) => ({
     sistemUjian: Uj.daftarSistem(c).map((x) => ({ ...x, periode: x.periode.map((p) => ({ ...p, _k: ++seq.current })), _k: ++seq.current })),
@@ -2158,15 +2269,17 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
   const simpan = async () => {
     if (tanpaNama) { setErr({ message: 'Ada tingkat baru yang belum diberi kunci (nama). Isi atau hapus dulu.' }); return; }
     setBusy('simpan'); setErr(null);
-    try { const r = await callApi('/api/app-config', { aksi: 'simpan', config: susun() }); onSaved(r); toast('Konfigurasi disimpan.'); }
+    try { const r = await callApi('/api/app-config', { aksi: 'simpan', config: susun(), basisAt: diubahAt || null }); onSaved(r); toast('Konfigurasi disimpan. Versi sebelumnya masuk ke Riwayat.'); }
     catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
   const pulihkan = async () => {
-    if (!window.confirm('Pulihkan tingkatan, kelas, sistem ujian, mata pelajaran, dan katalog kitab (termasuk pemetaan kelas) ke bawaan aplikasi? Perubahan Anda akan hilang. Soal yang sudah tersimpan tidak terpengaruh.')) return;
+    if (!window.confirm('Kembalikan ke BAWAAN APLIKASI?\n\nIni BUKAN urungkan: tingkatan, kelas, sistem ujian, mapel, kitab, dan pemetaan kelas buatan madrasah diganti daftar bawaan aplikasi.\n\nSalinan keadaan sekarang tetap disimpan di bagian Cadangan & Riwayat di bawah dan bisa dipulihkan dari sana. Soal yang sudah tersimpan tidak terpengaruh.')) return;
     setBusy('reset'); setErr(null);
-    try { const r = await callApi('/api/app-config', { aksi: 'reset' }); onSaved(r); toast('Konfigurasi dipulihkan ke bawaan.'); }
+    try { const r = await callApi('/api/app-config', { aksi: 'reset' }); onSaved(r); toast('Konfigurasi dikembalikan ke bawaan aplikasi. Setelan sebelumnya ada di Cadangan & Riwayat.'); }
     catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
+
+  const unduhCfg = () => simpanBerkas(`konfigurasi-labsouma-${new Date().toISOString().slice(0, 10)}.json`, new Blob([JSON.stringify({ konfigurasi: cfg }, null, 2)], { type: 'application/json' }));
 
   const q = cari.trim().toLowerCase();
   const kitabTampil = d.kitab.filter((b) => !q || b.nama.toLowerCase().includes(q) || (b.namaArab || '').includes(cari.trim()) || (b.pengarang || '').toLowerCase().includes(q) || (b.mapel || '').toLowerCase().includes(q));
@@ -2365,8 +2478,11 @@ function AppCfgAdmin({ cfg, kustom, onSaved, toast }) {
       <div className="flex flex-wrap gap-2">
         <Btn kind="primary" onClick={simpan} disabled={!!busy || !dirty}>{busy === 'simpan' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan konfigurasi</Btn>
         <Btn kind="ghost" onClick={() => { setD(bubuhId(cfg)); setErr(null); }} disabled={!!busy || !dirty}>Batalkan perubahan</Btn>
-        <Btn kind="danger" onClick={pulihkan} disabled={!!busy || !kustom}>{busy === 'reset' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Pulihkan bawaan</Btn>
+        <Btn kind="danger" onClick={pulihkan} disabled={!!busy || !kustom}>{busy === 'reset' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Kembali ke bawaan aplikasi</Btn>
+        <Btn kind="ghost" onClick={unduhCfg} disabled={!kustom}><Download size={16} />Unduh konfigurasi (.json)</Btn>
       </div>
+
+      <RiwayatCfg jenis="app" versi={diubahAt || null} dirty={dirty} onRestored={onSaved} toast={toast} />
     </div>
   );
 }
@@ -2811,7 +2927,7 @@ function App({ user, profile }) {
   const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
   const [cfgInfo, setCfgInfo] = useState({ kustom: false });
   const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
-  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom }); setCfgReady(true); };
+  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
   useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
   const [qs, setQs] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -3022,7 +3138,7 @@ function App({ user, profile }) {
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
-        {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </SaranCtx.Provider>
         </KamusCtx.Provider>

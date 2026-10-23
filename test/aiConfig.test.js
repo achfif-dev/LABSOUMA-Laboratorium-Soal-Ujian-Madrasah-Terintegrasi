@@ -9,22 +9,18 @@ import { __setFirebaseForTest, authenticateAdmin } from '../src/platform.js';
 import { setRuntimeAi, getModel, provider, getClient, MODEL_PRESETS } from '../src/soalService.js';
 import aiConfigHandler from '../api/ai-config.js';
 
+import { fakeDb } from './_fakeDb.js';
 const KEY32 = randomBytes(32);
 const KUNCI_GEMINI = 'AIzaSyFAKEFAKEFAKEFAKEFAKE1234567890';
 const KUNCI_CLAUDE = 'sk-ant-api03-FAKEFAKEFAKEFAKEFAKE-9876';
 
 function fakeFirebase({ users = {}, tokens = {}, store = {} } = {}) {
-  const data = { ...Object.fromEntries(Object.entries(users).map(([k, v]) => [`users/${k}`, v])), ...store };
-  const ref = (path) => ({
-    path,
-    get: async () => ({ exists: path in data, data: () => data[path] }),
-    set: async (v) => { data[path] = JSON.parse(JSON.stringify(v)); },
-  });
+  const db = fakeDb({ ...Object.fromEntries(Object.entries(users).map(([k, v]) => [`users/${k}`, v])), ...store });
   return {
-    data,
+    data: db.data,
     auth: { verifyIdToken: async (t) => { if (!tokens[t]) throw new Error('bad'); return tokens[t]; } },
     FieldValue: { serverTimestamp: () => 'TS' },
-    db: { doc: ref, runTransaction: async (fn) => fn({ get: async (r) => r.get(), set: (r, v) => { data[r.path] = v; }, update() {} }) },
+    db,
   };
 }
 const withEnv = async (vars, fn) => {

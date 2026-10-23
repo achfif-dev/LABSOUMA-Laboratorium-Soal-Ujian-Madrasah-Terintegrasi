@@ -13,6 +13,7 @@ import { ApiError, cleanLine, daftarkanTingkat } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { DEFAULT_HOSTS, hostAllowed, normalisasiUrl } from './kitabFetch.js';
 import { BATAS_UJIAN, KODE_OK, DEFAULT_SISTEM_UJIAN } from './ujian.js';
+import { siapkanRiwayat, pangkasRiwayat, bacaRiwayat, bandingkan } from './configBackup.js';
 
 export const TINGKAT_NAMA = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah']; // kunci tingkat bawaan (dipakai soal lama)
 const DOC = 'config/app';
@@ -347,18 +348,57 @@ export async function muatTingkatKustom() {
   daftarkanTingkat(config.tingkat.filter((t) => t.aktif));
 }
 
-export async function simpanApp(user, body, { now = () => new Date().toISOString() } = {}) {
-  const cfg = sanitizeAppConfig(body && body.config);
+/**
+ * Semua perubahan config/app lewat sini: baca keadaan sekarang, cadangkan, lalu tulis, dalam SATU transaksi.
+ * `ubah(cur)` mengembalikan { tulis: dokumenBaru } atau { hapus: true }. Cadangan gagal -> perubahan ikut batal (tidak ada perubahan tanpa cadangan).
+ * `basisAt` (opsional): updatedAt yang dilihat klien saat membuka editor; bila sudah berbeda, ada admin lain yang menyimpan lebih dulu -> 409.
+ */
+async function ubahDenganCadangan(user, alasan, ubah, { now = () => new Date().toISOString(), basisAt } = {}) {
   const { db } = await firestoreAdmin();
-  await db.doc(DOC).set({ cfg, updatedBy: user.email || user.uid, updatedAt: now() });
+  const ref = db.doc(DOC);
+  const oleh = user.email || user.uid; const waktu = now();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? snap.data() : null;
+    if (basisAt !== undefined && (basisAt || null) !== ((cur && cur.updatedAt) || null)) {
+      throw new ApiError(409, 'CONFIG_CONFLICT', `Konfigurasi sudah diubah${cur && cur.updatedBy ? ` oleh ${cur.updatedBy}` : ''} sejak Anda membukanya. Muat ulang halaman agar tidak menimpa pekerjaan itu; perubahan Anda di layar belum disimpan.`);
+    }
+    const cad = await siapkanRiwayat(db, { jenis: 'app', alasan, docSaatIni: cur, oleh, now: waktu });
+    const aksi = ubah(cur, { oleh, waktu });
+    if (cad) tx.set(cad.ref, cad.doc);
+    if (aksi.hapus) { if (snap.exists) tx.delete(ref); } else tx.set(ref, aksi.tulis);
+  });
+  await pangkasRiwayat('app');
   invalidateAppConfig();
   return bacaAplikasi();
 }
 
-/** Pulihkan ke bawaan kode: menghapus dokumen config/app. */
-export async function resetApp() {
+export async function simpanApp(user, body, opts = {}) {
+  const cfg = sanitizeAppConfig(body && body.config);
+  const basisAt = body && Object.hasOwn(body, 'basisAt') && (body.basisAt === null || typeof body.basisAt === 'string') ? body.basisAt : undefined;
+  return ubahDenganCadangan(user, 'sebelum-simpan', (_cur, { oleh, waktu }) => ({ tulis: { cfg, updatedBy: oleh, updatedAt: waktu } }), { ...opts, basisAt });
+}
+
+/** Pulihkan ke BAWAAN KODE: menghapus config/app. Keadaan sebelumnya dicadangkan lebih dulu, jadi masih bisa dikembalikan dari riwayat. */
+export async function resetApp(user = { uid: 'sistem' }, opts = {}) {
+  return ubahDenganCadangan(user, 'sebelum-reset', () => ({ hapus: true }), opts);
+}
+
+/** Kembalikan konfigurasi dari cadangan (otomatis atau titik pulih). Isinya divalidasi ulang; keadaan sekarang dicadangkan lebih dulu. */
+export async function pulihkanApp(user, id, opts = {}) {
+  const r = await bacaRiwayat('app', id);
+  const cfg = sanitizeAppConfig(r.data); // cadangan lama tetap diperiksa terhadap aturan sekarang
+  return ubahDenganCadangan(user, 'sebelum-pulih', (_cur, { oleh, waktu }) => ({ tulis: { cfg, updatedBy: oleh, updatedAt: waktu, dipulihkanDari: r.id } }), opts);
+}
+
+/** Ringkasan perubahan bila cadangan ini dipulihkan, dibandingkan dengan konfigurasi yang berlaku sekarang. */
+export async function lihatApp(id) {
+  const r = await bacaRiwayat('app', id);
   const { db } = await firestoreAdmin();
-  await db.doc(DOC).delete();
-  invalidateAppConfig();
-  return bacaAplikasi();
+  const s = await db.doc(DOC).get();
+  const sekarang = resolveAppConfig(s.exists ? s.data() : null);
+  let cadangan; let dapatDipulihkan = true; let alasanTolak = '';
+  try { cadangan = sanitizeAppConfig(r.data); } catch (e) { cadangan = r.data; dapatDipulihkan = false; alasanTolak = e.message; }
+  const { data: _d, ...meta } = r;
+  return { meta, dapatDipulihkan, alasanTolak, perubahan: bandingkan('app', cadangan, sekarang) };
 }

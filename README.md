@@ -150,6 +150,22 @@ Disimpan di Firestore `config/app` (klien tidak boleh mengaksesnya; lewat `/api/
 Bila belum pernah diubah, aplikasi memakai `DEFAULT_APP_CONFIG` di `src/appConfig.js`. Daftar kitab bawaan hanyalah usulan awal: tinjau
 pengarang dan pembagian tingkatnya bersama guru mapel. Mengganti nama mapel tidak mengubah soal lama; soal lama tetap tampil di filter dengan nama lamanya.
 
+### Cadangan dan riwayat konfigurasi (anti salah ubah)
+
+Agar kesalahan admin (menimpa, salah hapus tingkat atau kitab, salah menekan **Kembali ke bawaan aplikasi**) bisa dikembalikan ke **setelan buatan madrasah**, bukan ke bawaan aplikasi, tab **Konfigurasi** dan **Pengaturan AI** punya bagian **Cadangan & Riwayat**:
+
+- **Otomatis.** Setiap Simpan, Kembali ke bawaan, atau Pulihkan lebih dulu mencadangkan keadaan *sebelumnya*, dalam transaksi Firestore yang sama dengan perubahannya. Bila cadangan gagal ditulis, perubahan ikut batal. 30 cadangan otomatis terakhir disimpan; yang lebih tua dipangkas. Salinan kembar tidak ditumpuk.
+- **Titik pulih.** Tandai setelan yang sudah benar dengan nama (mis. "Setelan awal tahun ajaran 2026/2027"). Titik pulih tidak pernah dipangkas otomatis (maks. 20, hanya titik pulih yang bisa dihapus manual).
+- **Lihat perubahan, lalu Pulihkan.** Sebelum memulihkan, tombol *Lihat perubahan* menunjukkan apa yang akan muncul lagi, apa yang akan terhapus, dan apa yang isinya berubah. Pemulihan juga dicadangkan lebih dulu, jadi salah pilih cadangan bisa dibatalkan. Isi cadangan diperiksa ulang dengan aturan validasi yang berlaku sekarang.
+- **Bentrok antar admin.** Editor mengirim waktu simpan terakhir yang dilihatnya; bila admin lain sudah menyimpan lebih dulu, simpan ditolak dengan pesan jelas (HTTP 409) dan pekerjaan admin lain tidak tertimpa.
+- **Unduh .json.** Tombol *Unduh konfigurasi (.json)* menyimpan salinan konfigurasi di komputer Anda (alat bantu luar-aplikasi; pemulihan lewat menu ini memakai riwayat di server, atau cadangan Google Drive).
+- **Pengaturan AI:** yang dicadangkan hanya penyedia dan model. **Kunci API tidak pernah ikut dicadangkan** (rahasia hanya hidup di `config/ai`). Bila kunci terhapus, tempel ulang.
+- **Bukan pengganti cadangan data.** Cakupannya konfigurasi (`config/app`, `config/ai`). Soal dicadangkan lewat *Backup ke Google Drive*. Konfigurasi juga ikut di cadangan Drive.
+
+Disimpan di koleksi Firestore `configRiwayatApp` dan `configRiwayatAi` (tertutup untuk klien; hanya `/api/config-backup`, khusus admin). **Urutan rilis:** Publish `firestore.rules` terbaru, lalu deploy. Tanpa publish, aplikasi tetap jalan (Admin SDK tidak terikat aturan), tetapi koleksi riwayat hanya terlindungi oleh penolakan bawaan Firestore.
+
+Bila **semua** admin terkunci (mis. peran dinonaktifkan keliru), pulihkan lewat Firebase Console: Firestore > `users/{uid}` > ubah field `role` menjadi `admin`. `ADMIN_EMAILS` hanya mengangkat akun yang masih `pending`.
+
 ## Mengganti penyedia AI lewat environment variable
 
 - Gemini (bawaan): `AI_PROVIDER=gemini`, `GEMINI_API_KEY=...`, model bawaan `gemini-3.8-flash`.
@@ -258,7 +274,7 @@ Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mism
 ```
 public/index.html        frontend React (satu file)
 public/drive.js          cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
-api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, backup
+api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup
 src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
 src/gemini.js            adapter Gemini (tanpa dependensi)
 src/soalService.js       validasi, system prompt, pemilihan penyedia AI
@@ -268,6 +284,7 @@ src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
 src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
 src/appConfig.js         konfigurasi aplikasi: tingkatan, kelas, sistem ujian, mata pelajaran, katalog kitab (dan pemetaannya)
 public/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
+src/configBackup.js      cadangan dan riwayat konfigurasi (otomatis, titik pulih, perbandingan, pangkas)
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
 src/kutipan.js           pemeriksa kutipan Arab (kode asli: public/kutipan.js)
 src/sikap.js             pemeriksa nada soal (kode asli: public/sikap.js)

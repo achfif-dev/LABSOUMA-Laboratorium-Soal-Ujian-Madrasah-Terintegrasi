@@ -83,11 +83,20 @@ export function daftarkanTingkat(list) {
 export const resolveTingkat = (raw) => { const k = String(raw || '').trim().toLowerCase(); return TINGKAT[k] || tingkatKustom.get(k); };
 export const LEVEL = { l1: 'L1', l2: 'L2', l3: 'L3', hots: 'L3' };
 
+const TAG_PEMBATAS = /<\/?\s*(teks_kitab|soal_draft|metadata|daftar_isi)\s*>/gi;
+/** Buang tag pembatas sampai tuntas. Satu kali replace tidak cukup: "<</teks_kitab>/teks_kitab>" menyisakan "</teks_kitab>" setelah satu putaran. */
+const buangPembatas = (t) => {
+  let x = t;
+  for (let i = 0; i < 20; i++) { const y = x.replace(TAG_PEMBATAS, ''); if (y === x) return x; x = y; }
+  return x.replace(/</g, ''); // sarang tak wajar (lebih dari 20 lapis): buang semua "<" daripada meloloskan tag
+};
+
 export const clean = (v, max) =>
-  String(v ?? '')
-    // buang karakter kontrol dan penutup tag pembatas agar tidak bisa "keluar" dari blok data
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .replace(/<\/?\s*(teks_kitab|soal_draft|metadata|daftar_isi)\s*>/gi, '')
+  buangPembatas(
+    String(v ?? '')
+      // buang karakter kontrol dan penutup tag pembatas agar tidak bisa "keluar" dari blok data
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ''),
+  )
     .trim()
     .slice(0, max);
 

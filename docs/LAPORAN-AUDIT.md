@@ -289,3 +289,48 @@ Diuji: logika kisi-kisi dan saran bab, handler `/api/assist` aksi `bab` (sukses,
 Diuji: logika bentuk, validasi, prompt dan skema per bentuk dengan klien AI palsu, handler `/api/generate`, cadangan, aturan Firestore (hanya pencocokan teks), kisi-kisi, seluruh pembuat ekspor, dan sintaks JSX `index.html` (Babel).
 **Belum diuji:** tampilan dan interaksi form di browser sungguhan (tidak ada browser di sandbox), mutu soal dari model nyata untuk tiap bentuk, impor GIFT/Moodle XML di Moodle sungguhan untuk benar-salah, isian, uraian, DOCX dengan `docx` 8.5.0 dari CDN (tes memakai 9.6.1), dan aturan Firestore di emulator.
 
+
+## 15. Audit menyeluruh dan fitur cadangan konfigurasi (23 Oktober 2026)
+
+Cakupan: seluruh kode server (`src/`, `api/`), aturan Firestore, konfigurasi penerapan (`vercel.json`, CI), klien (`public/index.html`, `public/*.js`) khususnya jalur konfigurasi, pengaturan AI, dan titik penyuntikan HTML. Dibaca langsung dari kode; tes dijalankan ulang.
+
+### Temuan
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| H1 | **Tinggi (operasional)** | **"Pulihkan bawaan" menghapus `config/app` secara permanen**, dan setiap Simpan menimpa tanpa jejak. Satu salah klik admin menghapus semua tingkatan, kelas, sistem ujian, mapel, kitab, dan pemetaan kelas buatan madrasah, tanpa jalan kembali (yang tersisa hanya bawaan kode). Hal yang sama untuk model/penyedia AI di `config/ai`. | **Diperbaiki:** cadangan otomatis atomik sebelum setiap perubahan, titik pulih bernama, pratinjau perubahan, pemulihan yang juga dapat dibatalkan (`src/configBackup.js`, `api/config-backup.js`, bagian "Cadangan & Riwayat" di UI). |
+| H2 | Sedang | **Dua admin menyimpan bersamaan: yang terakhir menimpa tanpa peringatan** (editor membaca konfigurasi sekali saat dibuka). | **Diperbaiki:** `basisAt`; bila sudah ada simpanan lain, ditolak 409 dengan nama admin yang menyimpan. Klien lama tanpa `basisAt` tetap diterima (kompatibel). |
+| H3 | Sedang | **`clean()` bisa dilewati tag pembatas bersarang.** Penghapusan `</teks_kitab>` hanya satu putaran: `<</teks_kitab>/teks_kitab>` menjadi `</teks_kitab>`. Pengguna (atau teks tempelan) bisa keluar dari blok data prompt AI dan menyelipkan instruksi. Dampak terbatas (pengguna sudah login, keluaran AI ditinjau editor), tetapi pertahanannya tidak berfungsi seperti yang dimaksudkan. | **Diperbaiki:** pembersihan diulang sampai stabil, dengan pengaman untuk sarang yang sangat dalam. Tes regresi ditambah (diverifikasi gagal pada kode lama). |
+| H4 | Rendah | `/api/session` membuat profil `pending` untuk akun Google mana pun yang emailnya terverifikasi bila `ALLOWED_EMAIL_DOMAIN` kosong (bawaan). Tanpa batas laju, koleksi `users` bisa dibanjiri akun asing. Mereka tetap tidak punya akses (`pending`). | **Belum diubah.** Isi `ALLOWED_EMAIL_DOMAIN` bila madrasah memakai domain email sendiri; bila tidak, pertimbangkan batas laju per IP. |
+| H5 | Rendah | Perbedaan dokumentasi: kode mengizinkan `ketabonline.com` (`DEFAULT_HOSTS`), tetapi README dan `.env.example` hanya menyebut lima situs. Bila `KITAB_ALLOWED_HOSTS` diisi, tautan kitab yang lolos validasi Konfigurasi (memakai `DEFAULT_HOSTS`) bisa ditolak saat diambil (memakai env). | Belum diubah; samakan dokumentasinya. |
+| H6 | Rendah | Aturan Firestore: `ai.verifikasi` dan `ai.buta` pada soal dihitung klien, jadi penyusun yang sengaja curang dapat menulis "lolos/sepakat" sendiri dan menghindari gerbang alasan override. Sudah tercatat sebagai batasan di komentar aturan. | Diterima sebagai keputusan desain (jejak audit, bukan jaminan keamanan). |
+| H7 | Rendah | Tidak ada jalur pemulihan bila semua admin dinonaktifkan (`ADMIN_EMAILS` hanya mengangkat akun `pending`). | Didokumentasikan: perbaiki `users/{uid}.role` di Firebase Console (README). |
+| H8 | Sedang (sudah dicatat) | CSP masih *Report-Only* dengan `unsafe-inline` dan `unsafe-eval`; tujuh skrip CDN tanpa `integrity` (Babel-standalone dan Tailwind CDN dijalankan di browser produksi). | Belum diubah (B2, B3). Akar masalahnya sama: butuh langkah build (Vite). |
+| H9 | Info | `enablePersistence` Firestore menyimpan salinan soal di IndexedDB perangkat dan tidak dihapus saat Keluar. Di komputer bersama, data soal tertinggal di profil browser. | Belum diubah; pertimbangkan `clearPersistence()` saat Keluar. |
+| H10 | Info | Nama paket di `package.json` masih `bank-soal-madrasah`. | Kosmetik. |
+
+Yang diperiksa dan **baik**: `kitabFetch` (daftar host, `redirect: 'manual'` dengan pemeriksaan ulang tiap lompatan, batas ukuran dan waktu, pembersih HTML linear); `dangerouslySetInnerHTML` hanya menerima keluaran Pegon yang di-escape (`escapeHtml`); kunci Gemini dikirim lewat header, bukan URL; kunci API terenkripsi AES-256-GCM dengan AAD dan tidak pernah dikirim ke browser; validasi foto Pegon; peran dan kuota (per pengguna dan plafon harian, dengan pengembalian saat gagal di sisi server); `config/*` tertutup untuk klien; `npm audit` tidak bisa dijalankan di sandbox (tanpa registry), jalankan di CI.
+
+### Fitur: cadangan dan riwayat konfigurasi
+
+Lihat README bagian "Cadangan dan riwayat konfigurasi". Ringkasnya:
+
+- Koleksi `configRiwayatApp` dan `configRiwayatAi` (tertutup untuk klien, ditulis eksplisit di `firestore.rules`). Satu dokumen per cadangan: `tipe` (otomatis/titik), `alasan`, `data`, ringkasan, siapa yang menyimpan isinya dan siapa yang mencadangkan.
+- Penulisan cadangan dan perubahan dalam **satu transaksi**: tidak ada perubahan tanpa cadangan; cadangan gagal berarti perubahan batal.
+- Cadangan otomatis dibatasi 30, titik pulih 20 (tidak dipangkas). Salinan kembar tidak ditumpuk. Daftar dibaca dengan `select()` supaya tidak menarik isi besar (sampai 800 KB per dokumen).
+- Cadangan AI tidak memuat kunci API maupun ciphertext-nya.
+- Pemulihan memeriksa ulang cadangan dengan `sanitizeAppConfig` yang berlaku sekarang; cadangan yang tak lagi sah ditolak dan tidak mengubah apa pun.
+
+### Pengujian
+
+- `test/configBackup.test.js` (13 tes) dan `test/_fakeDb.js` (Firestore tiruan dengan transaksi atomik: gagal = tidak ada yang tertulis). Tes diuji dengan **mutasi** (mematikan penulisan cadangan, mematikan cek `basisAt`, memasukkan ciphertext ke cadangan AI): masing-masing membuat tes gagal. Fake Firestore pada `appConfig.test.js` dan `aiConfig.test.js` diganti dengan yang sama.
+- Uji di Chromium sungguhan: halaman asli `public/index.html` (JSX dikompilasi esbuild, React lokal, Firebase ditiru) melawan **handler API asli**. 19 pemeriksaan: simpan dua kali (cadangan muncul), "Kembali ke bawaan" (editor kembali ke bawaan), lihat perubahan, pulihkan (setelan madrasah kembali persis), titik pulih, bentrok admin (409 dan pekerjaan admin lain selamat), Pengaturan AI (model salah ketik dikembalikan, kunci tetap, tidak ada kunci di cadangan), tanpa galat konsol. Uji ini menemukan satu bug pada UI baru (daftar riwayat tidak menyegarkan setelah Simpan); sudah diperbaiki.
+- Seluruh suite: 221 tes (219 lulus; 1 berkas gagal dan 1 tes dilewati hanya karena paket tidak terpasang di sandbox). Satu berkas (`bentukUi.test.js`) dan satu tes DOCX tidak bisa jalan di sandbox karena paket `docx`/`jszip` tidak dapat dipasang (tanpa registry npm); di CI dengan `npm ci` keduanya jalan.
+
+### Yang BELUM saya uji (jujur)
+
+Firestore dan Firebase sungguhan (transaksi, `select()`, urutan `orderBy` pada string ISO, dan aturan `firestore.rules` di emulator; hanya pencocokan teks), tampilan dengan gaya Tailwind (CDN tidak tersedia di sandbox, jadi uji browser berjalan tanpa gaya: fungsi diuji, tampilan visual tidak), Safari/iOS, dan DOCX dengan `docx` 8.5.0 dari CDN. Setelah deploy: buka Konfigurasi, ubah satu nama mapel, simpan dua kali, tekan **Kembali ke bawaan aplikasi**, lalu pulihkan dari daftar dan pastikan setelan Anda kembali.
+
+### Urutan rilis
+
+1. Tempel `firestore.rules` di Firebase Console dan **Publish**. 2. Deploy aplikasi. 3. Buka Konfigurasi, periksa bagian "Cadangan & Riwayat", dan tandai setelan yang sekarang berlaku sebagai **titik pulih** pertama.

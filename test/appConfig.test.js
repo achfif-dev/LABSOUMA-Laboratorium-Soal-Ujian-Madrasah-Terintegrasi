@@ -3,16 +3,11 @@ import assert from 'node:assert/strict';
 import { DEFAULT_APP_CONFIG, sanitizeAppConfig, resolveAppConfig, bacaAplikasi, simpanApp, resetApp, invalidateAppConfig, TINGKAT_NAMA } from '../src/appConfig.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import appConfigHandler from '../api/app-config.js';
+import { fakeDb } from './_fakeDb.js';
 
 function fakeFirebase({ users = {}, tokens = {} } = {}) {
-  const data = Object.fromEntries(Object.entries(users).map(([k, v]) => [`users/${k}`, v]));
-  const ref = (path) => ({
-    path,
-    get: async () => ({ exists: path in data, data: () => data[path] }),
-    set: async (v) => { data[path] = JSON.parse(JSON.stringify(v)); },
-    delete: async () => { delete data[path]; },
-  });
-  return { data, auth: { verifyIdToken: async (t) => { if (!tokens[t]) throw new Error('bad'); return tokens[t]; } }, FieldValue: { serverTimestamp: () => 'TS' }, db: { doc: ref } };
+  const db = fakeDb(Object.fromEntries(Object.entries(users).map(([k, v]) => [`users/${k}`, v])));
+  return { data: db.data, auth: { verifyIdToken: async (t) => { if (!tokens[t]) throw new Error('bad'); return tokens[t]; } }, FieldValue: { serverTimestamp: () => 'TS' }, db };
 }
 const salin = (o) => JSON.parse(JSON.stringify(o));
 

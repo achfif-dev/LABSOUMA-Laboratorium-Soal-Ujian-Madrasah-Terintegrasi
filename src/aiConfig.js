@@ -5,6 +5,7 @@
 import { ApiError, setRuntimeAi, toApiError, createClientFor, DEFAULT_MODELS, MODEL_PRESETS } from './soalService.js';
 import { masterKey, encryptSecret, decryptSecret } from './secrets.js';
 import { firestoreAdmin } from './platform.js';
+import { siapkanRiwayat, pangkasRiwayat, bacaRiwayat, bandingkan, dataDariDoc } from './configBackup.js';
 
 export const PROVIDERS = ['gemini', 'anthropic'];
 const ENV_KEY = { gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY' };
@@ -99,25 +100,60 @@ export function validateConfigInput(b) {
   return out;
 }
 
-export async function simpanAi(user, body, { now = () => new Date().toISOString() } = {}) {
-  const inp = validateConfigInput(body);
+/**
+ * Ubah config/ai dalam satu transaksi bersama cadangan keadaan sebelumnya (penyedia dan model; kunci API tidak ikut dicadangkan).
+ * `ubah(cur)` mengembalikan dokumen baru.
+ */
+async function ubahAiDenganCadangan(user, alasan, ubah, { now = () => new Date().toISOString() } = {}) {
   const { db } = await firestoreAdmin();
   const ref = db.doc(DOC);
-  const snap = await ref.get();
-  const cur = snap.exists ? snap.data() : {};
-  const next = { provider: cur.provider || '', models: { ...(cur.models || {}) }, keys: { ...(cur.keys || {}) } };
-  const who = user.email || user.uid;
-  if (inp.provider) next.provider = inp.provider;
-  for (const [p, m] of Object.entries(inp.models)) { if (m) next.models[p] = m; else delete next.models[p]; }
-  const mk = Object.keys(inp.keys).length ? masterKey() : null;
-  for (const [p, plain] of Object.entries(inp.keys)) {
-    next.keys[p] = { enc: encryptSecret(plain, mk, `ai:${p}`), last4: plain.slice(-4), updatedBy: who, updatedAt: now() };
-  }
-  for (const p of inp.hapus) delete next.keys[p];
-  next.updatedBy = who; next.updatedAt = now();
-  await ref.set(next);
+  const oleh = user.email || user.uid; const waktu = now();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? snap.data() : null;
+    const baru = ubah(cur || {}, { oleh, waktu });
+    const cad = await siapkanRiwayat(db, { jenis: 'ai', alasan, docSaatIni: cur, oleh, now: waktu });
+    if (cad) tx.set(cad.ref, cad.doc);
+    tx.set(ref, baru);
+  });
+  await pangkasRiwayat('ai');
   invalidateAiConfig();
+}
+
+export async function simpanAi(user, body, opts = {}) {
+  const inp = validateConfigInput(body);
+  await ubahAiDenganCadangan(user, 'sebelum-simpan', (cur, { oleh: who, waktu }) => {
+    const next = { provider: cur.provider || '', models: { ...(cur.models || {}) }, keys: { ...(cur.keys || {}) } };
+    if (inp.provider) next.provider = inp.provider;
+    for (const [p, m] of Object.entries(inp.models)) { if (m) next.models[p] = m; else delete next.models[p]; }
+    const mk = Object.keys(inp.keys).length ? masterKey() : null;
+    for (const [p, plain] of Object.entries(inp.keys)) {
+      next.keys[p] = { enc: encryptSecret(plain, mk, `ai:${p}`), last4: plain.slice(-4), updatedBy: who, updatedAt: waktu };
+    }
+    for (const p of inp.hapus) delete next.keys[p];
+    next.updatedBy = who; next.updatedAt = waktu;
+    return next;
+  }, opts);
   return statusAi();
+}
+
+/** Kembalikan penyedia dan model dari cadangan. Kunci API tidak disentuh (tidak ada di cadangan). Keadaan sekarang dicadangkan lebih dulu. */
+export async function pulihkanAi(user, id, opts = {}) {
+  const r = await bacaRiwayat('ai', id);
+  const d = r.data || {};
+  const provider = PROVIDERS.includes(d.provider) ? d.provider : '';
+  const models = {};
+  for (const p of PROVIDERS) { const m = d.models && d.models[p]; if (typeof m === 'string' && MODEL_RE.test(m)) models[p] = m; }
+  await ubahAiDenganCadangan(user, 'sebelum-pulih', (cur, { oleh, waktu }) => ({ ...cur, provider, models, keys: { ...(cur.keys || {}) }, updatedBy: oleh, updatedAt: waktu, dipulihkanDari: r.id }), opts);
+  return statusAi();
+}
+
+/** Ringkasan perubahan bila cadangan ini dipulihkan. */
+export async function lihatAi(id) {
+  const r = await bacaRiwayat('ai', id);
+  const sekarang = dataDariDoc('ai', await bacaDoc());
+  const { data: _d, ...meta } = r;
+  return { meta, dapatDipulihkan: true, alasanTolak: '', perubahan: bandingkan('ai', r.data, sekarang || {}) };
 }
 
 /* ------------------------------------------------------------ Uji koneksi */

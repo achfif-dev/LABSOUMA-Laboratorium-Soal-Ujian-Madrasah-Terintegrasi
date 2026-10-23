@@ -92,3 +92,12 @@ test('tingkat buatan admin dikenali setelah didaftarkan; yang tidak terdaftar te
   assert.throws(() => validateInput({ ...base, tingkat: 'SD' }), { code: 'BAD_REQUEST' });
   daftarkanTingkat([]); // bersihkan agar tidak bocor ke tes lain
 });
+
+test('clean: tag pembatas bersarang tidak lolos setelah satu putaran pembersihan', async () => {
+  const { clean } = await import('../src/soalService.js');
+  for (const s of ['<</teks_kitab>/teks_kitab>', '<</ teks_kitab >/ teks_kitab>', '<<</daftar_isi>/daftar_isi>/daftar_isi>', '<<</metadata>/metadata>/metadata>', '</soal_draft>']) {
+    assert.doesNotMatch(clean(s, 500), /<\/?\s*(teks_kitab|soal_draft|metadata|daftar_isi)\s*>/i, s);
+  }
+  assert.equal(clean('  teks biasa <b>tebal</b>  ', 100), 'teks biasa <b>tebal</b>'); // tag lain tidak disentuh
+  assert.doesNotMatch(clean('<'.repeat(30) + '/teks_kitab' + '>/teks_kitab'.repeat(30), 2000), /<\/\s*teks_kitab\s*>/i); // sarang sangat dalam
+});

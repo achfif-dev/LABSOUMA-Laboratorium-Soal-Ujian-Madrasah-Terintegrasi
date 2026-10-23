@@ -200,6 +200,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Riwayat dan titik pulih konfigurasi (src/configBackup.js): berisi salinan konfigurasi dan jejak siapa yang mengubah.
+    // Hanya server (Admin SDK) lewat /api/config-backup. Penolakan ini sengaja ditulis eksplisit, bukan hanya mengandalkan "tolak bawaan".
+    match /configRiwayatApp/{doc} {
+      allow read, write: if false;
+    }
+    match /configRiwayatAi/{doc} {
+      allow read, write: if false;
+    }
+
     // rate/{uid} dan koleksi lain: hanya Cloud Functions (Admin SDK). Klien ditolak.
   }
 }
