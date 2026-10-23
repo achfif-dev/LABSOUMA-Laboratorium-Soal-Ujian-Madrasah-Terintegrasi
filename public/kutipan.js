@@ -108,7 +108,7 @@ export function cocokkan(q, t) {
 }
 
 export const LABEL_BIDANG = {
-  pembahasan: 'Pembahasan', stimulus: 'Stimulus', pertanyaan: 'Pertanyaan',
+  pembahasan: 'Pembahasan', stimulus: 'Stimulus', pertanyaan: 'Pertanyaan', jawaban: 'Jawaban', rubrik: 'Pedoman penskoran',
   A: 'Opsi A', B: 'Opsi B', C: 'Opsi C', D: 'Opsi D', E: 'Opsi E',
 };
 
@@ -168,10 +168,12 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
 export const bidangDariAI = (s) => ({
   pembahasan: s?.pembahasan, stimulus: s?.stimulus, pertanyaan: s?.pertanyaan,
   A: s?.pilihan_a, B: s?.pilihan_b, C: s?.pilihan_c, D: s?.pilihan_d, E: s?.pilihan_e,
+  ...(s?.jawaban || s?.rubrik ? { jawaban: s?.jawaban, rubrik: s?.rubrik } : {}), // soal isian/uraian; bentuk lain tidak punya
 });
 
 /** Soal bentuk aplikasi/Firestore (opsi: {A..E}, pembahasan, stimulus, pertanyaan). */
 export const bidangDariSoal = (q) => ({
   pembahasan: q?.pembahasan, stimulus: q?.stimulus, pertanyaan: q?.pertanyaan,
   A: q?.opsi?.A, B: q?.opsi?.B, C: q?.opsi?.C, D: q?.opsi?.D, E: q?.opsi?.E,
+  ...(q?.jawaban || q?.rubrik ? { jawaban: q?.jawaban, rubrik: q?.rubrik } : {}),
 });

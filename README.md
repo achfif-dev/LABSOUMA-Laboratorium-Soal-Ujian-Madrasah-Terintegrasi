@@ -208,6 +208,25 @@ Tab **Fokus Ujian & Kisi-kisi** (editor dan admin):
 
 Rilis: tempel `firestore.rules` terbaru di Firebase Console dan **Publish** (field `bab` baru), lalu deploy.
 
+## Bentuk soal (bukan hanya pilihan ganda)
+
+Form Penyusunan Soal punya selektor **Bentuk Soal**. Soal lama (tanpa field `bentuk`) selalu dibaca sebagai pilihan ganda.
+
+| Bentuk | Isi soal | Kunci |
+|---|---|---|
+| `pilgan` Pilihan ganda | kalimat tanya + 5 opsi | huruf A-E |
+| `lanjutan` Melanjutkan (pilihan) | kalimat menggantung berakhir `.....` + 5 opsi kelanjutan | huruf A-E |
+| `benarsalah` Benar-Salah | satu pernyataan | A = Benar, B = Salah |
+| `isian` Melanjutkan (isian) | kalimat dengan `.....` yang diisi sendiri | field `jawaban` (pisahkan penulisan lain dengan ` / `) |
+| `uraian` Uraian | pertanyaan/perintah terbuka | `jawaban` model + `rubrik` (poin, skor, skor maksimal) |
+
+- **Saran per jenjang** (`BENTUK_PER_TINGKAT` di `public/bentuk.js`, tanda ★ di form): MI: melanjutkan, benar-salah, isian, pilgan; MTs: pilgan, melanjutkan, isian, uraian, benar-salah; MA: pilgan, uraian, isian, melanjutkan. Ini saran awal, bukan pembatasan; semua bentuk tetap bisa dipilih, dan tingkat buatan admin mendapat semua bentuk.
+- **AI**: `/api/generate` dan aksi `telaah` menerima `bentuk`. Tiap bentuk punya skema alat dan aturan prompt sendiri (`ATURAN_BENTUK` di `src/soalService.js`); prompt pilihan ganda tidak berubah. Keluaran yang tidak sesuai bentuk (mis. soal melanjutkan tanpa titik-titik, uraian tanpa rubrik) ditolak sebagai `AI_BAD_OUTPUT` dan kuota dikembalikan.
+- **Uji jawab buta** hanya untuk bentuk berpilihan (pilgan, melanjutkan-pilihan, benar-salah). Isian dan uraian ditelaah dengan **Telaah &amp; Perbaiki**; server menolak `cekbuta` untuk keduanya dengan kode `BENTUK_TANPA_OPSI`.
+- **Ekspor**: Word (semua mode, termasuk Pegon), CSV, GIFT dan Moodle XML (benar-salah = `truefalse`, isian = `shortanswer`, uraian = `essay`). CSV RDM menambah kolom Bentuk, Jawaban, Rubrik di akhir. Kisi-kisi mencatat bentuk tiap butir. Tab Bank dan Export punya filter Bentuk Soal.
+- **Data**: field baru `bentuk`, `jawaban`, `rubrik` bersifat opsional. Klien hanya mengirimnya bila bukan pilihan ganda, jadi soal biasa tetap sama persis dengan sebelumnya.
+- **Wajib saat rilis**: tempel `firestore.rules` terbaru di Firebase Console > Rules dan **Publish** SEBELUM deploy aplikasi. Tanpa itu, menyimpan soal bentuk baru ditolak ("Ditolak: Anda tidak berhak...").
+
 ## Backup ke Google Drive
 
 Menu **Backup Drive** (editor dan admin) menyalin semua soal, termasuk draf, dan katalog kitab, mapel, serta tingkat ke satu berkas JSON di folder "LABSOUMA Backup" pada Google Drive akun yang dipilih di jendela izin. Gunakan akun Google madrasah, bukan akun pribadi.
@@ -259,7 +278,7 @@ src/cekButa.js           uji jawab buta oleh model penguji
 eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
 .github/workflows/       ci.yml (npm test) dan eval.yml (evaluasi manual)
 src/access.js            logika murni: peran, domain, batas
-firestore.rules          aturan keamanan data
+firestore.rules          aturan keamanan data (bentuk soal: field opsional bentuk, jawaban, rubrik)
 test/                    npm test (tanpa kunci, tanpa internet)
 ```
 

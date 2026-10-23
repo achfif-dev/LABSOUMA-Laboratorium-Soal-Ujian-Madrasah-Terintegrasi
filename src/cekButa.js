@@ -3,6 +3,7 @@
 // Model penguji bisa dibedakan dari model pembuat lewat AI_VERIFY_MODEL (penyedia sama), agar kesalahan sistematis tidak ikut terbawa.
 import { ApiError, getClient, clean, resolveTingkat } from './soalService.js';
 import { runTool, validateSoalDraft } from './assistService.js';
+import { bentukSah, punyaOpsi, BENTUK } from './bentuk.js';
 
 const str = (description) => ({ type: 'string', description });
 
@@ -34,8 +35,10 @@ export const keBentukApp = (s) => ({
  * @param {{client?:any, tingkat?:string, model?:string}} [opts]
  * @returns {Promise<{status:'sepakat'|'beda'|'tanpa_kunci', jawaban:string, alasan:string, kunci:string}>}
  */
-export async function cekButa(soalApp, teks, { client, tingkat, model } = {}) {
-  const draft = validateSoalDraft(soalApp);
+export async function cekButa(soalApp, teks, { client, tingkat, model, bentuk } = {}) {
+  const b = bentukSah(bentuk || (soalApp && soalApp.bentuk)) || 'pilgan';
+  if (!punyaOpsi(b)) throw new ApiError(422, 'BENTUK_TANPA_OPSI', `Uji jawab buta hanya untuk soal berpilihan (pilihan ganda, melanjutkan-pilihan, benar-salah). Soal ${BENTUK[b].label.toLowerCase()} cukup ditelaah dengan tombol Telaah.`);
+  const draft = validateSoalDraft(soalApp, b);
   const c = client || (await getClient());
   const opsi = Object.entries(draft.opsi).filter(([, v]) => v).map(([k, v]) => `${k}. ${v}`).join('\n');
   const call = await runTool(c, {

@@ -255,3 +255,37 @@ Urutan rilis: (1) tempel `firestore.rules` di Firebase Console dan **Publish**, 
 Diuji: logika kisi-kisi dan saran bab, handler `/api/assist` aksi `bab` (sukses, validasi sebelum kuota, injeksi tag, peran pending, pengembalian kuota), render komponen baru dengan React 19 di Node, dan DOCX lewat render LibreOffice (kolom dan Lembar Fokus dilihat).
 **Belum diuji:** klik dan alur di browser sungguhan, panggilan Gemini nyata, DOCX dengan pustaka `docx` 8.5.0 dari CDN (tes memakai 9.x), dan aturan Firestore di emulator. Cek sekali: minta saran bab untuk satu kitab, klik "Susun soal untuk bab ini", simpan satu soal, lalu unduh Kisi-kisi + Lembar Fokus.
 
+## 9. Pembaruan 23 Oktober 2026: bentuk soal (melanjutkan, benar-salah, isian, uraian) dan audit ulang
+
+### Audit ulang (kondisi sebelum perubahan)
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| A1 | Sedang | Model data soal terkunci pada pilihan ganda: `kunci` hanya A-E, `opsi` wajib, prompt AI, skema alat, telaah, uji buta, semua ekspor, kisi-kisi ("Pilihan ganda (5 opsi)" tertulis tetap), cadangan, dan `firestore.rules` menganggap satu bentuk. | Diperbaiki (bagian di bawah). |
+| A2 | Rendah | Tes `ujian.test.js` mengunci daftar field opsional di `firestore.rules` secara harfiah. Bagus sebagai penjaga, tetapi perubahan sah gagal sampai tesnya ikut diubah. | Tes diperbarui bersama aturan. |
+| A3 | Sedang | B2 dan B3 dari bagian 2 masih berlaku: CSP masih Report-Only dengan `unsafe-inline` dan `unsafe-eval`; 0 dari 7 skrip CDN punya `integrity`. `npm audit --omit=dev`: 0 kerentanan. | Belum diubah. Perlu build step (Vite). |
+| A4 | Info | B1 (lockfile) sudah teratasi: `package-lock.json` ada dan `ci.yml` memakai `npm ci`. | Selesai. |
+
+### Perubahan
+
+- `public/bentuk.js` (baru, sumber tunggal; `src/bentuk.js` meneruskannya): definisi lima bentuk, saran per jenjang, `periksaSoal`, `selaraskan`, `kunciTeks`.
+- `src/soalService.js`: `validateInput` menerima `bentuk` (kosong = pilgan, asing = 400), `ATURAN_BENTUK` + `systemPromptFor`, skema alat per bentuk (`toolSoalFor`), `normalizeSoal(raw, level, bentuk)`. Untuk pilgan prompt, skema, dan kunci keluaran identik dengan sebelumnya.
+- `src/assistService.js`: telaah memakai skema perbaikan dan aturan telaah per bentuk; `validateSoalDraft` sadar bentuk. `src/cekButa.js`: menolak isian/uraian. `src/backup.js`: memvalidasi `bentuk`, `jawaban`, `rubrik`.
+- `firestore.rules`: `bentuk`, `jawaban`, `rubrik` opsional dengan batas (2000 karakter), masuk daftar kunci opsional dan daftar admin; kunci wajib tidak berubah.
+- `public/index.html`: selektor bentuk, form per bentuk, pratinjau, uji buta disembunyikan untuk isian/uraian, filter bentuk, ekspor DOCX/CSV/GIFT/Moodle XML. `public/kisi.js`, `public/kutipan.js` menyesuaikan.
+- Tes: 184 menjadi 210 (`test/bentuk.test.js`, `test/bentukUi.test.js`; kode ekspor diambil langsung dari `index.html` dan dijalankan dengan pustaka `docx` asli).
+
+### Keputusan dan risiko
+
+| # | Keputusan / risiko |
+|---|---|
+| D1 | "Melanjutkan" ditafsirkan dua cara dan dibuat keduanya: pilihan (kelanjutan dipilih dari 5 opsi) dan isian (ditulis sendiri). Tradisi pesantren umumnya isian; bila hanya satu yang dipakai, bentuk lain bisa disembunyikan lewat `BENTUK_IDS`. |
+| D2 | Saran bentuk per jenjang (`BENTUK_PER_TINGKAT`) adalah perkiraan pedagogis awal, bukan ketentuan Kemenag. Guru/kepala madrasah perlu menyesuaikan. |
+| D3 | Benar-salah disimpan sebagai `opsi {A: Benar, B: Salah}` + `kunci` A/B, sehingga seluruh jalur pilihan ganda (uji buta, kutipan, sikap, ekspor) ikut bekerja tanpa cabang baru. |
+| D4 | Isian dan uraian tidak bisa diuji buta; penjagaan mutunya hanya Telaah AI dan editor manusia. Kunci isian yang ambigu (lebih dari satu jawaban benar) adalah risiko terbesar bentuk ini; prompt melarangnya, tetapi tidak ada pemeriksa otomatis. |
+| D5 | Urutan rilis wajib: Publish `firestore.rules` dulu, baru deploy. Klien baru tidak mengirim field baru untuk soal pilihan ganda, jadi soal biasa tetap bisa disimpan walau aturan belum dipublish; hanya bentuk baru yang gagal. |
+
+### Yang BELUM saya uji (jujur)
+Diuji: logika bentuk, validasi, prompt dan skema per bentuk dengan klien AI palsu, handler `/api/generate`, cadangan, aturan Firestore (hanya pencocokan teks), kisi-kisi, seluruh pembuat ekspor, dan sintaks JSX `index.html` (Babel).
+**Belum diuji:** tampilan dan interaksi form di browser sungguhan (tidak ada browser di sandbox), mutu soal dari model nyata untuk tiap bentuk, impor GIFT/Moodle XML di Moodle sungguhan untuk benar-salah, isian, uraian, DOCX dengan `docx` 8.5.0 dari CDN (tes memakai 9.6.1), dan aturan Firestore di emulator.
+

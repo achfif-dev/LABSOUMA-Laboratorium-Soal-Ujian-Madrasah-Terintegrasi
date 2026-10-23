@@ -3,6 +3,8 @@
 // jadi isinya tidak bisa "mengarang": setiap baris menunjuk ke soal nyata. Kunci jawaban, opsi, dan pembahasan
 // TIDAK PERNAH ikut keluar, supaya kisi-kisi aman dibagikan kepada murid.
 
+import { BENTUK, bentukDari } from './bentuk.js';
+
 const HARAKAT = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
 const STOP = new Set(['bab', 'باب', 'kitab', 'كتاب', 'fasal', 'fashl', 'fasl', 'فصل', 'pasal', 'tentang', 'fi', 'في', 'al', 'wa', 'dan']);
 
@@ -72,7 +74,7 @@ export function buatKisi(soal, opt = {}) {
     g.hals.push(q.hal);
     const level = LV.includes(q.level) ? q.level : 'L1';
     g.perLevel[level] += 1;
-    g.soal.push({ no, level, bentuk: 'Pilihan ganda', indikator: bersihIndikator(q.indikator), hal: String(q.hal || '').trim() });
+    g.soal.push({ no, level, bentuk: BENTUK[bentukDari(q)].label, indikator: bersihIndikator(q.indikator), hal: String(q.hal || '').trim() });
   }
   const total = daftar.length;
   const kelompok = [...grup.entries()].map(([kunci, g], idx) => {
@@ -92,6 +94,7 @@ export function buatKisi(soal, opt = {}) {
     meta: {
       judul: String(opt.judul || '').trim(), madrasah: String(opt.madrasah || '').trim(), tahunAjaran: String(opt.tahunAjaran || '').trim(),
       mapel: ambil('mapel').join(', '), tingkat: ambil('tingkat').join(', '), kelas: ambil('kelas').join(', '), ujian: ambil('ujian').join(', '), kitab: ambil('nama'), total,
+      bentuk: unik(daftar.map(({ q }) => BENTUK[bentukDari(q)].label)),
     },
     kelompok, perLevel,
     tanpaBab: kelompok.filter((g) => g.bab === BELUM).reduce((n, g) => n + g.jumlah, 0),
@@ -182,7 +185,7 @@ export function buatKisiDocx(D, kisi, mode = 'lengkap') {
   if (mode !== 'fokus') {
     kids.push(tengah(`KISI-KISI ${m.judul || 'SOAL'}`.toUpperCase(), { bold: true, size: 30 }));
     if (m.madrasah) kids.push(tengah(m.madrasah, { size: 22 }));
-    for (const [k, v] of [['Mata pelajaran', m.mapel], ['Tingkat / kelas', [m.tingkat, m.kelas && 'kelas ' + m.kelas].filter(Boolean).join(' ')], ['Ujian', m.ujian], ['Kitab', m.kitab.join('; ')], ['Bentuk soal', 'Pilihan ganda (5 opsi)'], ['Jumlah soal', String(m.total)]]) {
+    for (const [k, v] of [['Mata pelajaran', m.mapel], ['Tingkat / kelas', [m.tingkat, m.kelas && 'kelas ' + m.kelas].filter(Boolean).join(' ')], ['Ujian', m.ujian], ['Kitab', m.kitab.join('; ')], ['Bentuk soal', (m.bentuk && m.bentuk.length ? m.bentuk : ['Pilihan ganda']).join('; ')], ['Jumlah soal', String(m.total)]]) {
       if (v) kids.push(P([T(`${k}: `, { bold: true }), T(v)], { spacing: { after: 30 } }));
     }
     kids.push(P(T('')));

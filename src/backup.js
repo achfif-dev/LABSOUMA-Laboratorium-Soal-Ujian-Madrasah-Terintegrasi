@@ -6,6 +6,7 @@
 // di sini divalidasi ketat (cermin validContent() di firestore.rules) sebelum ditulis.
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
+import { BENTUK_IDS } from './bentuk.js';
 
 export const MAKS_PER_PEMULIHAN = 100;
 export const NAMA_FOLDER = 'LABSOUMA Backup';
@@ -74,6 +75,13 @@ export function bersihkanSoal(raw) {
   if (kelas) data.kelas = kelas;
   if (periode) data.periode = periode;
   if (bab) data.bab = bab;
+  // Bentuk soal (opsional; tanpa bentuk = pilihan ganda). Hanya ditulis bila bukan pilihan ganda, supaya soal lama tetap sama persis.
+  const bentuk = raw.bentuk === undefined || raw.bentuk === null || raw.bentuk === '' ? 'pilgan' : raw.bentuk;
+  if (!BENTUK_IDS.includes(bentuk)) throw bad('Bentuk soal tidak dikenal.');
+  if (bentuk !== 'pilgan') data.bentuk = bentuk;
+  const jawaban = teks(raw.jawaban, 2000, 'Jawaban'); const rubrik = teks(raw.rubrik, 2000, 'Pedoman penskoran');
+  if (jawaban) data.jawaban = jawaban;
+  if (rubrik) data.rubrik = rubrik;
   const reviewerUid = teks(raw.reviewerUid, 128, 'ID peninjau');
   if (reviewerUid) {
     data.reviewerUid = reviewerUid;

@@ -14,7 +14,7 @@ const ASSIST = {
   terjemah: terjemahTeks,
   analisis: analisisTeks,
   telaah: telaahSoal,
-  cekbuta: (body) => cekButa(body.soal, validateInput(body).teks, { tingkat: body.tingkat }),
+  cekbuta: (body) => { const v = validateInput(body); return cekButa(body.soal, v.teks, { tingkat: body.tingkat, bentuk: v.bentuk }); },
   pegon: perkuatPegon,
   pegonfoto: fotoPegon,
   bab: sarankanBab, // saran bab penting untuk diujikan (haluan Aswaja); daftar isi opsional, bukan teks Arab wajib

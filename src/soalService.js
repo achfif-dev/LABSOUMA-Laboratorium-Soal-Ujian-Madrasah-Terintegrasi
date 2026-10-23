@@ -1,6 +1,8 @@
 // Inti logika: validasi input, system prompt, panggilan AI (Gemini atau Claude), normalisasi hasil.
 // Dipakai oleh fungsi Vercel di api/ (generate.js, assist.js).
 
+import { BENTUK, bentukSah, bentukDari, adaPenanda, OPSI_BENARSALAH } from './bentuk.js';
+
 export class ApiError extends Error {
   constructor(status, code, message, { retryAfter } = {}) {
     super(message);
@@ -106,11 +108,14 @@ export function validateInput(body) {
   if (!tingkat) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat tidak dikenal. Pilih salah satu tingkat yang tersedia di menu Konfigurasi (bawaan: MI/Ibtidaiyah, MTs/Tsanawiyah, MA/Aliyah).');
   const level = LEVEL[String(body.level || '').trim().toLowerCase()];
   if (!level) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat kesukaran harus L1, L2, atau L3 (HOTS).');
+  const bentuk = bentukSah(body.bentuk); // kosong = pilihan ganda (klien lama tidak mengirim bentuk)
+  if (!bentuk) throw new ApiError(400, 'BAD_REQUEST', 'Bentuk soal harus pilgan, lanjutan, benarsalah, isian, atau uraian.');
 
   return {
     teks,
     tingkat,
     level,
+    bentuk,
     kelas: cleanLine(body.kelas, 20),
     nama: cleanLine(body.nama, 120),
     juz: cleanLine(body.juz, 20),
@@ -139,9 +144,52 @@ ATURAN KETAT (tidak boleh dilanggar):
 9. KONTEKS LEMBAGA. Madrasah berhaluan Ahlussunnah wal Jamaah yang moderat (wasathiyah). Setia pada teks dan mazhab yang tertulis di dalamnya, gunakan bahasa santun, dan jangan menyalahkan, mengkafirkan, atau merendahkan kelompok lain. Jangan memasukkan pandangan di luar teks.
 10. KELUARAN. Balas HANYA dengan memanggil alat \`buat_soal\`. Jangan menulis teks lain. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak memuat materi yang cukup untuk satu soal yang sah, panggil alat \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
 
+/**
+ * Tambahan aturan per bentuk soal. Untuk "pilgan" tidak ada tambahan (prompt sama persis dengan sebelumnya).
+ * Bentuk selain pilgan memakai skema alat `buat_soal` yang berbeda (lihat toolSoalFor).
+ */
+export const ATURAN_BENTUK = {
+  pilgan: '',
+  lanjutan: `
+
+BENTUK SOAL PERMINTAAN INI: MELANJUTKAN (PILIHAN GANDA). Aturan di bawah melengkapi aturan 1-10; bila bertentangan, aturan di bawah yang dipakai.
+- "pertanyaan" BUKAN kalimat tanya. Isinya kalimat pokok yang sengaja dibiarkan menggantung dan diakhiri titik-titik (.....), misalnya "Seorang musafir boleh mengqashar shalat apabila .....". Hanya satu tempat kosong, di akhir kalimat.
+- Kelima opsi adalah kelanjutan kalimat itu. Setiap opsi harus menyambung benar secara tata bahasa dengan kalimat pokok, dan tepat satu yang benar menurut teks. Jangan mengulang kata kalimat pokok di dalam opsi.`,
+  benarsalah: `
+
+BENTUK SOAL PERMINTAAN INI: BENAR-SALAH. Aturan di bawah menggantikan aturan 3, 4, dan 10 sejauh bertentangan; aturan lain tetap berlaku.
+- "pertanyaan" berisi SATU pernyataan tegas (bukan kalimat tanya) yang bisa dinilai Benar atau Salah berdasarkan teks.
+- "kunci_jawaban": A bila pernyataan Benar, B bila Salah. Permintaan menyebut nilai mana yang harus kamu hasilkan; ikuti.
+- Pernyataan Salah harus salah karena satu detail yang dibantah teks (bilangan, syarat, atau hukum), bukan karena kalimatnya janggal. Pernyataan Benar jangan sekadar menyalin kalimat teks: ubah kata-katanya tanpa mengubah makna. Hindari kata mutlak yang menjebak (selalu, tidak pernah) kecuali teks sendiri memakainya.
+- Tidak ada opsi lain. Pembahasan menjelaskan dasar benar atau salahnya dan, untuk pernyataan Salah, apa yang benar menurut teks.`,
+  isian: `
+
+BENTUK SOAL PERMINTAAN INI: MELANJUTKAN (ISIAN). Aturan di bawah menggantikan aturan 3, 4, dan 10 sejauh bertentangan; aturan lain tetap berlaku.
+- "pertanyaan" adalah kalimat dengan SATU tempat kosong berupa titik-titik (.....), misalnya "Syarat sah shalat ada ..... perkara." Bukan kalimat tanya.
+- "jawaban" berisi isian yang tepat sesuai teks: satu kata, bilangan, atau frasa pendek (paling banyak 8 kata). Bila teks membenarkan penulisan lain yang sama artinya, tulis juga dipisah " / ".
+- Konteks kalimat harus cukup sehingga hanya satu jawaban yang mungkin benar. Dilarang menanyakan hal yang jawabannya bisa beragam menurut teks.
+- Tidak ada opsi dan tidak ada kunci huruf. Stimulus boleh kosong.`,
+  uraian: `
+
+BENTUK SOAL PERMINTAAN INI: URAIAN. Aturan di bawah menggantikan aturan 3, 4, dan 10 sejauh bertentangan; aturan lain tetap berlaku.
+- "pertanyaan" berupa pertanyaan atau perintah terbuka dengan kata kerja operasional (jelaskan, sebutkan, bandingkan, uraikan, analisislah) yang sesuai level kognitif dan jenjang.
+- "jawaban" berisi jawaban model yang ringkas dan lengkap berdasarkan teks.
+- "rubrik" berisi pedoman penskoran: poin-poin jawaban yang harus muncul, tiap poin dengan skor, ditutup skor maksimal total (misalnya "1) ... (skor 2); 2) ... (skor 2); Skor maksimal 4"). Setiap poin harus punya dasar di teks.
+- Ukuran menyesuaikan jenjang: MI satu perintah sederhana dengan 1-3 poin; MTs 2-4 poin; MA 3-5 poin atau penalaran.
+- Tidak ada opsi dan tidak ada kunci huruf.`,
+};
+export const systemPromptFor = (bentuk) => SYSTEM_PROMPT + (ATURAN_BENTUK[bentukDari(bentuk)] || '');
+
 const LEVEL_NAME = { L1: 'L1 (Ingatan)', L2: 'L2 (Aplikasi)', L3: 'L3 (HOTS)' };
 
+function petunjukTarget(bentuk, targetKey) {
+  if (bentuk === 'benarsalah') return `Susun pernyataan yang ${targetKey === 'A' ? 'BENAR' : 'SALAH'} menurut teks (kunci_jawaban ${targetKey}).`;
+  if (BENTUK[bentuk].opsi.length) return `Letakkan jawaban benar di opsi ${targetKey}.`;
+  return '';
+}
+
 export function buildUserPrompt(input, targetKey) {
+  const bentuk = bentukDari(input.bentuk);
   const rujukan = [input.nama || 'tidak disebutkan', input.juz && `juz ${input.juz}`, input.hal && `halaman ${input.hal}`]
     .filter(Boolean)
     .join(', ');
@@ -151,9 +199,9 @@ export function buildUserPrompt(input, targetKey) {
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
-Rujukan kitab: ${rujukan}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}
+Rujukan kitab: ${rujukan}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}
 </metadata>
-Letakkan jawaban benar di opsi ${targetKey}.
+${petunjukTarget(bentuk, targetKey)}
 
 <teks_kitab>
 ${input.teks}
@@ -197,26 +245,93 @@ export const TOOL_TOLAK = {
   },
 };
 
+/** Skema alat `buat_soal` menurut bentuk. pilgan dan lanjutan memakai skema lima opsi (TOOL_SOAL). */
+const TOOL_SOAL_BS = {
+  name: 'buat_soal',
+  description: 'Menyerahkan satu soal benar-salah hasil susunan, sesuai skema.',
+  input_schema: {
+    type: 'object', additionalProperties: false,
+    required: ['stimulus', 'pertanyaan', 'kunci_jawaban', 'pembahasan', 'indikator_kisi_kisi'],
+    properties: {
+      stimulus: str('Narasi atau studi kasus berbasis teks kitab. String kosong bila L1 tanpa stimulus.'),
+      pertanyaan: str('Satu pernyataan tegas yang dinilai Benar atau Salah (bukan kalimat tanya).'),
+      kunci_jawaban: { type: 'string', enum: ['A', 'B'], description: 'A = pernyataan Benar, B = pernyataan Salah.' },
+      pembahasan: str('Penjelasan yang merujuk ke teks kitab.'),
+      indikator_kisi_kisi: str('Indikator soal diawali "Peserta didik dapat ...".'),
+    },
+  },
+};
+const TOOL_SOAL_ISIAN = {
+  name: 'buat_soal',
+  description: 'Menyerahkan satu soal isian (melanjutkan kalimat) hasil susunan, sesuai skema.',
+  input_schema: {
+    type: 'object', additionalProperties: false,
+    required: ['stimulus', 'pertanyaan', 'jawaban', 'pembahasan', 'indikator_kisi_kisi'],
+    properties: {
+      stimulus: str('Narasi pendek bila perlu. String kosong bila tidak perlu.'),
+      pertanyaan: str('Kalimat dengan satu tempat kosong berupa titik-titik (.....).'),
+      jawaban: str('Isian yang tepat menurut teks, singkat (maksimal 8 kata).'),
+      pembahasan: str('Penjelasan yang merujuk ke teks kitab.'),
+      indikator_kisi_kisi: str('Indikator soal diawali "Peserta didik dapat ...".'),
+    },
+  },
+};
+const TOOL_SOAL_URAIAN = {
+  name: 'buat_soal',
+  description: 'Menyerahkan satu soal uraian hasil susunan, lengkap dengan jawaban model dan pedoman penskoran.',
+  input_schema: {
+    type: 'object', additionalProperties: false,
+    required: ['stimulus', 'pertanyaan', 'jawaban', 'rubrik', 'pembahasan', 'indikator_kisi_kisi'],
+    properties: {
+      stimulus: str('Narasi atau studi kasus berbasis teks kitab. String kosong bila L1 tanpa stimulus.'),
+      pertanyaan: str('Pertanyaan atau perintah terbuka dengan kata kerja operasional.'),
+      jawaban: str('Jawaban model yang ringkas dan lengkap menurut teks.'),
+      rubrik: str('Pedoman penskoran: poin jawaban beserta skor dan skor maksimal total.'),
+      pembahasan: str('Penjelasan yang merujuk ke teks kitab.'),
+      indikator_kisi_kisi: str('Indikator soal diawali "Peserta didik dapat ...".'),
+    },
+  },
+};
+export const toolSoalFor = (bentuk) => ({ benarsalah: TOOL_SOAL_BS, isian: TOOL_SOAL_ISIAN, uraian: TOOL_SOAL_URAIAN }[bentukDari(bentuk)] || TOOL_SOAL);
+
 /* --------------------------------------------------------- Normalisasi */
 
 const FIELDS = ['stimulus', 'pertanyaan', 'pilihan_a', 'pilihan_b', 'pilihan_c', 'pilihan_d', 'pilihan_e', 'kunci_jawaban', 'pembahasan', 'indikator_kisi_kisi'];
 
-export function normalizeSoal(raw, level) {
+export function normalizeSoal(raw, level, bentuk = 'pilgan') {
+  const b = bentukDari(bentuk);
   const bad = (why) => new ApiError(502, 'AI_BAD_OUTPUT', `Hasil AI tidak lengkap (${why}). Coba generate lagi.`);
   if (!raw || typeof raw !== 'object') throw bad('kosong');
   const out = {};
   for (const f of FIELDS) out[f] = String(raw[f] ?? '').trim();
+  if (!out.pertanyaan) throw bad('pertanyaan');
+  if (!out.pembahasan) throw bad('pembahasan');
 
   const optionKeys = ['pilihan_a', 'pilihan_b', 'pilihan_c', 'pilihan_d', 'pilihan_e'];
-  for (const k of optionKeys) out[k] = out[k].replace(/^\s*[A-Ea-e][.):]\s+/, '');
-  out.kunci_jawaban = out.kunci_jawaban.toUpperCase();
-
-  if (!/^[A-E]$/.test(out.kunci_jawaban)) throw bad('kunci jawaban');
-  if (!out.pertanyaan) throw bad('pertanyaan');
-  if (optionKeys.some((k) => !out[k])) throw bad('opsi kosong');
-  if (new Set(optionKeys.map((k) => out[k].toLowerCase())).size < 5) throw bad('opsi kembar');
-  if (!out.pembahasan) throw bad('pembahasan');
-  if (level !== 'L1' && !out.stimulus) throw bad('stimulus');
+  if (b === 'pilgan' || b === 'lanjutan') {
+    for (const k of optionKeys) out[k] = out[k].replace(/^\s*[A-Ea-e][.):]\s+/, '');
+    out.kunci_jawaban = out.kunci_jawaban.toUpperCase();
+    if (!/^[A-E]$/.test(out.kunci_jawaban)) throw bad('kunci jawaban');
+    if (optionKeys.some((k) => !out[k])) throw bad('opsi kosong');
+    if (new Set(optionKeys.map((k) => out[k].toLowerCase())).size < 5) throw bad('opsi kembar');
+    if (b === 'lanjutan' && !adaPenanda(out.pertanyaan)) throw bad('kalimat tidak menggantung (tanpa titik-titik)');
+  } else if (b === 'benarsalah') {
+    out.kunci_jawaban = out.kunci_jawaban.toUpperCase();
+    if (!/^[AB]$/.test(out.kunci_jawaban)) throw bad('kunci benar-salah');
+    Object.assign(out, { pilihan_a: OPSI_BENARSALAH.A, pilihan_b: OPSI_BENARSALAH.B, pilihan_c: '', pilihan_d: '', pilihan_e: '' });
+  } else {
+    for (const k of optionKeys) out[k] = '';
+    out.kunci_jawaban = '';
+    if (b === 'isian' && !adaPenanda(out.pertanyaan)) throw bad('kalimat tanpa titik-titik');
+  }
+  if (b !== 'pilgan') {
+    out.bentuk = b;
+    out.jawaban = BENTUK[b].jawaban ? String(raw.jawaban ?? '').trim() : '';
+    out.rubrik = BENTUK[b].rubrik ? String(raw.rubrik ?? '').trim() : '';
+    if (BENTUK[b].jawaban && !out.jawaban) throw bad('jawaban');
+    if (BENTUK[b].rubrik && !out.rubrik) throw bad('pedoman penskoran');
+  }
+  if (level !== 'L1' && b !== 'isian' && !out.stimulus) throw bad('stimulus');
   return out;
 }
 
@@ -282,15 +397,15 @@ export async function generateSoal(body, deps = {}) {
   const input = validateInput(body);
   const client = deps.client || (await getClient());
   const rand = deps.random || Math.random;
-  const targetKey = 'ABCDE'[Math.floor(rand() * 5)];
+  const targetKey = input.bentuk === 'benarsalah' ? 'AB'[Math.floor(rand() * 2)] : 'ABCDE'[Math.floor(rand() * 5)];
 
   let msg;
   try {
     msg = await client.messages.create({
       model: getModel(),
       max_tokens: 3000,
-      system: SYSTEM_PROMPT,
-      tools: [TOOL_SOAL, TOOL_TOLAK],
+      system: systemPromptFor(input.bentuk),
+      tools: [toolSoalFor(input.bentuk), TOOL_TOLAK],
       tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: buildUserPrompt(input, targetKey) }],
     });
@@ -306,5 +421,5 @@ export async function generateSoal(body, deps = {}) {
     const alasan = String(call.input?.alasan || '').trim().slice(0, 300);
     throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', alasan || 'Teks tidak memuat materi yang cukup untuk dijadikan soal.');
   }
-  return normalizeSoal(call.input, input.level);
+  return normalizeSoal(call.input, input.level, input.bentuk);
 }
