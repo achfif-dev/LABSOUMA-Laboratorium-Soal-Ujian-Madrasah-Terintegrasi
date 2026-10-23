@@ -1,5 +1,5 @@
 // Draf otomatis: isian yang belum disimpan ke server dititipkan di localStorage supaya selamat dari muat ulang halaman,
-// tab tertutup, atau browser mati. Sumber tunggal untuk browser (public/index.html) dan tes (src/draft.js).
+// tab tertutup, atau browser mati. Sumber tunggal untuk browser (web/App.jsx) dan tes (src/draft.js).
 //
 // Aturan yang dijaga di sini:
 //  - Kunci dipisah per akun (uid): akun lain di perangkat yang sama tidak melihat draf ini.

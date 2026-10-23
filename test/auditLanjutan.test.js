@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGeminiClient } from '../src/gemini.js';
 import { validateInput, clean, resolveTingkat, resolveLevel, getVerifyModel, setRuntimeAi } from '../src/soalService.js';
-import { bentukUntukTingkat, BENTUK_IDS } from '../public/bentuk.js';
+import { bentukUntukTingkat, BENTUK_IDS } from '../web/lib/bentuk.js';
 import { bersihkanSoal } from '../src/backup.js';
 import { sanitizeAppConfig, DEFAULT_APP_CONFIG } from '../src/appConfig.js';
 

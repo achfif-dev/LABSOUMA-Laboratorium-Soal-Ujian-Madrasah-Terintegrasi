@@ -7,7 +7,7 @@
 // admin adalah `label` (tampilan). Tiga tingkat bawaan memakai kunci lama (Ibtidaiyah, Tsanawiyah, Aliyah) agar soal lama tetap cocok.
 // Kelas (versi 3): kelas adalah data tersendiri milik tingkat, dipakai soal (soal.kelas) dan penempatan kitab. Sistem ujian (semester 4 kali atau
 // catur wulan 3 kali, nama dan periodenya bisa diubah) dipilih per tingkat; kode periode (soal.periode) bersifat tetap, labelnya boleh diganti.
-// Penempatan kitab (kitab.penempatan) menentukan kitab itu dipakai di kelas dan periode ujian mana; aturannya ada di public/ujian.js.
+// Penempatan kitab (kitab.penempatan) menentukan kitab itu dipakai di kelas dan periode ujian mana; aturannya ada di web/lib/ujian.js.
 // Nama Arab: kitab punya `namaArab` dan `pengarangArab`; tingkat punya `labelArab`. Semuanya opsional dan harus berisi huruf Arab.
 import { ApiError, cleanLine, daftarkanTingkat } from './soalService.js';
 import { firestoreAdmin } from './platform.js';

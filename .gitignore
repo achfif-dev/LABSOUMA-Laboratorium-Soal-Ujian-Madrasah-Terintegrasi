@@ -9,3 +9,4 @@ node_modules/
 *-firebase-adminsdk-*.json
 .DS_Store
 eval/hasil.json
+dist/

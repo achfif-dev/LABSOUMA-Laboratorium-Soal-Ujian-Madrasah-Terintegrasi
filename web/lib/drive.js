@@ -1,4 +1,4 @@
-// Cadangan soal dan kitab ke Google Drive. Sumber tunggal untuk browser (public/index.html) dan tes (src/drive.js).
+// Cadangan soal dan kitab ke Google Drive. Sumber tunggal untuk browser (web/App.jsx) dan tes (src/drive.js).
 //
 // Rancangan:
 //  - Berjalan di browser dengan token OAuth milik PENGGUNA (scope drive.file: hanya berkas yang dibuat aplikasi ini), jadi tidak ada

@@ -1,6 +1,6 @@
 // Cadangan soal ke Google Drive: sisi server.
 //
-// Pembacaan soal dan unggahan ke Drive dilakukan di BROWSER (public/drive.js): respons/permintaan fungsi Vercel dibatasi
+// Pembacaan soal dan unggahan ke Drive dilakukan di BROWSER (web/lib/drive.js): respons/permintaan fungsi Vercel dibatasi
 // sekitar 4,5 MB, dan token Drive tidak perlu lewat server. Server hanya dibutuhkan untuk PEMULIHAN, karena aturan
 // Firestore melarang klien membuat soal atas nama penyusun lain; Admin SDK tidak terikat aturan itu, jadi setiap entri
 // di sini divalidasi ketat (cermin validContent() di firestore.rules) sebelum ditulis.

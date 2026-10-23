@@ -18,7 +18,7 @@ const SOAL = () => ({
   reviewerUid: 'u-editor', reviewerName: 'Ust. Budi', reviewedAt: '2026-02-03T04:05:06.000Z',
 });
 
-/* ------------------------------------------------------------ public/drive.js */
+/* ------------------------------------------------------------ web/lib/drive.js */
 
 test('serialisasiSoal: Timestamp Firestore menjadi teks ISO, bidang lain utuh', () => {
   const ts = (iso) => ({ toDate: () => new Date(iso) });

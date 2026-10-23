@@ -1,111 +1,10 @@
-<!doctype html>
-<html lang="id">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>LABSOUMA · Laboratorium Soal Ujian Madrasah Terintegrasi</title>
-<meta name="theme-color" content="#0b4d39">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
-<link rel="icon" href="/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Scheherazade+New:wght@400;600&display=swap">
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      fontFamily: { sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'] },
-      colors: {
-        bg: 'var(--bg)', surface: 'var(--surface)', ink: 'var(--ink)', mute: 'var(--mute)',
-        line: 'var(--line)', brand: 'var(--brand)', 'brand-fg': 'var(--brand-fg)',
-        soft: 'var(--soft)', 'soft-ink': 'var(--soft-ink)', head: 'var(--head)', 'head-ink': 'var(--head-ink)',
-        warn: 'var(--warn)', 'warn-bg': 'var(--warn-bg)', bad: 'var(--bad)', 'bad-bg': 'var(--bad-bg)',
-        ok: 'var(--ok)', 'ok-bg': 'var(--ok-bg)'
-      }
-    }
-  }
-};
-</script>
-<style>
-  /* Layout: sticky green masthead with tab bar, then a two-column workspace (kitab reference left, naskah soal right) */
-  :root {
-    --bg: #f2f6f3; --surface: #ffffff; --ink: #10231b; --mute: #566b61; --line: #d6e2db;
-    --brand: #0f6b4f; --brand-fg: #ffffff; --soft: #e2f1e9; --soft-ink: #0b4f3a;
-    --head: #0b4d39; --head-ink: #eaf7f0;
-    --warn: #7a5200; --warn-bg: #fcf1d6; --bad: #a3231c; --bad-bg: #fbe6e3; --ok: #0b5c3f; --ok-bg: #d9f0e3;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
-      --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
-      --head: #0a2f24; --head-ink: #e5f4ec;
-      --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
-    --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
-    --head: #0a2f24; --head-ink: #e5f4ec;
-    --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
-    color-scheme: dark;
-  }
-  html, body { background: var(--bg); }
-  body {
-    margin: 0; color: var(--ink); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-  }
-  .ar {
-    font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif;
-    direction: rtl; text-align: right; font-size: 1.65rem; line-height: 2.3;
-  }
-  .ar-sm { font-size: 1.35rem; line-height: 2.1; }
-  /* Nama Arab (kitab, pengarang, tingkat) yang disisipkan di baris teks Latin: kecil, rata kanan-ke-kiri, terisolasi dari teks Latin di sekitarnya */
-  .ar-nama { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; unicode-bidi: isolate; font-size: 1.2em; line-height: 1.7; color: var(--ink); }
-  .ar-input { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 1.2rem; line-height: 1.8; }
-  textarea.ar { resize: vertical; }
-  .field { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-           padding: 9px 12px; font-size: 14px; }
-  .field:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-  .field::placeholder { color: var(--mute); opacity: .7; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tabs { scrollbar-width: none; }
-  .fade-in { animation: fade .25s ease; }
-  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .spin { animation: none !important; } }
-  .spin { animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--head); z-index: 45; }
-  .pattern {
-    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 0);
-    background-size: 16px 16px;
-  }
-</style>
-
-</head>
-<body>
-<div id="root"></div>
-
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-<script src="https://unpkg.com/lucide-react@0.468.0/dist/umd/lucide-react.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
-
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-
-<script type="module">import * as K from '/kutipan.js'; import * as S from '/sikap.js'; import * as G from '/pegon.js'; import * as D from '/draft.js'; import * as V from '/drive.js'; import * as U from '/ujian.js'; import * as KS from '/kisi.js'; import * as BT from '/bentuk.js'; window.Bentuk = BT; window.Kisi = KS; window.Kutipan = K; window.Sikap = S; window.Pegon = G; window.LabDraft = D; window.LabDrive = V; window.Ujian = U;</script>
-
-<script type="text/babel">
-const { useState, useEffect, useMemo, useRef } = React;
-const L = new Proxy(window.LucideReact || window.lucideReact || window['lucide-react'] || {}, { get: (t, k) => t[k] || (() => null) });
-const { BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy,
-        Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw,
-        AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target } = L;
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
+import {
+  BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target,
+} from 'lucide-react';
 
 /* ---------- Data & constants ---------- */
 const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
@@ -2566,26 +2465,24 @@ function UserAdmin({ me, toast }) {
 
 /* ---------- App ---------- */
 /* ---------- Pegonizer: alih aksara Latin ke Pegon (standar al-Qolam '24), mesin aturan di browser + bantuan AI lewat server ---------- */
-const loadScript = (src) => new Promise((res, rej) => {
-  if (document.querySelector(`script[data-lazy="${src}"]`)) return res();
-  const s = document.createElement('script');
-  s.src = src; s.async = true; s.dataset.lazy = src; s.onload = () => res(); s.onerror = () => rej(new Error('Pustaka gagal dimuat. Periksa koneksi internet.'));
-  document.head.appendChild(s);
-});
-const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-const MAMMOTH = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.12.2/mammoth.browser.min.js';
+// Pustaka berat dimuat malas dari paket npm (ikut dibundel Vite, dipisah jadi potongan sendiri); bukan lagi dari CDN.
+const muatMammoth = async () => { const m = await import('mammoth/mammoth.browser.min.js'); return m.extractRawText ? m : m.default; };
+const muatPdfjs = async () => {
+  const [m, worker] = await Promise.all([import('pdfjs-dist/build/pdf.js'), import('pdfjs-dist/build/pdf.worker.min.js?url')]);
+  const lib = m.getDocument ? m : m.default;
+  lib.GlobalWorkerOptions.workerSrc = worker.default;
+  return lib;
+};
 
 async function bacaFile(file) {
   const nama = file.name.toLowerCase();
   if (nama.endsWith('.docx')) {
-    await loadScript(MAMMOTH);
-    return { teks: (await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, arab: false };
+    const mammoth = await muatMammoth();
+    return { teks: (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, arab: false };
   }
   if (file.type === 'application/pdf' || nama.endsWith('.pdf')) {
-    await loadScript(PDFJS);
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
-    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pdfjsLib = await muatPdfjs();
+    const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
     const halaman = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const content = await (await doc.getPage(i)).getTextContent();
@@ -3643,17 +3540,4 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-(async function boot() {
-  const root = ReactDOM.createRoot(document.getElementById('root'));
-  try {
-    const res = await fetch('/api/config');
-    if (!res.ok) throw new Error('config ' + res.status);
-    firebase.initializeApp(await res.json());
-    // Simpan salinan data di browser agar muat ulang halaman tidak menghabiskan kuota baca Firestore gratis.
-    try { await firebase.firestore().enablePersistence({ synchronizeTabs: true }); } catch (e) { /* tidak didukung: lanjut tanpa cache */ }
-  } catch (e) { root.render(<SetupError />); return; }
-  root.render(<ErrorBoundary><Root /></ErrorBoundary>);
-})();
-</script>
-</body>
-</html>
+export { Root, ErrorBoundary, SetupError };
