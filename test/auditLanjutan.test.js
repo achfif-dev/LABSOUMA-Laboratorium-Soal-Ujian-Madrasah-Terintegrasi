@@ -69,3 +69,23 @@ test('katalog kitab: host dari KITAB_ALLOWED_HOSTS ikut dipakai', () => {
     assert.equal(ke('https://shamela.ws/book/1'), '');
   } finally { if (lama === undefined) delete process.env.KITAB_ALLOWED_HOSTS; else process.env.KITAB_ALLOWED_HOSTS = lama; }
 });
+
+test('denganCadanganToolChoice: model yang menolak tool_choice "any" diulang dengan "auto" dan diingat', async () => {
+  const { denganCadanganToolChoice } = await import('../src/soalService.js');
+  const panggilan = [];
+  const real = { messages: { create: async (p) => {
+    panggilan.push(p.tool_choice.type);
+    if (p.tool_choice.type === 'any') throw Object.assign(new Error('400 tool_choice: type "tool" and "any" are not supported for this model.'), { status: 400 });
+    return { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'x', input: {} }], dipakai: p.system };
+  } } };
+  const c = denganCadanganToolChoice(real);
+  const base = { model: 'm-baru', max_tokens: 10, system: 'S', tools: [], tool_choice: { type: 'any' }, messages: [] };
+  const r = await c.messages.create(base);
+  assert.deepEqual(panggilan, ['any', 'auto']);
+  assert.match(r.dipakai, /^S[\s\S]*WAJIB/);
+  await c.messages.create(base); // kedua: langsung auto
+  assert.deepEqual(panggilan, ['any', 'auto', 'auto']);
+  // galat 400 lain tidak ditelan
+  const jelek = denganCadanganToolChoice({ messages: { create: async () => { throw Object.assign(new Error('invalid model'), { status: 400 }); } } });
+  await assert.rejects(jelek.messages.create({ ...base, model: 'lain' }), /invalid model/);
+});
