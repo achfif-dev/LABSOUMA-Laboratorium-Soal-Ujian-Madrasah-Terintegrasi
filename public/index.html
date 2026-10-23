@@ -2936,7 +2936,26 @@ function App({ user, profile }) {
   const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
   const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
   useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
-  const [qs, setQs] = useState([]);
+  // Bank soal dimuat berhalaman agar hemat kuota baca Firestore (paket Spark: 50.000 baca/hari):
+  //  - recent : HALAMAN soal terbaru (realtime), bisa dipersempit per tingkat (lingkup)
+  //  - pendingQs : semua soal berstatus pending (realtime; hanya editor/admin) agar antrean review tidak terlewat walau soalnya lama
+  //  - milik : draf dan soal revisi milik pengguna sendiri (realtime), agar tetap bisa diedit walau lama
+  //  - extra : halaman tambahan yang dimuat lewat tombol "Muat lagi" (sekali baca, tidak realtime)
+  const HALAMAN = 100;
+  const [recent, setRecent] = useState([]);
+  const [pendingQs, setPendingQs] = useState([]);
+  const [milik, setMilik] = useState([]);
+  const [extra, setExtra] = useState([]);
+  const [lingkup, setLingkup] = useState(''); // '' = semua tingkat
+  const [masihAda, setMasihAda] = useState(false);
+  const [memuat, setMemuat] = useState(false);
+  const kursor = useRef(null); const sudahLagi = useRef(false);
+  const qs = useMemo(() => {
+    const m = new Map();
+    for (const arr of [extra, pendingQs, milik, recent]) for (const q of arr) m.set(q.id, q); // pendengar realtime paling segar, menang terakhir
+    const ms = (q) => (q.updatedAt && typeof q.updatedAt.toMillis === 'function' ? q.updatedAt.toMillis() : Number.MAX_SAFE_INTEGER);
+    return [...m.values()].sort((a, b) => ms(b) - ms(a));
+  }, [extra, pendingQs, milik, recent]);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   // Form soal dipulihkan dari draf otomatis bila ada (muat ulang halaman, tab tertutup).
@@ -2961,10 +2980,39 @@ function App({ user, profile }) {
     if (formBerisi(normalForm(a.form))) toast(a.editingId ? 'Draf perbaikan soal dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.' : 'Draf soal yang belum disimpan dipulihkan. Tekan Simpan Draft atau Kirim ke Editor agar tersimpan di server.');
   }, []);
 
-  useEffect(() => col.orderBy('updatedAt', 'desc').limit(300).onSnapshot(
-    (snap) => { setQs(snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))); setLoaded(true); setLoadErr(''); },
-    () => { setLoadErr('Bank soal tidak bisa dimuat. Periksa koneksi, atau minta admin memastikan peran Anda aktif.'); setLoaded(true); },
-  ), []);
+  const dariDoc = (d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) });
+  useEffect(() => {
+    let q = lingkup ? col.where('tingkat', '==', lingkup) : col;
+    q = q.orderBy('updatedAt', 'desc').limit(HALAMAN);
+    setExtra([]); sudahLagi.current = false; kursor.current = null;
+    return q.onSnapshot(
+      (snap) => {
+        setRecent(snap.docs.map(dariDoc)); setLoaded(true); setLoadErr('');
+        if (!sudahLagi.current) { kursor.current = snap.docs[snap.docs.length - 1] || null; setMasihAda(snap.docs.length >= HALAMAN); }
+      },
+      (e) => {
+        if (lingkup && e && e.code === 'failed-precondition') { toast('Indeks Firestore untuk lingkup tingkat belum dipasang (jalankan: firebase deploy --only firestore:indexes). Memakai semua tingkat.'); setLingkup(''); return; }
+        setLoadErr('Bank soal tidak bisa dimuat. Periksa koneksi, atau minta admin memastikan peran Anda aktif.'); setLoaded(true);
+      },
+    );
+  }, [lingkup]);
+  useEffect(() => (canReview
+    ? col.where('status', '==', 'pending').limit(300).onSnapshot((snap) => setPendingQs(snap.docs.map(dariDoc)), () => setPendingQs([]))
+    : undefined), [canReview]);
+  useEffect(() => col.where('authorUid', '==', user.uid).where('status', 'in', ['draft', 'revision']).limit(200)
+    .onSnapshot((snap) => setMilik(snap.docs.map(dariDoc)), () => setMilik([])), [user.uid]);
+  const muatLagi = async () => {
+    if (memuat || !kursor.current) return;
+    setMemuat(true);
+    try {
+      let q = lingkup ? col.where('tingkat', '==', lingkup) : col;
+      const snap = await q.orderBy('updatedAt', 'desc').startAfter(kursor.current).limit(HALAMAN).get();
+      sudahLagi.current = true;
+      setExtra((e) => [...e, ...snap.docs.map(dariDoc)]);
+      if (snap.docs.length) kursor.current = snap.docs[snap.docs.length - 1];
+      setMasihAda(snap.docs.length >= HALAMAN);
+    } catch (e) { toast('Gagal memuat soal berikutnya. Periksa koneksi lalu coba lagi.'); } finally { setMemuat(false); }
+  };
 
   // ---- Kamus Pegon bersama ----
   // Dibaca semua staf. Ditulis hanya editor/admin (aturan Firestore). Setiap dokumen divalidasi ulang di mesin (muatBersama).
@@ -3046,7 +3094,7 @@ function App({ user, profile }) {
     setEditingId(q.id); setTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const del = async (id) => { try { await col.doc(id).delete(); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
+  const del = async (id) => { try { await col.doc(id).delete(); setExtra((e) => e.filter((x) => x.id !== id)); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
   const canEdit = (q) => isAdmin || (q.authorUid === user.uid && (q.status === 'draft' || q.status === 'revision'));
 
   // Dari saran bab ke form soal. Form kosong: kitab, jenjang, dan bab diisi. Form berisi: HANYA kolom Bab (isian yang sedang diketik tidak diubah).
@@ -3140,6 +3188,19 @@ function App({ user, profile }) {
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
+        {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">
+            <span className="text-mute">Dimuat {qs.length} soal{masihAda ? ' terbaru (masih ada yang lebih lama)' : ' (semua yang tersedia)'}.</span>
+            <label className="flex items-center gap-2 font-semibold">Lingkup tingkat
+              <select className="field !w-auto" value={lingkup} onChange={(e) => setLingkup(e.target.value)} aria-label="Lingkup tingkat yang dimuat">
+                <option value="">Semua tingkat</option>
+                {appCfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.nama}</option>)}
+              </select>
+            </label>
+            {masihAda && <Btn kind="ghost" onClick={muatLagi} disabled={memuat}>{memuat ? <Loader2 size={15} className="spin" /> : null}Muat {HALAMAN} lagi</Btn>}
+            {tab !== 'bank' && masihAda && <span className="text-xs text-mute">Ekspor dan Fokus Ujian hanya memakai soal yang sudah dimuat.</span>}
+          </div>
+        )}
         {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
