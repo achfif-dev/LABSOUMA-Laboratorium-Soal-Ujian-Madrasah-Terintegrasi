@@ -226,8 +226,9 @@ function DraftNote({ names, className = '' }) {
 /* ---------- Export builders ---------- */
 const optsOf = (q) => KEYS.filter((k) => (q.opsi[k] || '').trim());
 const levelLabel = (v) => (LEVEL.find((l) => l.v === v) || {}).label || v;
-const csvEsc = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
-const giftEsc = (s) => String(s || '').replace(/([~=#{}:])/g, '\\$1').replace(/\n/g, ' ');
+// Sel berawalan = + - @ (atau tab/CR) dibaca Excel/Sheets sebagai rumus: awali apostrof agar tampil sebagai teks biasa (OWASP CSV injection).
+const csvEsc = (s) => { let t = String(s == null ? '' : s); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
+const giftEsc = (s) => String(s || '').replace(/([\\~=#{}:])/g, '\\$1').replace(/\r?\n/g, ' '); // "\\" ikut di-escape (GIFT memakainya sebagai pelepas)
 const xmlEsc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fullQ = (q) => [q.stimulus, q.pertanyaan].filter(Boolean).join(' ');
 
@@ -2914,7 +2915,13 @@ function App({ user, profile }) {
     // Di komputer bersama, kosongkan form dulu (tombol Kosongkan) bila isiannya tidak boleh terlihat orang lain.
     if (formBerisi(form) && !window.confirm('Isian soal yang belum disimpan akan tetap tersimpan sebagai draf di perangkat ini dan muncul lagi saat Anda masuk. Di komputer bersama, tekan Batal lalu klik Kosongkan terlebih dahulu. Tetap keluar?')) return;
     Draft.flush();
-    setMenuOpen(false); firebase.auth().signOut();
+    setMenuOpen(false);
+    // Komputer bersama: setelah keluar, hapus cache offline Firestore (soal + kunci jawaban) dari IndexedDB lalu muat ulang.
+    (async () => {
+      try { await firebase.auth().signOut(); } catch (e) { /* tetap lanjut membersihkan */ }
+      try { const db = firebase.firestore(); await db.terminate(); await db.clearPersistence(); } catch (e) { /* cache tidak aktif atau sudah bersih */ }
+      window.location.reload();
+    })();
   };
   const pilihTab = (id) => { setTab(id); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   useEffect(() => {
@@ -2997,6 +3004,8 @@ function App({ user, profile }) {
     const K = window.Kutipan; const a = form.ai || {};
     let v = '';
     if (K && form.teks && form.pembahasan) { try { v = K.periksaKutipan(K.bidangDariSoal(form), form.teks).status; } catch (e) { v = ''; } }
+    // Soal buatan AI tanpa teks kitab tidak bisa diperiksa kutipannya: tandai 'tanpa_teks' (jangan dikosongkan diam-diam).
+    else if (K && !String(form.teks || '').trim() && form.pembahasan && a.dibuat) v = 'tanpa_teks';
     return { dibuat: !!a.dibuat, model: String(a.model || '').slice(0, 60), verifikasi: v, buta: a.buta || '' };
   };
   const content = () => {

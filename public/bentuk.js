@@ -64,7 +64,8 @@ export const kunciOpsi = (b) => BENTUK[bentukDari(b)].opsi;
 
 /** Bentuk yang dianjurkan untuk satu tingkat (kunci MI/MTs/MA atau namanya). Tingkat tak dikenal: semua bentuk. */
 export function bentukUntukTingkat(tingkat) {
-  const k = ALIAS_TINGKAT[String(tingkat || '').trim().toLowerCase().replace(/\s*\(.*\)\s*$/, '')];
+  const nama = String(tingkat || '').trim().toLowerCase().replace(/\s*\(.*\)\s*$/, '');
+  const k = Object.hasOwn(ALIAS_TINGKAT, nama) ? ALIAS_TINGKAT[nama] : undefined; // hasOwn: "constructor"/"__proto__" bukan tingkat
   return k ? BENTUK_PER_TINGKAT[k] : BENTUK_IDS;
 }
 export const dianjurkan = (tingkat, b) => bentukUntukTingkat(tingkat).includes(bentukDari(b));
