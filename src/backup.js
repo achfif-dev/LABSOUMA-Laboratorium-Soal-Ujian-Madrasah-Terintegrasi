@@ -15,7 +15,8 @@ const LEVEL = ['L1', 'L2', 'L3'];
 const KUNCI = ['', 'A', 'B', 'C', 'D', 'E'];
 const VERIFIKASI = ['', 'lolos', 'periksa', 'gagal', 'tanpa_teks'];
 const BUTA = ['', 'sepakat', 'beda'];
-const ID_OK = /^[A-Za-z0-9_-]{1,100}$/;
+// ID berbentuk __x__ dicadangkan Firestore (ditolak saat tulis dan menggagalkan seluruh batch), jadi ditolak sejak awal.
+const ID_OK = /^(?!__.*__$)[A-Za-z0-9_-]{1,100}$/;
 const bad = (m) => new ApiError(422, 'BACKUP_INVALID', m);
 
 const teks = (v, max, nama) => {

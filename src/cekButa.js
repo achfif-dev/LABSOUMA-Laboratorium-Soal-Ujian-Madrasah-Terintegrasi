@@ -1,7 +1,7 @@
 // Uji jawab buta: model menjawab soal TANPA melihat kunci dan pembahasan. Bila jawabannya berbeda dari kunci,
 // soal ditandai "perlu telaah". Menangkap kunci yang salah, dua jawaban benar, atau tidak ada jawaban benar.
 // Model penguji bisa dibedakan dari model pembuat lewat AI_VERIFY_MODEL (penyedia sama), agar kesalahan sistematis tidak ikut terbawa.
-import { ApiError, getClient, clean, resolveTingkat } from './soalService.js';
+import { ApiError, getClient, clean, resolveTingkat, getVerifyModel } from './soalService.js';
 import { runTool, validateSoalDraft } from './assistService.js';
 import { bentukSah, punyaOpsi, BENTUK } from './bentuk.js';
 
@@ -43,7 +43,7 @@ export async function cekButa(soalApp, teks, { client, tingkat, model, bentuk } 
   const opsi = Object.entries(draft.opsi).filter(([, v]) => v).map(([k, v]) => `${k}. ${v}`).join('\n');
   const call = await runTool(c, {
     system: SYS_BUTA, tools: [TOOL_JAWAB], maxTokens: 1500,
-    model: model || process.env.AI_VERIFY_MODEL || undefined,
+    model: model || getVerifyModel(),
     user: `<metadata>\nJenjang: ${resolveTingkat(tingkat) || 'tidak disebutkan'}\n</metadata>\n\n<teks_kitab>\n${clean(teks, 6000)}\n</teks_kitab>\n\n<soal>\n${draft.stimulus ? draft.stimulus + '\n\n' : ''}${draft.pertanyaan}\n${opsi}\n</soal>`,
   });
   if (call.name !== 'jawab_soal') throw new ApiError(502, 'AI_BAD_OUTPUT', 'Hasil AI tidak lengkap (alat salah). Coba lagi.');

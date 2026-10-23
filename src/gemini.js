@@ -70,19 +70,30 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_0
           const ctl = new AbortController();
           // Seluruh percobaan (termasuk ulang) harus selesai dalam budgetMs agar fungsi Vercel (60 dtk) tidak mati lebih dulu.
           const timer = setTimeout(() => ctl.abort(), Math.max(1000, Math.min(timeoutMs, budgetMs - (Date.now() - started))));
+          // Pewaktu baru dimatikan SETELAH badan respons selesai dibaca: header 200 dengan badan yang menggantung
+          // tetap harus terputus oleh timeout (sebelumnya clearTimeout jalan sebelum res.json()).
+          const galatWaktu = () => Object.assign(new Error('timeout'), { name: 'APIConnectionTimeoutError' });
           let res;
+          let json = null;
           try {
             res = await fetchImpl(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
               method: 'POST', signal: ctl.signal,
               headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
               body: JSON.stringify(body),
             });
+            // Jangan bergantung pada fetchImpl yang menghormati signal: balapkan juga dengan sinyal abort.
+            const abortLebihDulu = new Promise((_, rej) => {
+              if (ctl.signal.aborted) rej(galatWaktu());
+              else ctl.signal.addEventListener('abort', () => rej(galatWaktu()), { once: true });
+            });
+            try { json = await Promise.race([res.json(), abortLebihDulu]); } catch (e) {
+              if (e?.name === 'APIConnectionTimeoutError' || ctl.signal.aborted) throw galatWaktu();
+              /* bukan JSON */
+            }
           } catch (e) {
+            if (e?.name === 'APIConnectionTimeoutError') throw e;
             throw Object.assign(new Error(e?.name === 'AbortError' ? 'timeout' : 'network'), { name: e?.name === 'AbortError' ? 'APIConnectionTimeoutError' : 'APIConnectionError' });
           } finally { clearTimeout(timer); }
-
-          let json = null;
-          try { json = await res.json(); } catch { /* bukan JSON */ }
           if (!res.ok) {
             if (RETRY_STATUS.has(res.status) && attempt < retries && Date.now() - started < RETRY_WINDOW_MS && budgetMs - (Date.now() - started) > 8000) { await sleep(800 * (attempt + 1)); continue; }
             throw httpError(res.status, json, res.headers);

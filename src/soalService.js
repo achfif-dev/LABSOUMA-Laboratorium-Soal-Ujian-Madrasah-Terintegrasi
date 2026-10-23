@@ -36,6 +36,16 @@ export const MODEL_PRESETS = {
   ],
 };
 export const getModel = () => (runtime && runtime.model) || process.env.AI_MODEL || DEFAULT_MODELS[provider()] || DEFAULT_MODELS.gemini;
+/**
+ * Model penguji uji jawab buta (AI_VERIFY_MODEL). Nama model hanya berlaku untuk penyedia yang ditetapkan di AI_PROVIDER;
+ * bila admin berpindah penyedia lewat aplikasi, model itu dilewati (pakai model aktif) agar tidak AI_MODEL_NOT_FOUND.
+ */
+export const getVerifyModel = () => {
+  const v = String(process.env.AI_VERIFY_MODEL || '').trim();
+  if (!v) return undefined;
+  const envProvider = String(process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
+  return provider() === envProvider ? v : undefined;
+};
 
 // Anggaran waktu satu panggilan AI. Fungsi Vercel dibatasi 60 detik (vercel.json); sisanya untuk autentikasi dan Firestore.
 export const AI_BUDGET_MS = 45_000;
@@ -80,10 +90,13 @@ export function daftarkanTingkat(list) {
   tingkatKustom = new Map(list.map((t) => [String(t.nama).trim().toLowerCase(), cleanLine(t.label || t.nama, 40) || String(t.nama)]));
 }
 /** Kunci tingkat (MI, Ibtidaiyah, atau nama tingkat buatan admin) -> label untuk prompt AI; undefined bila tidak dikenal. */
-export const resolveTingkat = (raw) => { const k = String(raw || '').trim().toLowerCase(); return TINGKAT[k] || tingkatKustom.get(k); };
+// Object.hasOwn: "constructor", "__proto__", "toString" dan kawan-kawannya bukan kunci sah (lookup objek biasa meloloskannya).
+export const resolveTingkat = (raw) => { const k = String(raw || '').trim().toLowerCase(); return Object.hasOwn(TINGKAT, k) ? TINGKAT[k] : tingkatKustom.get(k); };
 export const LEVEL = { l1: 'L1', l2: 'L2', l3: 'L3', hots: 'L3' };
+export const resolveLevel = (raw) => { const k = String(raw || '').trim().toLowerCase(); return Object.hasOwn(LEVEL, k) ? LEVEL[k] : undefined; };
 
-const TAG_PEMBATAS = /<\/?\s*(teks_kitab|soal_draft|metadata|daftar_isi)\s*>/gi;
+// Semua pembatas blok data yang dipakai prompt. <soal> dipakai uji jawab buta (cekButa.js).
+const TAG_PEMBATAS = /<\/?\s*(teks_kitab|soal_draft|soal|metadata|daftar_isi)\s*>/gi;
 /** Buang tag pembatas sampai tuntas. Satu kali replace tidak cukup: "<</teks_kitab>/teks_kitab>" menyisakan "</teks_kitab>" setelah satu putaran. */
 const buangPembatas = (t) => {
   let x = t;
@@ -115,7 +128,7 @@ export function validateInput(body) {
 
   const tingkat = resolveTingkat(body.tingkat);
   if (!tingkat) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat tidak dikenal. Pilih salah satu tingkat yang tersedia di menu Konfigurasi (bawaan: MI/Ibtidaiyah, MTs/Tsanawiyah, MA/Aliyah).');
-  const level = LEVEL[String(body.level || '').trim().toLowerCase()];
+  const level = resolveLevel(body.level);
   if (!level) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat kesukaran harus L1, L2, atau L3 (HOTS).');
   const bentuk = bentukSah(body.bentuk); // kosong = pilihan ganda (klien lama tidak mengirim bentuk)
   if (!bentuk) throw new ApiError(400, 'BAD_REQUEST', 'Bentuk soal harus pilgan, lanjutan, benarsalah, isian, atau uraian.');
