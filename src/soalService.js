@@ -369,7 +369,31 @@ export async function createClientFor(p, key, budgetMs = AI_BUDGET_MS) {
     return createGeminiClient({ apiKey: key, timeoutMs: budgetMs, budgetMs });
   }
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  return new Anthropic({ apiKey: key, timeout: budgetMs, maxRetries: 0 });
+  return denganCadanganToolChoice(new Anthropic({ apiKey: key, timeout: budgetMs, maxRetries: 0 }));
+}
+
+// Sebagian model Claude (mis. yang berpikir secara bawaan) menolak tool_choice "any"/"tool" dengan HTTP 400
+// ("tool_choice: type 'tool' and 'any' are not supported for this model"). Model itu diingat, lalu dipanggil dengan
+// tool_choice "auto" ditambah perintah tegas untuk memanggil alat. Hasil tanpa alat tetap ditolak oleh pemanggil (AI_BAD_OUTPUT).
+const tanpaToolChoicePaksa = new Set();
+const PAKSA_ALAT = '\n\nWAJIB: balas dengan memanggil salah satu alat yang tersedia. Jangan membalas dengan teks biasa.';
+export function denganCadanganToolChoice(real) {
+  const otomatis = (p) => ({ ...p, tool_choice: { type: 'auto' }, system: String(p.system || '') + PAKSA_ALAT });
+  const dipaksa = (p) => p && p.tool_choice && (p.tool_choice.type === 'any' || p.tool_choice.type === 'tool');
+  return {
+    messages: {
+      async create(params, opts) {
+        if (dipaksa(params) && tanpaToolChoicePaksa.has(params.model)) return real.messages.create(otomatis(params), opts);
+        try { return await real.messages.create(params, opts); } catch (e) {
+          if (dipaksa(params) && e && e.status === 400 && /tool_choice/i.test(String(e.message || ''))) {
+            tanpaToolChoicePaksa.add(params.model);
+            return real.messages.create(otomatis(params), opts);
+          }
+          throw e;
+        }
+      },
+    },
+  };
 }
 
 /** Klien AI sesuai penyedia aktif: "gemini" (bawaan, ada tier gratis) atau "anthropic" (Claude). Keduanya berbentuk client.messages.create(). */
