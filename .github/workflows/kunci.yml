@@ -1,0 +1,20 @@
+name: Buat package-lock.json
+# Dijalankan MANUAL dari tab Actions (Run workflow), cukup sekali. Runner GitHub punya akses ke registry npm,
+# lalu hasilnya di-commit ke cabang yang dipilih. Setelah file itu ada, ganti "npm install" di ci.yml dan eval.yml menjadi "npm ci".
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  kunci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit package-lock.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then echo "Tidak ada perubahan."; else git commit -m "Tambah package-lock.json" && git push; fi
