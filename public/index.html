@@ -837,13 +837,13 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
   // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
   const [ex, setEx] = useState(() => {
     const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
-    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true };
+    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true, kFoto: o.kFoto === true };
   });
   const patchEx = (p) => setEx((x) => ({ ...x, ...p }));
   const { kUrl, kHal, kAppend, fokus, kManual } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
   const setKUrl = (v) => patchEx({ kUrl: v }); const setKHal = (v) => patchEx({ kHal: v }); const setKAppend = (v) => patchEx({ kAppend: v });
   const setFokus = (v) => patchEx({ fokus: v }); const setKManual = (v) => patchEx({ kManual: v });
-  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual);
+  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto);
   const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
   const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
   // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
@@ -968,6 +968,24 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
     r.onerror = () => setKErr({ code: 'FILE', message: 'File tidak bisa dibaca.' });
     r.readAsText(file, 'utf-8');
   };
+  // Baca teks Arab dari foto halaman kitab fisik (OCR oleh AI). Hasil selalu perlu dikoreksi pengguna: harakat dan huruf bisa salah baca.
+  const fotoRef = useRef(null);
+  const [fotoBusy, setFotoBusy] = useState(false);
+  const [fotoInfo, setFotoInfo] = useState(null); // { kualitas, ragu[], terpotong }
+  const bacaFoto = async (file) => {
+    if (!file || fotoBusy) return;
+    if (form.teks.trim() && !kAppend && !window.confirm('Teks Kitab sudah terisi. Hasil foto akan MENGGANTI teks itu. Lanjutkan? (Centang "Tambahkan ke teks yang sudah ada" bila ingin menyambung.)')) return;
+    setFotoBusy(true); setKErr(null); setKInfo(null);
+    try {
+      const gambar = await siapkanFoto(file, 2000); // harakat kecil: butuh resolusi lebih tinggi dari foto Pegon (1.600 px)
+      const d = await callApi('/api/assist', { aksi: 'fotokitab', gambar });
+      const h = d.hasil;
+      setForm((f) => ({ ...f, teks: kAppend && f.teks.trim() ? f.teks.trimEnd() + '\n\n' + h.teks : h.teks }));
+      setFotoInfo({ kualitas: h.kualitas, ragu: h.ragu || [], terpotong: !!h.terpotong });
+      patchEx({ kFoto: true });
+    } catch (e) { setKErr(apiErr(e)); } finally { setFotoBusy(false); }
+  };
+  const selesaiKoreksiFoto = () => { patchEx({ kFoto: false }); setFotoInfo(null); };
   const cleanText = () => setForm((f) => ({ ...f, teks: cleanArabic(f.teks) }));
   // Reset Rujukan Kitab: nama, juz, halaman, teks, tautan sumber, dan semua keadaan pengambilan. Naskah soal (pertanyaan, opsi, dst.) tidak disentuh.
   const rujukanTerisi = !!(form.nama || form.juz || form.hal || form.teks || form.sumberUrl || kUrl || kInfo || kErr || ai || fokus);
@@ -1112,6 +1130,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               <div className="flex flex-wrap gap-2 pt-1">
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fileRef.current && fileRef.current.click()}><FileText size={14} />Impor file .txt</Btn>
                 <input ref={fileRef} type="file" accept=".txt,.htm,.html,text/plain,text/html" className="hidden" aria-label="Impor file teks kitab" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
+                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => fotoRef.current && fotoRef.current.click()} disabled={fotoBusy}>{fotoBusy ? <Loader2 size={14} className="spin" /> : <Camera size={14} />}{fotoBusy ? 'Membaca foto…' : 'Foto halaman kitab'}</Btn>
+                <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" className="hidden" aria-label="Foto halaman kitab" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={cleanText} disabled={!form.teks.trim()}>Bersihkan teks</Btn>
               </div>
               <p className="text-xs leading-relaxed text-mute">Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p>
@@ -1145,6 +1165,16 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
               <p className={`mt-1 text-xs ${form.teks.length > 6000 ? 'font-semibold text-bad' : 'text-mute'}`}>
                 {form.teks.length.toLocaleString('id-ID')} / 6.000 karakter{form.teks.length > 6000 ? '. Potong teks agar bisa diproses AI.' : ''}
               </p>
+              {ex.kFoto && (
+                <div role="status" className="mt-2 space-y-2 rounded-xl bg-warn-bg px-3 py-3 text-xs leading-relaxed text-warn">
+                  <p className="font-semibold">Teks ini dibaca AI dari foto dan belum dikoreksi.{fotoInfo ? ` Kualitas bacaan: ${fotoInfo.kualitas}.` : ''}</p>
+                  <p>Cocokkan huruf dan harakat dengan kitab fisik sebelum membuat soal. Pemeriksaan kutipan memakai teks ini sebagai rujukan, jadi kesalahan baca akan ikut dianggap benar.{fotoInfo && fotoInfo.terpotong ? ' Teks dipotong pada 6.000 karakter; foto halaman berikutnya terpisah.' : ''}</p>
+                  {fotoInfo && fotoInfo.ragu.length > 0 && (
+                    <ul className="list-disc space-y-0.5 pl-5">{fotoInfo.ragu.map((w, i) => <li key={i}><span className="ar" dir="rtl" lang="ar">{w.kata}</span>{w.catatan ? `: ${w.catatan}` : ''}</li>)}</ul>
+                  )}
+                  <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={selesaiKoreksiFoto}>Sudah saya cocokkan dengan kitab</Btn>
+                </div>
+              )}
               {form.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber tersimpan: <SourceLink url={form.sumberUrl} /></p>}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2571,12 +2601,12 @@ async function bacaFile(file) {
   throw { code: 'FILE', message: 'Format file tidak didukung. Gunakan .docx atau .pdf.' };
 }
 
-// Foto diperkecil di browser (maks. 1600 px, JPEG) agar muat dalam batas isi permintaan server.
-const siapkanFoto = (file) => new Promise((res, rej) => {
+// Foto diperkecil di browser (maks. 1600 px bawaan, JPEG) agar muat dalam batas isi permintaan server.
+const siapkanFoto = (file, maksPx = 1600) => new Promise((res, rej) => {
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
-    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const k = Math.min(1, maksPx / Math.max(img.width, img.height));
     const c = document.createElement('canvas');
     c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
