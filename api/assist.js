@@ -1,5 +1,5 @@
 // POST /api/assist: terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
-import { route, authenticateStaff, enforceAi, withRefund, GLOBAL_AI_ID } from '../src/platform.js';
+import { route, authenticateAuthor, enforceAi, withRefund, aiPool } from '../src/platform.js';
 import { loadAiConfig } from '../src/aiConfig.js';
 import { muatTingkatKustom } from '../src/appConfig.js';
 import { ApiError, validateInput, getModel } from '../src/soalService.js';
@@ -23,7 +23,7 @@ const ASSIST = {
 };
 
 export default route(async (req) => {
-  const u = await authenticateStaff(req);
+  const u = await authenticateAuthor(req);
   const aksi = req.body && req.body.aksi;
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
   if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, bab, pegon, pegonfoto, atau fotokitab.');
@@ -34,8 +34,8 @@ export default route(async (req) => {
   else if (aksi === 'bab') validateBab(req.body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
-  await enforceAi(u.uid);
-  const hasil = await withRefund(u.uid, () => run(req.body), [GLOBAL_AI_ID]); // gagal di sisi server/AI: kuota dikembalikan
+  await enforceAi(u.uid, u.role);
+  const hasil = await withRefund(u.uid, () => run(req.body), [aiPool(u.role).id]); // gagal di sisi server/AI: kuota dikembalikan
   if (aksi === 'telaah') {
     // Gratis, tanpa AI: periksa kutipan pada naskah asli dan pada perbaikan dari AI.
     hasil.verifikasi_naskah = periksaKutipan(bidangDariSoal(req.body.soal), teks);
