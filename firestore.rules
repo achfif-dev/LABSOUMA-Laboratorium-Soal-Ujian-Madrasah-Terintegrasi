@@ -1,6 +1,8 @@
 rules_version = '2';
 
-// Peran: pending (baru daftar), penyusun, editor, admin, nonaktif.
+// Peran: pending (baru daftar), penyusun, editor, admin, ustadz, nonaktif.
+// ustadz = pemakai alat bantu (AI, Pegon, ekspor) tanpa akses ke bank soal: TIDAK termasuk isStaff/isReviewer/isAdmin,
+// jadi koleksi `soal` tertutup baginya. Soal ustadz hanya disimpan di perangkatnya sendiri, tidak pernah di Firestore.
 // Profil pengguna dibuat oleh Cloud Function /api/session (klien tidak bisa membuatnya).
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -12,6 +14,8 @@ service cloud.firestore {
     function isStaff() { return hasProfile() && role() in ['penyusun', 'editor', 'admin']; }
     function isReviewer() { return hasProfile() && role() in ['editor', 'admin']; }
     function isAdmin() { return hasProfile() && role() == 'admin'; }
+    // Hanya untuk membaca kamus Pegon bersama. JANGAN dipakai di aturan `soal`.
+    function isUstadz() { return hasProfile() && role() == 'ustadz'; }
 
     match /users/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
@@ -21,7 +25,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         && request.auth.uid != uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
-        && request.resource.data.role in ['pending', 'penyusun', 'editor', 'admin', 'nonaktif'];
+        && request.resource.data.role in ['pending', 'penyusun', 'editor', 'admin', 'ustadz', 'nonaktif'];
     }
 
     match /soal/{id} {
@@ -189,7 +193,7 @@ service cloud.firestore {
           && ((d().jenis == 'arab' && arabOk()) || (d().jenis == 'e' && eOk()) || (d().jenis == 'suf' && sufOk()));
       }
 
-      allow read: if isStaff();
+      allow read: if isStaff() || isUstadz(); // ustadz: baca saja, supaya hasil Pegon seragam
       allow create, update: if isReviewer() && validEntry();
       allow delete: if isReviewer();
     }

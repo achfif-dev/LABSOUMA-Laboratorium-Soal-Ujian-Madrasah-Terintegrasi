@@ -11,7 +11,7 @@ Susunan tanpa kartu kredit:
 
 Cloud Functions tidak dipakai karena butuh paket Blaze. Fungsi server ada di folder `api/`.
 
-Peran: **pending** (baru daftar), **penyusun**, **editor** (menyetujui atau meminta revisi, tidak untuk soal buatannya sendiri), **admin** (mengelola pengguna dan semua soal), **nonaktif**.
+Peran: **pending** (baru daftar), **penyusun**, **editor** (menyetujui atau meminta revisi, tidak untuk soal buatannya sendiri), **admin** (mengelola pengguna dan semua soal), **ustadz** (alat bantu pribadi, lihat bagian Peran Ustadz), **nonaktif**.
 
 ## Pemasangan
 
@@ -90,7 +90,23 @@ Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortogra
 - **Gemini gratis:** jika muncul "Batas permintaan AI tercapai", itu kuota proyek habis. Tunggu atau ganti `AI_MODEL` ke `gemini-3.5-flash-lite`.
 - **Vercel Hobby:** ketentuan wajarnya membatasi pemakaian ke personal non-komersial. Pastikan penggunaan Anda sesuai.
 - Batas per pengguna di aplikasi (5 per menit, 60 per hari untuk AI) disimpan di Firestore dan bisa diubah lewat `LIMIT_*`.
+- **Ustadz** punya batas dan plafon harian sendiri (`LIMIT_USTADZ_PER_MINUTE` 3, `LIMIT_USTADZ_PER_DAY` 15, `LIMIT_USTADZ_GLOBAL_PER_DAY` 300; ambil halaman kitab `LIMIT_USTADZ_KITAB_PER_MINUTE` 5 dan `LIMIT_USTADZ_KITAB_PER_DAY` 50), terpisah dari kolam tim agar tidak saling menghabiskan.
 - **Plafon global:** selain batas per pengguna, ada plafon harian untuk seluruh madrasah (`LIMIT_GLOBAL_PER_DAY`, bawaan 1000 panggilan AI). Bila penuh, semua pengguna ditolak sampai besok (WIB). Sesuaikan dengan kuota penyedia Anda. Uji jawab buta dan telaah juga dihitung.
+
+## Peran Ustadz (alat bantu pribadi)
+
+Untuk guru yang ingin membuat soal latihan bagi muridnya sendiri tanpa melewati editor. Admin memberi peran **Ustadz** di tab Pengguna; akun baru tetap menunggu persetujuan.
+
+| Boleh | Tidak boleh |
+|---|---|
+| Menyusun soal, generate AI, telaah, uji jawab buta, saran bab, ambil halaman kitab | Membaca bank soal, soal orang lain, atau kunci jawaban tim |
+| Pegonizer (kamus bersama hanya dibaca) | Mengirim ke editor, Review, Backup Drive, Pengguna, Konfigurasi, Pengaturan AI |
+| Ekspor dan kisi-kisi dari soalnya sendiri | Mengubah kamus Pegon bersama |
+
+- **Penyimpanan.** Soal Ustadz **tidak pernah** dikirim ke server atau Firestore. Soal disimpan di browser perangkat itu (tab **Soal Saya**), per akun, tanpa kedaluwarsa, maksimal 500 soal. Tidak ikut pindah perangkat: pakai **Unduh cadangan** (berkas `.json`) dan **Pulihkan dari cadangan**. Di komputer bersama, hapus Soal Saya sebelum keluar.
+- **Catatan wajib.** Setiap ekspor (DOCX di bawah judul dan di kaki halaman, GIFT dan Moodle XML sebagai komentar, CSV sebagai kolom `Catatan`, kisi-kisi) memuat: "Soal latihan buatan ustadz dengan bantuan AI, belum ditelaah tim editor madrasah." Catatan ini menjaga asal-usul soal; ia tidak bisa dipaksakan, karena berkas DOCX dapat disunting.
+- **Pengamanan di server.** `isStaff()` di `firestore.rules` tidak memuat `ustadz`, jadi koleksi `soal` tertutup bagi Ustadz. Endpoint backup, konfigurasi, dan pengaturan AI tetap khusus editor/admin. `test/ustadz.test.js` menjaga hal ini.
+- **Urutan rilis:** (1) tempel `firestore.rules` di Firebase Console dan **Publish**, (2) deploy aplikasi, (3) beri peran Ustadz di tab Pengguna. Bila aturan belum dipublish, admin tidak bisa memberi peran itu (ditolak aturan lama).
 
 ## Pengaturan AI dari aplikasi (admin)
 
@@ -298,6 +314,7 @@ src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
 src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
 src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
 src/appConfig.js         konfigurasi aplikasi: tingkatan, kelas, sistem ujian, mata pelajaran, katalog kitab (dan pemetaannya)
+web/lib/ustadz.js         peran Ustadz: catatan wajib ekspor dan penyimpanan Soal Saya di perangkat (kode asli; src/ustadz.js untuk tes)
 web/lib/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
 src/configBackup.js      cadangan dan riwayat konfigurasi (otomatis, titik pulih, perbandingan, pangkas)
 src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan

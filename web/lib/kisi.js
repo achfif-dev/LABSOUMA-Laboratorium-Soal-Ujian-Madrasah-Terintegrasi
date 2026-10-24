@@ -137,13 +137,14 @@ export function analisisCakupan(saran, soal) {
 /* ------------------------------------------------------------- Keluaran teks */
 const csvEsc = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
 
-export function kisiKeCsv(kisi) {
+export function kisiKeCsv(kisi, catatan = '') {
   const rows = [['No Soal', 'Bab / Materi', 'Rujukan', 'Indikator Soal', 'Level', 'Bentuk Soal', 'Prioritas Bab']];
   for (const g of kisi.kelompok) for (const s of g.soal) rows.push([s.no, g.bab, g.rujukan, s.indikator, namaLevel(s.level), s.bentuk, g.prioritas]);
+  if (catatan) rows.push(['Catatan', catatan]);
   return '﻿' + rows.map((r) => r.map(csvEsc).join(',')).join('\n') + '\n';
 }
 
-export function kisiKeTeks(kisi) {
+export function kisiKeTeks(kisi, catatan = '') {
   const m = kisi.meta; const out = [];
   out.push(`KISI-KISI ${m.judul || 'SOAL'}`.toUpperCase());
   for (const [k, v] of [['Madrasah', m.madrasah], ['Mata pelajaran', m.mapel], ['Tingkat/kelas', [m.tingkat, m.kelas && 'kelas ' + m.kelas].filter(Boolean).join(' ')], ['Ujian', m.ujian], ['Kitab', m.kitab.join('; ')], ['Jumlah soal', m.total]]) if (v) out.push(`${k}: ${v}`);
@@ -155,6 +156,7 @@ export function kisiKeTeks(kisi) {
   }
   out.push(`Ringkasan level: L1 ${kisi.perLevel.L1}, L2 ${kisi.perLevel.L2}, L3 ${kisi.perLevel.L3}`);
   if (kisi.tanpaBab) out.push(`Catatan: ${kisi.tanpaBab} soal belum ditandai bab.`);
+  if (catatan) out.push(`Catatan: ${catatan}`);
   return out.join('\n') + '\n';
 }
 
@@ -163,8 +165,9 @@ export function kisiKeTeks(kisi) {
  * Susun dokumen Word. `D` = pustaka docx (window.docx di browser; paket docx di tes). Mengembalikan objek Document,
  * pemanggil yang memanggil Packer (toBlob di browser). Hanya memakai fitur dasar docx agar jalan di versi 8 dan 9.
  * @param {'kisi'|'fokus'|'lengkap'} mode
+ * @param {string} [catatan] catatan wajib (peran Ustadz): satu baris di akhir isi dan di kaki setiap halaman
  */
-export function buatKisiDocx(D, kisi, mode = 'lengkap') {
+export function buatKisiDocx(D, kisi, mode = 'lengkap', catatan = '') {
   const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, TableLayoutType } = D;
   const T = (text, o = {}) => new TextRun({ text: String(text ?? ''), font: 'Calibri', size: 22, ...o });
   const P = (kids, o = {}) => new Paragraph({ children: Array.isArray(kids) ? kids : [kids], spacing: { after: 80 }, ...o });
@@ -215,5 +218,7 @@ export function buatKisiDocx(D, kisi, mode = 'lengkap') {
     });
   }
   kids.push(P(T(`Dibuat dengan LABSOUMA · ${tanggal}`, { size: 18, color: '777777' }), { spacing: { before: 240 } }));
-  return new Document({ sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: kids }] });
+  if (catatan) kids.push(P(T(catatan, { size: 18, italics: true, color: '8A4B00' }), { spacing: { before: 60 } }));
+  const kaki = catatan && D.Footer ? { footers: { default: new D.Footer({ children: [tengah(catatan, { size: 16, italics: true, color: '555555' })] }) } } : {};
+  return new Document({ sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, ...kaki, children: kids }] });
 }

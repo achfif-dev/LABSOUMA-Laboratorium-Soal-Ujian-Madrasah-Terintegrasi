@@ -29,7 +29,7 @@ test('aturan kamusPegon: pola kata dan ejaan Arab sama dengan validasi mesin', (
 });
 
 test('aturan kamusPegon: baca untuk staf, tulis hanya editor/admin, id terikat ke isi', () => {
-  assert.match(blok, /allow read: if isStaff\(\);/);
+  assert.match(blok, /allow read: if isStaff\(\) \|\| isUstadz\(\);/);
   assert.match(blok, /allow create, update: if isReviewer\(\) && validEntry\(\);/);
   assert.match(blok, /allow delete: if isReviewer\(\);/);
   assert.match(blok, /id == d\(\)\.jenis \+ '_' \+ d\(\)\.kata/);

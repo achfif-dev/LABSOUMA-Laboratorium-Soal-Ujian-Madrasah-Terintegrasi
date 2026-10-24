@@ -1,13 +1,23 @@
 // Penghubung server: Firebase Admin (login + Firestore), pembungkus rute, batas pemakaian.
 // firebase-admin dimuat saat dibutuhkan agar modul ini tetap bisa diuji tanpa paketnya.
 import { ApiError, toApiError } from './soalService.js';
-import { STAFF, parseList, initialRole, domainAllowed, rateDecision, shouldPromote, refundable, refundState } from './access.js';
+import { STAFF, AUTHORS, parseList, initialRole, domainAllowed, rateDecision, shouldPromote, refundable, refundState } from './access.js';
 
 export const num = (name, def) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
 export const aiLimits = () => ({ perMinute: num('LIMIT_PER_MINUTE', 5), perDay: num('LIMIT_PER_DAY', 60) });
 // Plafon pemakaian AI untuk SELURUH madrasah per hari (menjaga kuota gratis penyedia dan biaya). Bukan per pengguna.
 export const GLOBAL_AI_ID = 'global_ai';
 export const globalAiLimits = () => ({ perMinute: 1_000_000, perDay: num('LIMIT_GLOBAL_PER_DAY', 1000) });
+// Peran Ustadz: batas dan kolam harian TERPISAH dari tim penyusun, supaya pemakaian ustadz tidak menghabiskan kuota tim.
+export const GLOBAL_USTADZ_ID = 'global_ai_ustadz';
+export const ustadzLimits = () => ({ perMinute: num('LIMIT_USTADZ_PER_MINUTE', 3), perDay: num('LIMIT_USTADZ_PER_DAY', 15) });
+export const globalUstadzLimits = () => ({ perMinute: 1_000_000, perDay: num('LIMIT_USTADZ_GLOBAL_PER_DAY', 300) });
+export const kitabUstadzLimits = () => ({ perMinute: num('LIMIT_USTADZ_KITAB_PER_MINUTE', 5), perDay: num('LIMIT_USTADZ_KITAB_PER_DAY', 50) });
+/** Kolam plafon harian AI untuk satu peran: id dokumen rate/{id}, batas, dan batas per pengguna. */
+export const aiPool = (role) => (role === 'ustadz'
+  ? { id: GLOBAL_USTADZ_ID, global: globalUstadzLimits(), user: ustadzLimits(), pesan: 'Kuota AI harian untuk ustadz sudah habis. Coba lagi besok, atau minta admin menaikkan LIMIT_USTADZ_GLOBAL_PER_DAY.' }
+  : { id: GLOBAL_AI_ID, global: globalAiLimits(), user: aiLimits(), pesan: 'Kuota AI harian seluruh madrasah sudah habis. Coba lagi besok, atau minta admin menaikkan LIMIT_GLOBAL_PER_DAY.' });
+export const kitabLimitsFor = (role) => (role === 'ustadz' ? kitabUstadzLimits() : kitabLimits());
 export const kitabLimits = () => ({ perMinute: num('LIMIT_KITAB_PER_MINUTE', 10), perDay: num('LIMIT_KITAB_PER_DAY', 200) });
 
 /* ------------------------------------------------------------- Firebase Admin */
@@ -60,6 +70,18 @@ export async function authenticateStaff(req) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Akun Anda belum disetujui admin untuk memakai fitur ini.');
   }
   return u;
+}
+
+/** Login valid DAN peran pemakai alat AI (penyusun, editor, admin, ustadz). Mengembalikan token + `role`. */
+export async function authenticateAuthor(req) {
+  const u = await authenticate(req);
+  const { db } = await firebase();
+  const snap = await db.doc(`users/${u.uid}`).get();
+  const role = snap.exists ? snap.data().role : null;
+  if (!AUTHORS.includes(role)) {
+    throw new ApiError(403, 'FORBIDDEN_ROLE', 'Akun Anda belum disetujui admin untuk memakai fitur ini.');
+  }
+  return { ...u, role };
 }
 
 /** Login valid DAN peran admin. */
@@ -119,11 +141,12 @@ export async function enforceRate(docId, limits, { pesanHarian } = {}) {
   });
 }
 
-/** Kuota AI: batas per pengguna lalu plafon harian seluruh madrasah. Bila plafon penuh, hitungan pengguna dikembalikan. */
-export async function enforceAi(uid) {
-  await enforceRate(uid, aiLimits());
+/** Kuota AI: batas per pengguna lalu plafon harian kolam peran (tim atau ustadz). Bila plafon penuh, hitungan pengguna dikembalikan. */
+export async function enforceAi(uid, role) {
+  const pool = aiPool(role);
+  await enforceRate(uid, pool.user);
   try {
-    await enforceRate(GLOBAL_AI_ID, globalAiLimits(), { pesanHarian: 'Kuota AI harian seluruh madrasah sudah habis. Coba lagi besok, atau minta admin menaikkan LIMIT_GLOBAL_PER_DAY.' });
+    await enforceRate(pool.id, pool.global, { pesanHarian: pool.pesan });
   } catch (e) { await refundRate(uid); throw e; }
 }
 

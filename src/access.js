@@ -1,6 +1,9 @@
 // Logika murni (mudah diuji): peran, domain email, dan batas pemakaian per pengguna.
 
 export const STAFF = ['penyusun', 'editor', 'admin'];
+// Peran yang boleh memakai alat bantu AI. 'ustadz' SENGAJA tidak masuk STAFF: STAFF mewakili hak membaca bank soal
+// (firestore.rules isStaff). Ustadz hanya memakai alat (generate, telaah, Pegon, ekspor) dan tidak pernah menyentuh koleksi `soal`.
+export const AUTHORS = [...STAFF, 'ustadz'];
 
 export const parseList = (s) =>
   String(s || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ImporExcel from './ImporExcel.jsx';
+import * as UT from './lib/ustadz.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -30,6 +31,8 @@ const BT_NOOP = {
 };
 const Bt = new Proxy({}, { get: (_, k) => (window.Bentuk || BT_NOOP)[k] });
 const AppCfgCtx = React.createContext(FALLBACK_CFG);
+// Catatan wajib pada setiap ekspor ('' untuk tim penyusun; terisi untuk peran Ustadz, yang soalnya tidak ditelaah editor). Lihat web/lib/ustadz.js.
+const CatatanCtx = React.createContext('');
 const useCfg = () => React.useContext(AppCfgCtx);
 // Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
 const KamusCtx = React.createContext({ docs: [], ver: 0, err: null, canShare: false, simpan: async () => {}, hapus: async () => {} });
@@ -62,7 +65,7 @@ const STATUS = {
   approved: { label: 'Approved',       cls: 'bg-ok-bg text-ok' },
   revision: { label: 'Perlu Revisi',   cls: 'bg-bad-bg text-bad' },
 };
-const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', nonaktif: 'Nonaktif' };
+const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', ustadz: 'Ustadz', nonaktif: 'Nonaktif' };
 const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik'];
 
 const emptyForm = () => ({
@@ -142,8 +145,8 @@ const giftJawaban = (q) => {
 };
 const umpanUraian = (q) => [q.pembahasan, q.jawaban && `Jawaban model: ${q.jawaban}`, q.rubrik && `Pedoman penskoran: ${q.rubrik}`].filter(Boolean).join(' | ');
 
-const buildGift = (qs) =>
-  '// LABSOUMA, format Moodle GIFT\n\n' +
+const buildGift = (qs, catatan = '') =>
+  '// LABSOUMA, format Moodle GIFT\n' + (catatan ? `// ${catatan}\n` : '') + '\n' +
   qs.map((q, i) => {
     const b = Bt.bentukDari(q);
     const o = optsOf(q);
@@ -154,10 +157,10 @@ const buildGift = (qs) =>
     return `${kepala}{\n` +
       o.map((k) => `${k === q.kunci ? '=' : '~'}${giftEsc(q.opsi[k])}`).join('\n') +
       `\n####${giftEsc(q.pembahasan)}\n}`;
-  }).join('\n\n') + '\n';
+  }).join('\n\n') + '\n' + (catatan ? `\n// ${catatan}\n` : '');
 
-const buildMoodleXml = (qs) =>
-  '<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n' +
+const buildMoodleXml = (qs, catatan = '') =>
+  '<?xml version="1.0" encoding="UTF-8"?>\n' + (catatan ? `<!-- ${xmlEsc(catatan)} -->\n` : '') + '<quiz>\n' +
   qs.map((q, i) => {
     const b = Bt.bentukDari(q);
     const tipe = b === 'benarsalah' ? 'truefalse' : b === 'isian' ? 'shortanswer' : b === 'uraian' ? 'essay' : 'multichoice';
@@ -182,15 +185,16 @@ const buildMoodleXml = (qs) =>
   }).join('\n') + '\n</quiz>\n';
 
 // Google Forms: kolom Kunci Jawaban berisi huruf (pilihan), Benar/Salah, atau jawaban bertulis (isian/uraian). Pedoman skor uraian ikut di Pembahasan.
-const buildCsvForms = (qs) =>
-  '\uFEFF' + ['Pertanyaan', 'Opsi A', 'Opsi B', 'Opsi C', 'Opsi D', 'Opsi E', 'Kunci Jawaban', 'Pembahasan'].map(csvEsc).join(',') + '\n' +
-  qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan].map(csvEsc).join(',')).join('\n') + '\n';
+// Catatan wajib (peran Ustadz) masuk sebagai kolom terakhir 'Catatan', bukan baris tambahan, supaya tidak terbaca sebagai soal saat diimpor.
+const buildCsvForms = (qs, catatan = '') =>
+  '\uFEFF' + ['Pertanyaan', 'Opsi A', 'Opsi B', 'Opsi C', 'Opsi D', 'Opsi E', 'Kunci Jawaban', 'Pembahasan', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
+  qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
-const buildCsvRdm = (qs) =>
-  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik'].map(csvEsc).join(',') + '\n' +
-  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik].map(csvEsc).join(',')).join('\n') + '\n';
+const buildCsvRdm = (qs, catatan = '') =>
+  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
+  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
-const buildDocx = async (qs, mode) => {
+const buildDocx = async (qs, mode, catatan = '') => {
   const D = window.docx;
   if (!D) throw new Error('Pustaka DOCX tidak termuat.');
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
@@ -318,7 +322,10 @@ const buildDocx = async (qs, mode) => {
       kids.push(P(T('')));
     });
   }
-  const doc = new Document({ ...(komen.length ? { comments: { children: komen } } : {}), sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children: kids }] });
+  // Catatan wajib (peran Ustadz): satu baris di bawah judul dan di kaki setiap halaman. Judul dan subjudul selalu dua paragraf pertama di semua mode.
+  const kaki = catatan && D.Footer ? { footers: { default: new D.Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [T(catatan, { size: 18, italics: true, color: '555555' })] })] }) } } : {};
+  if (catatan) kids.splice(2, 0, new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [T(catatan, { size: 20, italics: true, color: '8A4B00' })] }));
+  const doc = new Document({ ...(komen.length ? { comments: { children: komen } } : {}), sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, ...kaki, children: kids }] });
   return Packer.toBlob(doc);
 };
 
@@ -709,7 +716,7 @@ function PegonSoal({ form, toast }) {
   );
 }
 
-function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
+function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ustadz = false }) {
   const cfg = useCfg();
   const babSaran = (React.useContext(SaranCtx).saran || { bab: [] }).bab.map((b) => b.nama);
   const [busy, setBusy] = useState(false);
@@ -1127,7 +1134,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
           {generated && (
             <div className="mb-4 flex gap-2 rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              <span>Draft disusun AI dari teks kitab Anda. Cek kebenaran kunci, pengecoh, dan kutipan Arab sebelum dikirim ke editor.</span>
+              <span>Draft disusun AI dari teks kitab Anda. Cek kebenaran kunci, pengecoh, dan kutipan Arab sebelum {ustadz ? 'dipakai untuk murid' : 'dikirim ke editor'}.</span>
             </div>
           )}
           <div className="space-y-4">
@@ -1215,8 +1222,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast }) {
             </ul>
           )}
           <div className="mt-5 flex flex-wrap gap-2">
-            <Btn kind="ghost" onClick={save}><Save size={16} />Simpan Draft</Btn>
-            <Btn kind="primary" onClick={send}><Send size={16} />Kirim ke Editor</Btn>
+            {ustadz ? <Btn kind="primary" onClick={send}><Save size={16} />Simpan ke Soal Saya</Btn> : <>
+              <Btn kind="ghost" onClick={save}><Save size={16} />Simpan Draft</Btn>
+              <Btn kind="primary" onClick={send}><Send size={16} />Kirim ke Editor</Btn>
+            </>}
           </div>
           <DraftNote names={['form', 'composeEx']} className="mt-2" />
         </Section>
@@ -1403,6 +1412,7 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
 /* ---------- Tab 4: Export ---------- */
 function Export({ all, toast }) {
   const cfg = useCfg();
+  const catatan = React.useContext(CatatanCtx);
   const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
   const EAWAL = { f: { mapel: '', tingkat: '', kelas: '', periode: '' }, fmt: 'gift', picked: null };
   const eAwal = useRef(null); if (eAwal.current === null) { const d = Draft.read('exportPrefs'); eAwal.current = d && typeof d === 'object' ? d : {}; }
@@ -1428,7 +1438,7 @@ function Export({ all, toast }) {
   const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
   const format = FORMATS.find((x) => x.id === fmt);
   const isText = !!format.build;
-  const text = isText ? format.build(chosen) : '';
+  const text = isText ? format.build(chosen, catatan) : '';
   const toggle = (id) => {
     const cur = new Set(picked || list.map((q) => q.id));
     cur.has(id) ? cur.delete(id) : cur.add(id);
@@ -1446,7 +1456,7 @@ function Export({ all, toast }) {
     if (!chosen.length) return;
     setBusy(true);
     try {
-      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar');
+      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar', catatan);
       saveFile(fname, data);
       toast('File diunduh.');
     } catch (e) {
@@ -1462,7 +1472,7 @@ function Export({ all, toast }) {
           <Section title="Pilih Soal" icon={ClipboardCheck}
             action={list.length > 0 && <button type="button" className="text-xs font-semibold text-soft-ink hover:underline"
               onClick={() => setPicked(!picked || picked.size === list.length ? new Set() : null)}>{!picked || picked.size === list.length ? 'Kosongkan' : 'Pilih semua'}</button>}>
-            {!list.length ? <p className="text-sm text-mute">Belum ada soal Approved yang cocok dengan filter.</p> : (
+            {!list.length ? <p className="text-sm text-mute">{catatan ? 'Belum ada soal tersimpan yang cocok dengan filter.' : 'Belum ada soal Approved yang cocok dengan filter.'}</p> : (
               <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
                 {list.map((q) => {
                   const on = !picked || picked.has(q.id);
@@ -1500,10 +1510,11 @@ function Export({ all, toast }) {
               </Btn>
               {isText && <Btn kind="ghost" onClick={copy} disabled={!chosen.length}><Copy size={16} />Salin teks</Btn>}
             </div>
+            {catatan && <p className="mt-3 text-xs leading-relaxed text-mute"><b>Catatan otomatis:</b> “{catatan}” dicantumkan pada semua berkas ekspor (di bawah judul dan kaki halaman untuk DOCX, komentar untuk GIFT dan Moodle XML, kolom Catatan untuk CSV).</p>}
           </Section>
 
           <Section title="Pratinjau">
-            {!chosen.length ? <p className="text-sm text-mute">Pilih minimal satu soal Approved.</p> :
+            {!chosen.length ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> :
               isText ? (
                 <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{text}</pre>
               ) : (
@@ -1577,6 +1588,7 @@ function SaranView({ d, onPakai }) {
 
 function FokusUjian({ all, toast }) {
   const cfg = useCfg();
+  const catatan = React.useContext(CatatanCtx);
   const { saran, setSaran, pakaiBab } = React.useContext(SaranCtx);
   const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
   const K = window.Kisi;
@@ -1641,15 +1653,15 @@ function FokusUjian({ all, toast }) {
     if (!kisi) return;
     setBusy(mode);
     try {
-      if (mode === 'csv') simpanBerkas(`kisi-kisi-${slug}.csv`, new Blob([K.kisiKeCsv(kisi)], { type: 'text/csv;charset=utf-8' }));
+      if (mode === 'csv') simpanBerkas(`kisi-kisi-${slug}.csv`, new Blob([K.kisiKeCsv(kisi, catatan)], { type: 'text/csv;charset=utf-8' }));
       else {
         const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
-        simpanBerkas(`kisi-kisi-${slug}-${mode}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, mode)));
+        simpanBerkas(`kisi-kisi-${slug}-${mode}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, mode, catatan)));
       }
       toast('File diunduh.');
     } catch (e) { toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.'); } finally { setBusy(''); }
   };
-  const salin = async () => { try { await navigator.clipboard.writeText(K.kisiKeTeks(kisi)); toast('Teks kisi-kisi disalin.'); } catch (e) { toast('Penyalinan ditolak browser.'); } };
+  const salin = async () => { try { await navigator.clipboard.writeText(K.kisiKeTeks(kisi, catatan)); toast('Teks kisi-kisi disalin.'); } catch (e) { toast('Penyalinan ditolak browser.'); } };
   const kelasOpsi = Uj.kelasUntuk(cfg, sf.tingkat); const periodeOpsi = Uj.periodeUntuk(cfg, sf.tingkat);
 
   return (
@@ -1694,7 +1706,7 @@ function FokusUjian({ all, toast }) {
           <Section title="Soal untuk Kisi-kisi" icon={ClipboardCheck}
             action={list.length > 0 && <button type="button" className="text-xs font-semibold text-soft-ink hover:underline"
               onClick={() => setPicked(!picked || picked.size === list.length ? new Set() : null)}>{!picked || picked.size === list.length ? 'Kosongkan' : 'Pilih semua'}</button>}>
-            {!list.length ? <p className="text-sm text-mute">Belum ada soal Approved yang cocok dengan filter.</p> : (
+            {!list.length ? <p className="text-sm text-mute">{catatan ? 'Belum ada soal tersimpan yang cocok dengan filter.' : 'Belum ada soal Approved yang cocok dengan filter.'}</p> : (
               <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
                 {list.map((q, i) => {
                   const on = !picked || picked.has(q.id);
@@ -1731,7 +1743,7 @@ function FokusUjian({ all, toast }) {
           </Section>
 
           <Section title="Pratinjau Kisi-kisi">
-            {!kisi ? <p className="text-sm text-mute">Pilih minimal satu soal Approved.</p> : (
+            {!kisi ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> : (
               <div className="max-h-[420px] space-y-3 overflow-auto rounded-xl bg-bg p-4 text-sm">
                 {kisi.tanpaBab > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{kisi.tanpaBab} soal belum ditandai bab, jadi dikumpulkan di “Belum ditandai bab”. Edit soalnya dan isi kolom Bab agar masuk kelompok yang benar.</p>}
                 {tanpaIndikator > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{tanpaIndikator} soal belum punya indikator, jadi barisnya kosong di kisi-kisi. Isi kolom Indikator Kisi-kisi pada soal itu.</p>}
@@ -2441,7 +2453,7 @@ function UserAdmin({ me, toast }) {
     <div className="fade-in space-y-4">
       <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-mute">
         Pengguna baru masuk dengan status <b className="text-ink">Menunggu persetujuan</b>. Beri peran agar mereka bisa bekerja.
-        Penyusun membuat soal, editor meninjau, admin mengelola semuanya.{waiting > 0 && <b className="ml-1 text-warn">{waiting} menunggu.</b>}
+        Penyusun membuat soal, editor meninjau, admin mengelola semuanya. Ustadz memakai alat bantu (AI, Pegon, ekspor) untuk soal latihan sendiri, tanpa akses ke bank soal.{waiting > 0 && <b className="ml-1 text-warn">{waiting} menunggu.</b>}
       </div>
       <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="w-full min-w-[620px] text-left text-sm">
@@ -3157,6 +3169,283 @@ function App({ user, profile }) {
   );
 }
 
+/* ---------- Peran Ustadz ---------- */
+// Alat bantu untuk soal latihan sendiri: susun (dengan AI), Pegonkan, dan ekspor. TIDAK memasang pendengar ke koleksi `soal` (aturan Firestore menolaknya)
+// dan tidak mengirim apa pun ke editor. Soal disimpan hanya di perangkat ini (web/lib/ustadz.js), per akun.
+// Kerangka (header, menu) sengaja disalin dari App agar App tidak ikut berubah; setiap perubahan tampilan kerangka perlu dibuat di dua tempat.
+const lokalStorage = () => { try { const s = window.localStorage; const k = 'labsouma-soalsaya:v1:__uji__'; s.setItem(k, '1'); s.removeItem(k); return s; } catch (e) { return null; } };
+const PESAN_SIMPAN = {
+  'terlalu-banyak': `Soal Saya sudah berisi ${UT.MAKS_SOAL} soal. Unduh cadangan, lalu hapus soal yang tidak dipakai.`,
+  'terlalu-besar': 'Penyimpanan Soal Saya di perangkat ini penuh. Unduh cadangan, lalu hapus soal yang tidak dipakai.',
+  'ditolak': 'Browser menolak menyimpan (penyimpanan penuh atau diblokir). Unduh cadangan atau kosongkan ruang browser, lalu coba lagi.',
+  'tidak-tersedia': 'Browser ini memblokir penyimpanan lokal, jadi soal tidak bisa disimpan. Coba jendela biasa (bukan mode privat).',
+};
+const PESAN_IMPOR = { 'bukan-json': 'Berkas bukan JSON yang valid.', 'bukan-berkas-soal-saya': 'Berkas ini bukan cadangan Soal Saya dari LABSOUMA.', ...PESAN_SIMPAN };
+
+function AppUstadz({ user, profile }) {
+  const db = firebase.firestore();
+  const displayName = user.displayName || user.email;
+  const drafUid = useRef(null); if (drafUid.current !== user.uid) { Draft.setUser(user.uid); drafUid.current = user.uid; }
+  const ID_TAB = ['compose', 'saya', 'export', 'fokus', 'pegon'];
+  const [tab, setTabRaw] = useState(() => { const h = (window.location.hash || '').slice(1); return ID_TAB.includes(h) ? h : 'compose'; });
+  const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah */ } };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const [saran, setSaran] = useState(null);
+  const pendingBadge = 0;
+
+  // ---- Soal Saya (perangkat ini) ----
+  const store = useMemo(() => { const st = UT.createSoalSaya({ storage: lokalStorage(), normal: normalForm }); st.setUser(user.uid); return st; }, [user.uid]);
+  const [items, setItems] = useState(() => store.list());
+  const segarkan = () => setItems(store.list());
+  const semuaQ = useMemo(() => items.map((it) => ({ ...it.isi, id: it.id, status: 'approved', authorName: displayName, updatedAt: it.updatedAt })), [items]);
+
+  // ---- Form soal (draf otomatis seperti di App) ----
+  const awalForm = useRef(undefined); if (awalForm.current === undefined) awalForm.current = Draft.read('form') || null;
+  const [form, setForm] = useState(() => (awalForm.current && awalForm.current.form ? normalForm(awalForm.current.form) : emptyForm()));
+  const [editingId, setEditingId] = useState(() => (awalForm.current && typeof awalForm.current.editingId === 'string' && awalForm.current.editingId ? awalForm.current.editingId : null));
+  const formDraf = useMemo(() => ({ form, editingId }), [form, editingId]);
+  useDraftSync('form', formDraf, !editingId && !formBeda(form));
+  const berisi = formBerisi(form);
+  useEffect(() => {
+    if (Draft.tersedia || !berisi) return undefined;
+    const tanya = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', tanya); return () => window.removeEventListener('beforeunload', tanya);
+  }, [berisi]);
+  const [composeKey, setComposeKey] = useState(0);
+  const [msg, setMsg] = useState('');
+  const timer = useRef(null);
+  const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 3500); };
+  useEffect(() => {
+    const a = awalForm.current; if (!a || !a.form) return;
+    if (formBerisi(normalForm(a.form))) toast('Draf soal yang belum disimpan dipulihkan. Tekan Simpan ke Soal Saya agar masuk daftar.');
+  }, []);
+
+  // ---- Konfigurasi aplikasi (tingkat, mapel, kitab): hanya baca ----
+  const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
+  useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then((d) => setAppCfg(d.config)).catch(() => { /* tetap memakai cadangan bawaan */ }); }, []);
+
+  // ---- Kamus Pegon bersama: baca saja (aturan Firestore mengizinkan ustadz membaca, bukan menulis) ----
+  const [kamusDocs, setKamusDocs] = useState([]);
+  const [kamusVer, setKamusVer] = useState(0);
+  const [kamusErr, setKamusErr] = useState(null);
+  useEffect(() => db.collection('kamusPegon').onSnapshot(
+    (snap) => {
+      const docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+      if (window.Pegon) window.Pegon.kamus.muatBersama(docs);
+      setKamusDocs(docs); setKamusErr(null); setKamusVer((n) => n + 1);
+    },
+    () => setKamusErr('Kamus bersama tidak dapat dimuat. Pegon memakai kamus bawaan dan kamus perangkat ini.'),
+  ), []);
+  const kamusCtx = useMemo(() => ({
+    docs: kamusDocs, ver: kamusVer, err: kamusErr, canShare: false,
+    simpan: async () => { throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.'); },
+    hapus: async () => { throw new Error('Hanya editor atau admin yang dapat mengubah kamus bersama.'); },
+  }), [kamusDocs, kamusVer, kamusErr]);
+
+  const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
+  const simpanSoal = () => {
+    const r = store.simpan(form, editingId);
+    if (!r.ok) { toast(PESAN_SIMPAN[r.reason] || 'Gagal menyimpan soal.'); return; } // gagal: isian dan drafnya tetap ada
+    kosongkanForm(); segarkan(); setTab('saya');
+    toast('Soal disimpan di perangkat ini (tab Soal Saya).');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const edit = (id) => {
+    const it = items.find((x) => x.id === id); if (!it) return;
+    if (editingId !== id && formBerisi(form) && !window.confirm('Form Penyusunan Soal berisi isian yang belum disimpan. Mengedit soal ini akan menggantinya. Lanjutkan?')) return;
+    Draft.remove('composeEx'); setComposeKey((n) => n + 1);
+    setForm(normalForm(it.isi)); setEditingId(id); setTab('compose');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const hapus = (id) => { const r = store.hapus(id); segarkan(); toast(r.ok ? 'Soal dihapus dari perangkat ini.' : (PESAN_SIMPAN[r.reason] || 'Gagal menghapus.')); };
+
+  // Dari saran bab ke form soal (sama dengan App): form kosong diisi kitab, jenjang, bab; form berisi hanya kolom Bab.
+  const pakaiBab = (o) => {
+    const kosong = !formBerisi(form);
+    setForm((f) => {
+      if (!kosong) return { ...f, bab: o.bab };
+      const l = mapelUntuk(appCfg, o.tingkat);
+      return { ...f, bab: o.bab, nama: o.nama || f.nama, tingkat: o.tingkat || f.tingkat, kelas: o.kelas || '', periode: o.periode || '', mapel: l.includes(o.mapel) ? o.mapel : f.mapel };
+    });
+    toast(kosong ? `Form diisi untuk bab “${o.bab}”. Tempel teks kitab bab ini lalu susun soalnya.` : `Kolom Bab diisi “${o.bab}”. Kitab dan jenjang di form tidak diubah karena form sedang berisi.`);
+    setTab('compose'); window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const saranCtx = { saran, setSaran, pakaiBab };
+
+  const keluar = () => {
+    if (formBerisi(form) && !window.confirm('Isian soal yang belum disimpan akan tetap tersimpan sebagai draf di perangkat ini dan muncul lagi saat Anda masuk. Soal Saya juga tetap ada di perangkat ini. Di komputer bersama, hapus keduanya dulu (tombol Kosongkan dan tab Soal Saya). Tetap keluar?')) return;
+    Draft.flush();
+    setMenuOpen(false);
+    (async () => {
+      try { await firebase.auth().signOut(); } catch (e) { /* tetap lanjut membersihkan */ }
+      try { const d = firebase.firestore(); await d.terminate(); await d.clearPersistence(); } catch (e) { /* cache tidak aktif atau sudah bersih */ }
+      window.location.reload();
+    })();
+  };
+  const pilihTab = (id) => { setTab(id); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const klikLuar = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const tekanEsc = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', klikLuar); document.addEventListener('touchstart', klikLuar); document.addEventListener('keydown', tekanEsc);
+    return () => { document.removeEventListener('mousedown', klikLuar); document.removeEventListener('touchstart', klikLuar); document.removeEventListener('keydown', tekanEsc); };
+  }, [menuOpen]);
+  const TABS = [
+    { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
+    { id: 'saya', label: 'Soal Saya', icon: Library, n: items.length },
+    { id: 'export', label: 'Export/Download', icon: Download },
+    { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
+    { id: 'pegon', label: 'Pegonizer', icon: Languages },
+  ];
+  const aktif = TABS.find((t) => t.id === tab);
+
+  return (
+    <div className="font-sans">
+      <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
+        <div className="mx-auto max-w-6xl pb-4 pt-6 sm:pb-5 sm:pt-8">
+          <div className="flex min-w-0 items-start gap-4">
+            <AppLogo size={56} className="shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
+              <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+              <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Bilah beku: tetap di atas saat halaman digulir */}
+      <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
+        <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
+          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="shrink-0 rounded-lg"><AppLogo size={36} /></button>
+          <div ref={menuRef} className="relative min-w-0 flex-1">
+            <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
+              className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0">{menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
+              <span className="sr-only">Menu navigasi</span>
+              <span className="flex min-w-0 items-center gap-2 rounded-md bg-white/10 px-2.5 py-1">
+                {aktif && <aktif.icon size={15} className="shrink-0" />}<span className="truncate">{aktif ? aktif.label : 'Menu'}</span>
+                {pendingBadge > 0 && !menuOpen && <span aria-label={pendingBadge + ' soal menunggu review'} className="h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
+              </span>
+            </button>
+            {menuOpen && (
+              <nav id="menu-tab" aria-label="Navigasi utama" className="fade-in absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink shadow-xl">
+                {TABS.map((t) => (
+                  <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${tab === t.id ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+                    <t.icon size={17} className="shrink-0" /><span className="flex-1">{t.label}</span>
+                    {t.n > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{t.n}</span>}
+                  </button>
+                ))}
+                <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
+                  <p className="truncate text-xs font-semibold">{displayName}</p>
+                  <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
+                </div>
+                <button type="button" onClick={keluar} className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-bad transition hover:bg-bad-bg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg><span>Keluar</span></button>
+              </nav>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
+            <div className="hidden text-right text-xs md:block"><p className="font-semibold">{displayName}</p><p className="opacity-75">{ROLE_LABEL[profile.role]}</p></div>
+            <button type="button" id="tombol-keluar" aria-label="Keluar" title="Keluar" onClick={keluar} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold hover:bg-white/10"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg><span className="hidden sm:inline">Keluar</span></button>
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-6xl py-6 sm:py-8">
+        <AppCfgCtx.Provider value={appCfg}>
+        <KamusCtx.Provider value={kamusCtx}>
+        <SaranCtx.Provider value={saranCtx}>
+        <CatatanCtx.Provider value={UT.CATATAN_USTADZ}>
+        <p role="note" className="mb-4 rounded-xl bg-soft px-4 py-3 text-xs leading-relaxed text-soft-ink">
+          <b>Akun Ustadz.</b> Alat bantu untuk soal latihan Anda sendiri. Soal tersimpan <b>hanya di perangkat ini</b> (bukan di server) dan tidak ditelaah editor, jadi periksa sendiri kunci, kutipan, dan haluan bahasanya. Setiap berkas ekspor otomatis diberi catatan “belum ditelaah tim editor”.
+        </p>
+        {tab === 'compose' && <Compose key={composeKey} ustadz form={form} setForm={setForm} editingId={editingId} onSave={() => {}} onSend={simpanSoal}
+          onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
+        {tab === 'saya' && <SoalSaya store={store} semuaQ={semuaQ} onEdit={edit} onDelete={hapus} onChanged={segarkan} toast={toast} />}
+        {tab === 'export' && <Export all={semuaQ} toast={toast} />}
+        {tab === 'fokus' && <FokusUjian all={semuaQ} toast={toast} />}
+        {tab === 'pegon' && <PegonTab toast={toast} />}
+        </CatatanCtx.Provider>
+        </SaranCtx.Provider>
+        </KamusCtx.Provider>
+        </AppCfgCtx.Provider>
+      </main>
+      <footer className="mx-auto max-w-6xl px-4 pb-8 pt-2 text-center text-xs text-mute">
+        <p>Powered By Achmad Afifuddin / achfif-dev</p>
+        <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
+      </footer>
+      <Toast t={msg} />
+    </div>
+  );
+}
+
+/* ---------- Soal Saya (peran Ustadz): daftar soal di perangkat ini + cadangan berkas ---------- */
+function SoalSaya({ store, semuaQ, onEdit, onDelete, onChanged, toast }) {
+  const [f, setF] = useState({ mapel: '', tingkat: '', kelas: '', periode: '', bentuk: '' });
+  const [konfirm, setKonfirm] = useState(null); // id soal, atau '*' untuk semua
+  const berkas = useRef(null);
+  const list = applyFilter(semuaQ, f);
+  const unduhCadangan = () => {
+    if (!semuaQ.length) { toast('Belum ada soal untuk dicadangkan.'); return; }
+    simpanBerkas(`soal-saya-${new Date().toISOString().slice(0, 10)}.json`, new Blob([store.ekspor()], { type: 'application/json' }));
+    toast('Cadangan diunduh. Simpan berkasnya di tempat aman (mis. Google Drive pribadi).');
+  };
+  const pilihBerkas = async (e) => {
+    const file = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast('Berkas terlalu besar untuk cadangan Soal Saya (maks. 5 MB).'); return; }
+    try {
+      const r = store.impor(await file.text());
+      if (!r.ok) { toast(PESAN_IMPOR[r.reason] || 'Berkas tidak bisa dipakai.'); return; }
+      onChanged();
+      toast(`Cadangan dipulihkan: ${r.tambah} soal baru, ${r.perbarui} diperbarui, ${r.lewati} dilewati.`);
+    } catch (err) { toast('Berkas tidak bisa dibaca.'); }
+  };
+  return (
+    <div className="fade-in space-y-4">
+      {!store.tersedia && <p role="alert" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">Browser ini memblokir penyimpanan lokal, jadi Soal Saya tidak bisa dipakai. Buka di jendela biasa (bukan mode privat).</p>}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-4">
+        <p className="mr-auto text-sm"><b>{semuaQ.length}</b> soal tersimpan di perangkat ini. Tidak ikut pindah ke perangkat lain: unduh cadangan sebelum mengganti HP atau membersihkan browser.</p>
+        <Btn kind="ghost" onClick={unduhCadangan}><Download size={15} />Unduh cadangan</Btn>
+        <Btn kind="ghost" onClick={() => berkas.current && berkas.current.click()}><Upload size={15} />Pulihkan dari cadangan</Btn>
+        <input ref={berkas} type="file" accept="application/json,.json" className="hidden" aria-label="Berkas cadangan Soal Saya" onChange={pilihBerkas} />
+        {konfirm === '*'
+          ? <><Btn kind="danger" onClick={() => { store.kosongkan(); onChanged(); setKonfirm(null); toast('Semua soal dihapus dari perangkat ini.'); }}><Trash2 size={15} />Ya, hapus semua</Btn><Btn kind="ghost" onClick={() => setKonfirm(null)}>Batal</Btn></>
+          : <Btn kind="ghost" onClick={() => setKonfirm('*')} disabled={!semuaQ.length}><Trash2 size={15} />Hapus semua</Btn>}
+      </div>
+      <Filters f={f} setF={setF} count={list.length} qs={semuaQ} />
+      {!list.length ? <Empty icon={Library} title={semuaQ.length ? 'Tidak ada soal yang cocok' : 'Belum ada soal'} text={semuaQ.length ? 'Ubah filter di atas.' : 'Susun soal di tab Penyusunan Soal, lalu tekan Simpan ke Soal Saya.'} /> :
+        list.map((q) => (
+          <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2"><Meta q={q} /></div>
+              <span className="text-xs text-mute">{refText(q)}<RefArab q={q} /></span>
+            </div>
+            <QuestionView q={q} />
+            {q.teks && (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-semibold text-soft-ink">Lihat teks kitab</summary>
+                <p dir="rtl" lang="ar" className="ar ar-sm mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">{q.teks}</p>
+              </details>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Btn kind="ghost" onClick={() => onEdit(q.id)}><Pencil size={15} />Edit</Btn>
+              {konfirm === q.id ? (
+                <>
+                  <Btn kind="danger" onClick={() => { onDelete(q.id); setKonfirm(null); }}><Trash2 size={15} />Ya, hapus</Btn>
+                  <Btn kind="ghost" onClick={() => setKonfirm(null)}>Batal</Btn>
+                </>
+              ) : <Btn kind="ghost" onClick={() => setKonfirm(q.id)}><Trash2 size={15} />Hapus</Btn>}
+            </div>
+          </article>
+        ))}
+    </div>
+  );
+}
+
 /* ---------- Backup ke Google Drive (editor dan admin) ---------- */
 // Soal dibaca dari Firestore di browser, diunggah ke Drive milik akun Google yang dipilih pengguna (izin drive.file), lalu diunduh kembali dan
 // dibandingkan; cadangan baru dianggap berhasil bila isinya identik. Soal hanya boleh dihapus dari Firestore (arsip, khusus admin) setelah itu.
@@ -3499,8 +3788,9 @@ function Root() {
   if (user === null) return <Login />;
   if (sessErr) return <Blocked user={user} title="Tidak bisa masuk" text={sessErr.message || 'Terjadi kesalahan saat memuat profil Anda.'} />;
   if (profile === undefined) return Spinner;
-  if (!profile || profile.role === 'pending') return <Blocked user={user} title="Menunggu persetujuan admin" text="Akun Anda sudah terdaftar. Admin perlu memberi peran (penyusun, editor, atau admin) sebelum Anda bisa memakai aplikasi. Muat ulang halaman ini setelah disetujui." />;
+  if (!profile || profile.role === 'pending') return <Blocked user={user} title="Menunggu persetujuan admin" text="Akun Anda sudah terdaftar. Admin perlu memberi peran (penyusun, editor, admin, atau ustadz) sebelum Anda bisa memakai aplikasi. Muat ulang halaman ini setelah disetujui." />;
   if (profile.role === 'nonaktif') return <Blocked user={user} title="Akun dinonaktifkan" text="Akses akun ini telah dinonaktifkan oleh admin." />;
+  if (profile.role === 'ustadz') return <AppUstadz user={user} profile={profile} />;
   return <App user={user} profile={profile} />;
 }
 
