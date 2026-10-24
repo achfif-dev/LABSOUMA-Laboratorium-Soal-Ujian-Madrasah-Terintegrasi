@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import ImporExcel from './ImporExcel.jsx';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -2232,6 +2233,10 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
           <li>Daftar kitab dan nama Arab bawaan adalah usulan. Periksa bersama ustadz atau guru mapel.</li>
         </ul>
       </div>
+
+      <Section title="Impor & Template Excel" icon={FileSpreadsheet}>
+        <ImporExcel Btn={Btn} unduh={simpanBerkas} konfigurasi={susun} toast={toast} onTerapkan={(c) => { setD(bubuhId(c)); setErr(null); }} />
+      </Section>
 
       <Section title={`Tingkatan & Kelas (${d.tingkat.length})`} icon={Layers} action={<Btn kind="soft" onClick={tambahT} disabled={d.tingkat.length >= 8}>Tambah tingkat</Btn>}>
         <div className="space-y-3">
