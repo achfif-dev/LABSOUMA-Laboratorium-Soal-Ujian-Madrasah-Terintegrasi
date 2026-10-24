@@ -317,3 +317,13 @@ test/                    npm test (tanpa kunci, tanpa internet)
 ## Draf otomatis
 
 Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/LAPORAN-AUDIT.md` bagian 9. Kodenya di `web/lib/draft.js`.
+
+## Impor dan template Excel (menu Konfigurasi)
+
+Admin bisa mengisi tingkat, kelas, sistem ujian, mapel, kitab, dan penempatan kitab sekaligus lewat Excel: **Konfigurasi > Impor & Template Excel**.
+
+- **Unduh template**: berkas `.xlsx` dengan lembar Petunjuk dan contoh isian (baris berawalan `(contoh)` diabaikan saat impor).
+- **Unduh konfigurasi saat ini**: isi konfigurasi sekarang dalam format yang sama, untuk disunting lalu diimpor kembali.
+- **Impor dari Excel**: berkas dibaca di browser, diperiksa, lalu dimasukkan ke editor sebagai perubahan yang BELUM disimpan. Tekan Simpan konfigurasi untuk menerapkan; versi sebelumnya masuk ke Cadangan & Riwayat. Server tetap memvalidasi ulang saat Simpan.
+- Lembar yang tidak ada atau kosong tidak mengubah apa pun. Cara memasukkan: *Tambah & perbarui* (aman) atau *Ganti seluruh daftar*.
+- Kode: `web/lib/excelConfig.js` (murni, diuji di `test/excelConfig.test.js`) dan `web/ImporExcel.jsx`. Pustaka: `write-excel-file` dan `read-excel-file` (dimuat hanya saat dipakai).
