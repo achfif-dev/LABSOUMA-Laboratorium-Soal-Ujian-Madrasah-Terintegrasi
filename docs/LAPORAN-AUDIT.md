@@ -1,3 +1,5 @@
+> **ARSIP.** Laporan ini ditulis sebelum migrasi ke Vite (21 Okt 2026) dan sebagian besar temuannya (CDN, Babel, tanpa `package-lock.json`, CSP `unsafe-eval`) sudah tidak berlaku. Status terkini: lihat audit 24 Okt 2026 (CSP ditegakkan, `/api/session` dibatasi, `kunci.yml` dihapus). Yang masih terbuka: koleksi `kitab` terkurasi belum dipasang; gerbang persetujuan AI hanya jejak audit.
+
 # Laporan audit dan integrasi: Bank Soal Madrasah + Pegonizer
 
 Tanggal: 21 Oktober 2026. Cakupan: `Sistem-Bank-Soal-Madrasah-dan-Referensi-Maktabah-Syamilah-main` dan `Pegon-main`.
