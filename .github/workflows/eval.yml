@@ -9,6 +9,8 @@ on:
       verifier: { description: 'Model penguji jawab buta (kosongkan = sama dengan model)', default: '', required: false }
       min: { description: 'Laju lulus minimum (0-1)', default: '0.8', required: true }
       ulang: { description: 'Ulangi tiap kasus N kali', default: '1', required: true }
+permissions:
+  contents: read
 jobs:
   evaluasi:
     runs-on: ubuntu-latest
