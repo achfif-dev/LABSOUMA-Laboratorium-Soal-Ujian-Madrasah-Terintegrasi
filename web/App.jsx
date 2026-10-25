@@ -5,6 +5,8 @@ import * as DUP from './lib/duplikat.js';
 import * as CD from './lib/cadanganDrive.js';
 import * as DR from './lib/drive.js';
 import * as DB from './lib/dasbor.js';
+import * as NK from './lib/naskah.js';
+import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -337,6 +339,7 @@ const FORMATS = [
   { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
   { id: 'pegonlatin', label: 'Soal Pegon + Latin (DOCX)', sub: 'Pegon dengan baris Latin asli di bawahnya, untuk diperiksa', icon: Languages, ext: 'docx' },
   { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
+  { id: 'naskah', label: 'Naskah Ujian IMDA (DOCX)', sub: 'Template Dawr I–IV: tiga bagian, total nilai 100', icon: FileText, ext: 'docx' },
   { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
   { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
   { id: 'mxml',  label: 'Moodle XML',         sub: 'Disimpan sebagai .txt, ganti ke .xml', icon: FileCode, ext: 'txt', build: buildMoodleXml },
@@ -1427,6 +1430,10 @@ function Export({ all, toast }) {
   const ePref = useMemo(() => ({ fmt, picked: picked ? [...picked] : null }), [fmt, picked]);
   useDraftSync('exportPrefs', ePref, fmt === EAWAL.fmt && picked === null);
   const [busy, setBusy] = useState(false);
+  // Kop dan pengaturan naskah ujian IMDA (hanya dipakai bila format Naskah dipilih); disimpan sebagai draf agar tidak diketik ulang.
+  const [nm, setNm] = useState(() => bacaPref('naskahMeta', { ...NK.META_AWAL, dawr: 1 }));
+  useDraftSync('naskahMeta', nm, JSON.stringify(nm) === JSON.stringify({ ...NK.META_AWAL, dawr: 1 }));
+  const setN = (k, v) => setNm((x) => ({ ...x, [k]: v }));
 
   const saveFile = (filename, data) => {
     const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/plain;charset=utf-8' });
@@ -1448,6 +1455,8 @@ function Export({ all, toast }) {
     cur.has(id) ? cur.delete(id) : cur.add(id);
     setPicked(cur);
   };
+  const isNaskah = fmt === 'naskah';
+  const naskah = isNaskah ? NK.susunNaskah(chosen, nm.dawr) : null;
   const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
   const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
   const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
@@ -1456,8 +1465,23 @@ function Export({ all, toast }) {
     try { await navigator.clipboard.writeText(text); toast('Teks ekspor disalin.'); }
     catch (e) { toast('Penyalinan ditolak browser. Pilih teks pratinjau lalu salin manual.'); }
   };
+  // Naskah ujian: dua berkas, untuk peserta (tanpa unsur merah) dan untuk pengoreksi (kunci dan halaman kitab berwarna merah).
+  const unduhNaskah = async (kunci) => {
+    if (!naskah) return;
+    setBusy(true);
+    try {
+      const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+      let logo = null;
+      try { const r = await fetch('/logo-madrasah.png'); if (r.ok) logo = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* tanpa logo: kop tetap tercetak */ }
+      saveFile(NK.namaBerkasNaskah(nm, kunci), await D.Packer.toBlob(buatNaskah(D, naskah, nm, { kunci, logo })));
+      toast(kunci ? 'Naskah kunci diunduh. Jangan dibagikan kepada peserta.' : 'Naskah diunduh.');
+    } catch (e) {
+      toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.');
+    } finally { setBusy(false); }
+  };
   const download = async () => {
     if (!chosen.length) return;
+    if (isNaskah) { unduhNaskah(false); return; }
     setBusy(true);
     try {
       const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar', catatan);
@@ -1510,15 +1534,57 @@ function Export({ all, toast }) {
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Btn kind="primary" onClick={download} disabled={!chosen.length || busy}>
-                {busy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Unduh {chosen.length} soal
+                {busy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}{isNaskah ? 'Unduh naskah peserta' : `Unduh ${chosen.length} soal`}
               </Btn>
+              {isNaskah && <Btn kind="ghost" onClick={() => unduhNaskah(true)} disabled={!chosen.length || busy}><Download size={16} />Unduh naskah kunci</Btn>}
               {isText && <Btn kind="ghost" onClick={copy} disabled={!chosen.length}><Copy size={16} />Salin teks</Btn>}
             </div>
             {catatan && <p className="mt-3 text-xs leading-relaxed text-mute"><b>Catatan otomatis:</b> “{catatan}” dicantumkan pada semua berkas ekspor (di bawah judul dan kaki halaman untuk DOCX, komentar untuk GIFT dan Moodle XML, kolom Catatan untuk CSV).</p>}
           </Section>
 
+          {isNaskah && (
+            <Section title="Pengaturan Naskah Ujian" icon={FileText}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div><Label htmlFor="nk-dawr">Dawr (putaran ujian)</Label>
+                  <Select id="nk-dawr" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dawrSah(v))}>
+                    {NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({d.bagian.map((b) => `${b.n}×${b.nilai}`).join(' + ')})</option>)}
+                  </Select></div>
+                <div><Label htmlFor="nk-mapel" hint="(Arab, mis. فقه / حديث)">Mata pelajaran</Label>
+                  <input id="nk-mapel" className="field" dir="rtl" lang="ar" value={nm.mapel} maxLength={40} onChange={(e) => setN('mapel', e.target.value)} /></div>
+                <div><Label htmlFor="nk-kelas">Kelas</Label><input id="nk-kelas" className="field" dir="rtl" lang="ar" value={nm.kelas} maxLength={30} onChange={(e) => setN('kelas', e.target.value)} /></div>
+                <div><Label htmlFor="nk-tingkat">Tingkat</Label><input id="nk-tingkat" className="field" dir="rtl" lang="ar" value={nm.tingkat} maxLength={30} onChange={(e) => setN('tingkat', e.target.value)} /></div>
+                <div><Label htmlFor="nk-tahun">Tahun ajaran (hijriah)</Label><input id="nk-tahun" className="field" dir="rtl" lang="ar" value={nm.tahun} maxLength={30} onChange={(e) => setN('tahun', e.target.value)} /></div>
+                <div><Label htmlFor="nk-penanda" hint="(kaki halaman)">Penanda</Label><input id="nk-penanda" className="field" dir="ltr" value={nm.penanda} maxLength={40} onChange={(e) => setN('penanda', e.target.value)} /></div>
+                <div className="sm:col-span-2"><Label htmlFor="nk-b1">Baris kop 1 (madrasah)</Label><input id="nk-b1" className="field" dir="rtl" lang="ar" value={nm.baris1} maxLength={80} onChange={(e) => setN('baris1', e.target.value)} /></div>
+                <div className="sm:col-span-2"><Label htmlFor="nk-b2">Baris kop 2 (lembaga)</Label><input id="nk-b2" className="field" dir="rtl" lang="ar" value={nm.baris2} maxLength={80} onChange={(e) => setN('baris2', e.target.value)} /></div>
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-mute">Soal dimasukkan ke bagian menurut bentuknya, dengan urutan pilihan Anda: <b>أ</b> pilihan ganda dan lanjutan, <b>ب</b> isian, <b>ج</b> uraian. Benar–Salah tidak ada di template. Naskah peserta tidak memuat kunci; <b>naskah kunci</b> menandai jawaban dan halaman kitab (ص) dengan warna merah.</p>
+            </Section>
+          )}
+
           <Section title="Pratinjau">
             {!chosen.length ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> :
+              isNaskah ? (
+                <div className="space-y-3 text-sm">
+                  <p className="font-semibold" dir="rtl" lang="ar">{NK.judulDawr(nm.dawr)}</p>
+                  <ul className="divide-y divide-line rounded-xl border border-line">
+                    {naskah.bagian.map((bg) => (
+                      <li key={bg.kode} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                        <span><b dir="rtl" lang="ar" className="ml-1 text-base">{bg.huruf}</b> {NK.BAGIAN[bg.kode].label}</span>
+                        <span className={bg.kurang > 0 ? 'font-semibold text-warn' : 'font-semibold text-ok'}>{bg.terisi}/{bg.n} nomor × {bg.nilai} = {bg.terisi * bg.nilai}</span>
+                      </li>
+                    ))}
+                    <li className="flex items-center justify-between gap-2 bg-soft px-3 py-2.5 font-bold"><span>Total nilai</span><span className={naskah.total === naskah.maks ? 'text-ok' : 'text-warn'}>{naskah.total} / {naskah.maks}</span></li>
+                  </ul>
+                  {naskah.peringatan.map((t, i) => <p key={i} role="status" className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">{t}</p>)}
+                  {naskah.tidakDipakai.length > 0 && (
+                    <div className="rounded-xl border border-line p-3 text-xs">
+                      <p className="mb-1 font-semibold">{naskah.tidakDipakai.length} soal tidak masuk naskah</p>
+                      <ul className="space-y-1 text-mute">{naskah.tidakDipakai.map((x, i) => <li key={i}>{String(x.q.pertanyaan || '').slice(0, 60)}: {x.alasan}</li>)}</ul>
+                    </div>
+                  )}
+                </div>
+              ) :
               isText ? (
                 <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{text}</pre>
               ) : (

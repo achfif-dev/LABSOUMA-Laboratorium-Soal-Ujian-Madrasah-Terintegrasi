@@ -463,3 +463,15 @@ Temuan dari tes, sudah diperbaiki: titik isian di akhir kalimat ("هو ....") me
 
 **Belum diuji (tidak ada browser, akun Firebase, atau Google Cloud di lingkungan ini):** jendela izin Google di ponsel (terutama Safari iOS, yang ketat soal pop-up di luar klik langsung), perilaku token Drive sungguhan setelah ±1 jam, layar Dasbor di browser (hanya dirender di Node dengan React SSR), kueri `where('dayKey','==',...)` terhadap Firestore asli, dan biaya baca Firestore nyata. Layar persetujuan OAuth berstatus Testing akan menolak Ustadz yang belum terdaftar sebagai Test user.
 
+### 10b. Naskah ujian IMDA (template FORMAT_SOAL_IMDA_I–IV)
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| B1 | Sedang | `web/lib/naskah.js` dan `naskahDocx.js` (draf naskah IMDA) ada di salinan kerja tetapi **belum ter-commit**, tidak diimpor oleh `App.jsx`, tanpa tes, dan tidak disebut di README: fitur naskah IMDA belum bisa dipakai dari aplikasi. Keduanya diperiksa, diperbaiki (B2), diberi tes, dan disertakan sebagai berkas baru. | **Dikerjakan:** format "Naskah Ujian IMDA (DOCX)" di tab Export, pengaturan kop, pratinjau isian bagian dan total nilai, unduhan naskah peserta dan naskah kunci. |
+| B2 | Rendah | Kop baris ketiga terpecah ke dua baris pada hasil render (di template satu baris). | **Diperbaiki:** font baris itu 10 pt dan lebar kolom kop disesuaikan. |
+| B3 | Info | Logo template berupa WMF (tidak bisa ditanam oleh pustaka DOCX). | Dikonversi menjadi `public/logo-madrasah.png` (200×245). |
+
+Dicek: jumlah nomor, nilai per nomor, dan total 100 untuk keempat Dawr; teks judul bagian sama dengan template; naskah peserta tanpa warna merah dan tanpa jawaban; naskah kunci bermerah; render LibreOffice satu halaman F4. Tes baru: `test/naskah.test.js` (14 tes). Total 329 tes lulus.
+
+**Asumsi yang belum dikonfirmasi:** "ص" pada template dibaca sebagai halaman kitab. Perbedaan antar template yang tidak dibawa otomatis: mata pelajaran (I: حديث, II: فقه) diisi manual di pengaturan naskah. Belum diuji: tampilan tab Export di browser dan membuka berkas hasil di Microsoft Word (yang diuji LibreOffice).
+

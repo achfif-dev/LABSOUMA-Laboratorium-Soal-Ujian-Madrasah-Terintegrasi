@@ -306,6 +306,21 @@ Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mism
 - Syarat di Google Cloud: `GOOGLE_DRIVE_CLIENT_ID` terisi (sama dengan Backup Drive tim), dan akun Ustadz harus bisa memakai aplikasi OAuth. Bila layar persetujuan OAuth masih berstatus **Testing**, tambahkan email setiap Ustadz sebagai Test user (maksimal 100), atau ubah status ke **In production** (scope `drive.file` tidak perlu verifikasi Google).
 - Endpoint baru `POST /api/drive-client` (semua peran pemakai alat AI) hanya mengembalikan Client ID yang bersifat publik; Ustadz tetap tidak punya akses ke `/api/backup`.
 
+## Naskah ujian format IMDA (Dawr I–IV)
+
+Tab **Export/Download**, format **Naskah Ujian IMDA (DOCX)**. Soal Approved yang dipilih disusun menjadi naskah mengikuti empat template `FORMAT_SOAL_IMDA_I–IV`: kertas F4, kanan-ke-kiri, kop dengan logo, kotak nama/kelas/nomor/mata pelajaran, tiga bagian, kaki halaman `(* L@b I *)`.
+
+| Dawr | أ pilihan | ب isian | ج uraian | Total |
+|---|---|---|---|---|
+| I dan III | 5 nomor × 5 | 5 × 7 | 5 × 8 | 100 |
+| II dan IV | 7 nomor × 4 | 6 × 5 | 7 × 6 | 100 |
+
+- Soal masuk ke bagian menurut **bentuknya**: pilihan ganda dan lanjutan ke أ, isian ke ب, uraian ke ج, dengan urutan pilihan Anda. Benar–Salah tidak ada di template, jadi tidak dimasukkan. Soal yang melebihi jumlah nomor bagiannya tidak dimasukkan; pratinjau menyebut alasannya. Nomor yang tidak terisi dibiarkan kosong sehingga naskah sebagian tetap bisa dicetak, dan pratinjau menunjukkan total nilai dari 100.
+- **Dua berkas.** *Naskah peserta* tidak memuat jawaban. *Naskah kunci* menandai huruf opsi yang benar dan jawaban tertulis dengan warna merah, ditambah "ص" dengan halaman kitab (diambil dari kolom Halaman soal); jangan dibagikan kepada peserta.
+- Kop (mata pelajaran, kelas, tingkat, tahun ajaran, dua baris nama lembaga, penanda kaki) bisa diubah di pengaturan dan tersimpan sebagai draf di perangkat. Logo diambil dari `public/logo-madrasah.png` (dari template); ganti berkas itu bila logonya berubah.
+- Template memuat **tiga opsi** (أ ب ج). Soal dengan lebih dari tiga opsi tetap dicetak semuanya dan diberi peringatan.
+- Arti "ص" pada template **diasumsikan** halaman kitab (karena soal sudah punya kolom Halaman). Bila maksudnya lain, ubah `rujukanHalaman` di `web/lib/naskah.js`.
+
 ## Pengembangan lokal
 
 ```bash
@@ -329,6 +344,7 @@ web/lib/drive.js        cadangan ke Google Drive: format, klien Drive, kandidat 
 web/lib/cadanganDrive.js cadangan otomatis Soal Saya (Ustadz) ke Drive pribadi
 web/lib/duplikat.js     deteksi soal kembar/mirip saat menyimpan
 web/lib/dasbor.js       ringkasan antrean review dan format tampilan Dasbor
+web/lib/naskah.js       penyusunan naskah ujian IMDA (preset Dawr I-IV, nilai); web/lib/naskahDocx.js membuat DOCX-nya
 src/adminStats.js       data Dasbor admin (pemakaian AI per pengguna, sisa kuota) dari dokumen rate/*
 api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
 src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
