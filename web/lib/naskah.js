@@ -110,3 +110,42 @@ export function namaBerkasNaskah(meta, kunci) {
   const latin = /^[a-z0-9-]+$/i.test(mapel) ? mapel.toLowerCase() : '';
   return `naskah-ujian-dawr-${dawrSah(m.dawr)}${latin ? '-' + latin : ''}${kunci ? '-kunci' : ''}.docx`;
 }
+
+/* ---------- Mode "Ikuti template" pada form penyusunan soal ----------
+ * Form tetap bebas seperti biasa. Bila mode template dinyalakan, form hanya menampilkan bentuk yang ada di template, membatasi opsi
+ * pada tiga (أ ب ج), dan memberi catatan bila isi soal akan tampil menyimpang dari template saat diekspor. Tidak ada data baru pada soal. */
+
+/** Bentuk soal yang punya tempat di template (Benar–Salah tidak ada). */
+export const BENTUK_TEMPLATE = URUTAN_BAGIAN.flatMap((k) => BAGIAN[k].bentuk);
+
+/** Bagian template untuk satu Dawr: huruf, judul, jumlah nomor, dan nilai per nomor. */
+export function ringkasBagian(dawr, kode) {
+  const p = PRESET_DAWR[dawrSah(dawr)].bagian.find((x) => x.kode === kode);
+  if (!p) return null;
+  return { kode, huruf: BAGIAN[kode].huruf, label: BAGIAN[kode].label, n: p.n, nilai: p.nilai, judul: judulBagian(kode, p.nilai) };
+}
+
+/** Ringkasan satu baris, mis. "أ 5×5 + ب 5×7 + ج 5×8 = 100". */
+export function ringkasDawr(dawr) {
+  const bg = URUTAN_BAGIAN.map((k) => ringkasBagian(dawr, k));
+  return `${bg.map((b) => `${b.huruf} ${b.n}×${b.nilai}`).join(' + ')} = ${bg.reduce((n, b) => n + b.n * b.nilai, 0)}`;
+}
+
+/** Catatan (teks) untuk soal yang sedang disusun, bila diekspor ke template. Daftar kosong berarti soal sudah sesuai. */
+export function catatanTemplate(q, dawr = 1) {
+  const kode = bagianDari(q); const c = [];
+  if (!kode) return ['Bentuk Benar–Salah tidak ada di template IMDA. Pilih Pilihan ganda, Lanjutan, Isian, atau Uraian agar soal ini masuk naskah.'];
+  const bg = ringkasBagian(dawr, kode);
+  if (BAGIAN[kode].bentuk.some((x) => ['pilgan', 'lanjutan'].includes(x))) {
+    const n = opsiTerpakai(q).length;
+    if (n > OPSI_ASLI) c.push(`Template memuat ${OPSI_ASLI} opsi (أ ب ج); soal ini punya ${n}. Semua opsi tetap dicetak, tetapi baris soal jadi lebih panjang dari template.`);
+    else if (n > 0 && n < OPSI_ASLI) c.push(`Template memuat ${OPSI_ASLI} opsi (أ ب ج); baru ${n} yang terisi.`);
+  }
+  const stim = String((q && q.stimulus) || '').trim();
+  if (stim) c.push('Template hanya punya satu kalimat soal per nomor. Narasi/stimulus akan dicetak di depan kalimat soal pada baris yang sama.');
+  const panjang = (stim + ' ' + String((q && q.pertanyaan) || '')).trim().length;
+  if (panjang > 260) c.push(`Kalimat soal ±${panjang} karakter; di template aslinya satu sampai dua baris. Pertimbangkan meringkas.`);
+  if (!String((q && q.hal) || '').trim()) c.push('Halaman kitab (ص) belum diisi: kolom ص di naskah kunci akan kosong.');
+  if (['isian', 'uraian'].includes(bentukDari(q)) && !kunciTeks(q)) c.push('Jawaban belum diisi: naskah kunci memuat jawaban ini di samping nomor.');
+  return c.map((t) => `Bagian ${bg.huruf}: ${t}`);
+}

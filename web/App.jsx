@@ -751,13 +751,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
   const [ex, setEx] = useState(() => {
     const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
-    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true, kFoto: o.kFoto === true };
+    return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true, kFoto: o.kFoto === true,
+      tpl: o.tpl === true, dawr: NK.dawrSah(typeof o.dawr === 'number' ? o.dawr : bacaPref('naskahMeta', { dawr: 1 }).dawr) }; // tpl: mode "ikuti template IMDA"; dawr awal mengikuti pengaturan di tab Export
   });
   const patchEx = (p) => setEx((x) => ({ ...x, ...p }));
-  const { kUrl, kHal, kAppend, fokus, kManual } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
+  const { kUrl, kHal, kAppend, fokus, kManual, tpl, dawr } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
   const setKUrl = (v) => patchEx({ kUrl: v }); const setKHal = (v) => patchEx({ kHal: v }); const setKAppend = (v) => patchEx({ kAppend: v });
   const setFokus = (v) => patchEx({ fokus: v }); const setKManual = (v) => patchEx({ kManual: v });
-  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto);
+  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto && !ex.tpl && ex.dawr === NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
   const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
   const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
   // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
@@ -969,10 +970,39 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             <div><Label htmlFor="level">Tingkat Kesukaran</Label>
               <Select id="level" value={form.level} onChange={(v) => set('level', v)}>{LEVEL.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}</Select></div>
           </div>
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3">
+            <Label htmlFor="cara-susun">Cara Penyusunan</Label>
+            <div id="cara-susun" role="radiogroup" aria-label="Cara penyusunan soal" className="flex flex-wrap gap-2">
+              {[[false, 'Bebas'], [true, 'Ikuti template IMDA']].map(([v, t]) => (
+                <button key={String(v)} type="button" role="radio" aria-checked={tpl === v} onClick={() => patchEx({ tpl: v })}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${tpl === v ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-ink hover:border-brand'}`}>{t}</button>
+              ))}
+            </div>
+            {!tpl && <p className="mt-1 text-xs leading-relaxed text-mute">Form seperti biasa: semua bentuk soal, narasi, dan lima opsi. Nyalakan <b>Ikuti template IMDA</b> bila soal ini akan dicetak ke naskah Dawr I–IV.</p>}
+            {tpl && (
+              <div className="mt-2 space-y-2">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  <div><Label htmlFor="tpl-dawr">Dawr</Label>
+                    <Select id="tpl-dawr" value={String(dawr)} onChange={(v) => patchEx({ dawr: NK.dawrSah(v) })}>
+                      {NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label}</option>)}
+                    </Select></div>
+                  <div className="text-xs leading-relaxed text-mute sm:pt-6 lg:pt-0 xl:pt-6">{NK.ringkasDawr(dawr)} <span className="whitespace-nowrap">(nomor × nilai)</span></div>
+                </div>
+                {(() => {
+                  const kode = NK.bagianDari(form); const bg = kode ? NK.ringkasBagian(dawr, kode) : null;
+                  return bg ? (
+                    <p className="text-xs leading-relaxed text-soft-ink">Masuk bagian <b>{bg.huruf}</b> ({bg.label}): {bg.n} nomor, nilai {bg.nilai} per nomor. <span dir="rtl" lang="ar" className="ar-nama">{bg.judul}</span></p>
+                  ) : null;
+                })()}
+                {NK.catatanTemplate(form, dawr).map((t, i) => <p key={i} role="status" className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{t}</p>)}
+                <p className="text-xs leading-relaxed text-mute">Template memuat tiga opsi (أ ب ج) dan satu kalimat soal per nomor. Isian di form tetap tersimpan utuh; mode ini hanya menyaring tampilan dan memberi catatan.</p>
+              </div>
+            )}
+          </div>
           <div className="mt-3">
             <Label htmlFor="bentuk-soal">Bentuk Soal</Label>
             <div id="bentuk-soal" role="radiogroup" aria-label="Bentuk soal" className="flex flex-wrap gap-2">
-              {Bt.BENTUK_IDS.map((id) => {
+              {(tpl ? Bt.BENTUK_IDS.filter((id) => NK.BENTUK_TEMPLATE.includes(id)) : Bt.BENTUK_IDS).map((id) => {
                 const aktif = form.bentuk === id; const saran = Bt.dianjurkan(form.tingkat, id) && Bt.bentukUntukTingkat(form.tingkat).length < Bt.BENTUK_IDS.length;
                 return (
                   <button key={id} type="button" role="radio" aria-checked={aktif} onClick={() => set('bentuk', id)} title={Bt.BENTUK[id].ket + ' Contoh: ' + Bt.BENTUK[id].contoh}
@@ -1154,7 +1184,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             <fieldset>
               <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-mute">{form.bentuk === 'lanjutan' ? 'Kelanjutan (opsi)' : 'Opsi Jawaban'} <span className="ml-1 normal-case font-normal tracking-normal">(pilih bulatan untuk kunci)</span></legend>
               <div className="space-y-2">
-                {KEYS.map((k) => (
+                {KEYS.filter((k, i) => !tpl || i < NK.OPSI_ASLI || String(form.opsi[k] || '').trim()).map((k) => (
                   <div key={k} className={`flex items-center gap-2 rounded-xl border p-1.5 pr-2 ${form.kunci === k ? 'border-brand bg-ok-bg' : 'border-line'}`}>
                     <label htmlFor={'kunci-' + k} className="flex shrink-0 cursor-pointer items-center gap-2 pl-2" title={`Jadikan ${k} kunci jawaban`}>
                       <input id={'kunci-' + k} type="radio" name="kunci" className="h-4 w-4 accent-[var(--brand)]" checked={form.kunci === k} onChange={() => set('kunci', k)} />

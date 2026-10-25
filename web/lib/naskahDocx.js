@@ -7,14 +7,21 @@ import { bentukDari, opsiTerpakai } from './bentuk.js';
 
 const AR = 'Traditional Arabic';
 const LATIN = 'Times New Roman';
+const KOP = 'Arial';               // kop template memakai Arial, bukan Traditional Arabic
 const MERAH = 'FF0000';
 const LEBAR_ISI = 11197;           // 12240 - 476 - 567 (margin template)
+const LEBAR_KOTAK = 5150;          // kotak data kiri, sama dengan kotak template (5150 twip)
+const LEBAR_JARAK = 60;            // celah antara kotak dan garis judul
+const LEBAR_LOGO = 830;
+const LEBAR_JUDUL = LEBAR_ISI - LEBAR_KOTAK - LEBAR_JARAK - LEBAR_LOGO;
+const LEBAR_KOTAK_DALAM = 5000;
+const GARIS_KOTAK = { style: 'thickThinSmallGap', size: 26, color: '000000' }; // garis ganda tebal-tipis 3,25 pt seperti kotak template
 const POSISI_TAB = 11055;          // tab rata kanan dengan garis pengisi, sama dengan template
 const adaArab = (s) => /[\u0600-\u06FF\u0750-\u077F]/.test(String(s));
 const bersih = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/\s*\n\s*/g, ' ').trim();
 
 export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null } = {}) {
-  const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, TableLayoutType, VerticalAlign, Tab } = D;
+  const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, TableLayoutType, VerticalAlign, Tab, HeightRule } = D;
   const meta = { ...META_AWAL, ...(metaMasuk || {}) };
 
   const T = (text, o = {}) => {
@@ -31,37 +38,60 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   const TAB = (leader) => ({ tabStops: [{ type: TabStopType.RIGHT, position: POSISI_TAB, leader }] });
   const merah = (cond, o = {}) => (kunci && cond ? { ...o, color: MERAH } : o);
 
-  /* ---------- kop ---------- */
-  const tanpaGaris = { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } };
-  const garis = { style: BorderStyle.SINGLE, size: 26, color: '000000' };
-  const kop = (children) => new Paragraph({ bidirectional: true, spacing: { before: 0, after: 0, line: 276 }, children });
+  /* ---------- kop ----------
+   * Meniru kop template (FORMAT_SOAL_IMDA_*.docx): font Arial tebal (judul 22 pt, madrasah 16 pt, pesantren dan tahun 10 pt),
+   * logo di kanan, garis ganda tipis di bawah judul, dan kotak data di kiri dengan garis ganda tebal-tipis 3,25 pt.
+   * Template memakai grup VML mengambang; di sini dipakai tabel biasa supaya tampil sama di Word dan LibreOffice dan tetap bisa diedit. */
+  const tanpa = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const tanpaGaris = { top: tanpa, bottom: tanpa, left: tanpa, right: tanpa };
+  const garisGanda = { style: BorderStyle.DOUBLE, size: 12, color: '000000' };
+  const K = (text, o = {}) => new TextRun({
+    text: String(text ?? ''), font: KOP, size: o.size || 22, bold: true, boldComplexScript: true,
+    rightToLeft: o.rtl ?? adaArab(text), ...(o.border ? { border: { style: BorderStyle.SINGLE, size: 6, color: '000000', space: 0 } } : {}),
+  });
+  const barisKop = (children, o = {}) => new Paragraph({ spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO }, ...o, children });
+  const sel = (w, children, o = {}) => new TableCell({
+    width: { size: w, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, margins: { top: 0, bottom: 0, left: 20, right: 20 }, // tanpa `borders`: garis luar kotak datang dari tabel
+    children: [barisKop(children, { bidirectional: true })], ...o,
+  });
+  const rapat = () => new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT }, children: [new TextRun({ text: '', size: 2 })] });
+
+  // Judul: dua baris pertama rata kanan biasa (seperti template), baris tahun dua arah supaya tanda kutip dan angka tidak terbalik.
   const logoCell = new TableCell({
-    width: { size: 900, type: WidthType.DXA }, borders: tanpaGaris, verticalAlign: VerticalAlign.TOP,
-    children: [new Paragraph({ bidirectional: true, children: logo ? [new ImageRun({ type: 'png', data: logo, transformation: { width: 54, height: 66 }, altText: { title: 'Logo', description: 'Logo madrasah', name: 'logo' } })] : [] })],
+    width: { size: LEBAR_LOGO, type: WidthType.DXA }, verticalAlign: VerticalAlign.TOP, margins: { top: 0, bottom: 0, left: 0, right: 0 }, borders: { ...tanpaGaris, bottom: garisGanda },
+    children: [new Paragraph({ bidirectional: true, spacing: { before: 0, after: 40 }, children: logo ? [new ImageRun({ type: 'png', data: logo, transformation: { width: 54, height: 68 }, altText: { title: 'Logo', description: 'Logo madrasah', name: 'logo' } })] : [] })],
   });
   const judulCell = new TableCell({
-    width: { size: 5700, type: WidthType.DXA }, verticalAlign: VerticalAlign.TOP,
-    borders: { ...tanpaGaris, bottom: { style: BorderStyle.SINGLE, size: 12, color: '000000' } },
+    width: { size: LEBAR_JUDUL, type: WidthType.DXA }, verticalAlign: VerticalAlign.TOP, margins: { top: 0, bottom: 40, left: 0, right: 40 },
+    borders: { ...tanpaGaris, bottom: garisGanda },
     children: [
-      kop([N(judulDawr(naskah.dawr), { size: 44, bold: true })]),
-      kop([N(meta.baris1, { size: 32, bold: true })]),
-      kop([N(`" ${meta.baris2}  السنة الدراسة ${meta.tahun} هـ "`, { size: 20, bold: true })]),
+      barisKop([K(judulDawr(naskah.dawr), { size: 44, rtl: true })], { alignment: AlignmentType.RIGHT }),
+      barisKop([K(meta.baris1, { size: 32, rtl: true })], { alignment: AlignmentType.RIGHT }),
+      barisKop([K(`" ${meta.baris2}  السنة الدراسة `, { size: 19, rtl: true }), K(meta.tahun, { size: 19, rtl: true }), K(' هـــ "', { size: 19, rtl: true })], { bidirectional: true }),
     ],
   });
-  const kotak = (n) => Array.from({ length: n }, (_, i) => [T('\u00A0\u00A0\u00A0\u00A0\u00A0', { rtl: true, size: 24, border: true }), ...(i < n - 1 ? [N(' ', { size: 24 })] : [])]).flat();
-  const kotakCell = new TableCell({
-    width: { size: 4597, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER,
-    margins: { top: 60, bottom: 60, left: 100, right: 100 },
-    borders: { top: garis, bottom: garis, left: garis, right: garis },
-    children: [
-      kop([N('الاسم : ', { size: 24, bold: true }), N('______________', { size: 24 }), N('   الفصل : ', { size: 24, bold: true }), T(`${meta.kelas} [   ] ${meta.tingkat}`, { size: 24, bold: true })]),
-      kop([N('الرقم : ', { size: 24, bold: true }), ...kotak(3), N('      المادة : ', { size: 24, bold: true }), T(meta.mapel || '', { size: 24, bold: true })]),
+  const jarak = new TableCell({ width: { size: LEBAR_JARAK, type: WidthType.DXA }, borders: tanpaGaris, children: [rapat()] });
+
+  // Kotak data: dua baris, tujuh kolom (label, titik dua, isian, pemisah, label, titik dua, isian) supaya sejajar antarbaris.
+  const kotakNomor = () => [0, 1, 2].flatMap((i) => [K('\u00A0'.repeat(6), { size: 22, rtl: true, border: true }), ...(i < 2 ? [K('\u00A0', { size: 8, rtl: true })] : [])]);
+  const kolom = [640, 140, 1420, 120, 700, 140, 1840];
+  const baris = (isi) => new TableRow({ height: { value: 481, rule: HeightRule.ATLEAST }, children: isi.map((c, i) => sel(kolom[i], c)) });
+  const kotakData = new Table({
+    visuallyRightToLeft: true, layout: TableLayoutType.FIXED, width: { size: LEBAR_KOTAK_DALAM, type: WidthType.DXA }, columnWidths: kolom,
+    borders: { top: GARIS_KOTAK, bottom: GARIS_KOTAK, left: GARIS_KOTAK, right: GARIS_KOTAK, insideHorizontal: tanpa, insideVertical: tanpa },
+    rows: [
+      baris([[K('الاسم')], [K(':')], [K('_'.repeat(11), { rtl: true })], [], [K('الفصـل')], [K(':')], [K(`${meta.kelas} [   ] ${meta.tingkat}`)]]),
+      baris([[K('الرقم')], [K(':')], kotakNomor(), [], [K('المادة')], [K(':')], [K(meta.mapel || '')]]),
     ],
+  });
+  const kotakCell = new TableCell({
+    width: { size: LEBAR_KOTAK, type: WidthType.DXA }, verticalAlign: VerticalAlign.BOTTOM, borders: tanpaGaris, margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    children: [kotakData, rapat()],
   });
   const header = new Table({
-    visuallyRightToLeft: true, layout: TableLayoutType.FIXED, width: { size: 900 + 5700 + 4597, type: WidthType.DXA }, columnWidths: [900, 5700, 4597],
-    borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } },
-    rows: [new TableRow({ children: [logoCell, judulCell, kotakCell] })],
+    visuallyRightToLeft: true, layout: TableLayoutType.FIXED, width: { size: LEBAR_ISI, type: WidthType.DXA }, columnWidths: [LEBAR_LOGO, LEBAR_JUDUL, LEBAR_JARAK, LEBAR_KOTAK],
+    borders: { ...tanpaGaris, insideHorizontal: tanpa, insideVertical: tanpa },
+    rows: [new TableRow({ children: [logoCell, judulCell, jarak, kotakCell] })],
   });
 
   /* ---------- butir soal ---------- */

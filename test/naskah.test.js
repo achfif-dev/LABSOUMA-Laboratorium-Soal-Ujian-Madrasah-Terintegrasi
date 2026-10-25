@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as D from 'docx';
 import JSZip from 'jszip';
-import { PRESET_DAWR, DAFTAR_DAWR, MAKS_NILAI, susunNaskah, judulBagian, judulDawr, kataNilai, dawrSah, bagianDari, namaBerkasNaskah, rujukanHalaman, jawabanKunci, akhiriTanya, META_AWAL } from '../web/lib/naskah.js';
+import { BENTUK_TEMPLATE, ringkasBagian, ringkasDawr, catatanTemplate, PRESET_DAWR, DAFTAR_DAWR, MAKS_NILAI, susunNaskah, judulBagian, judulDawr, kataNilai, dawrSah, bagianDari, namaBerkasNaskah, rujukanHalaman, jawabanKunci, akhiriTanya, META_AWAL } from '../web/lib/naskah.js';
 import { buatNaskah } from '../web/lib/naskahDocx.js';
 
 const pg = (pertanyaan, o = ['x', 'y', 'z'], kunci = 'A', hal = '') => ({ bentuk: 'pilgan', pertanyaan, opsi: { A: o[0], B: o[1], C: o[2], D: o[3] || '', E: o[4] || '' }, kunci, hal });
@@ -109,7 +109,7 @@ test('DOCX peserta: kop, tiga judul bagian, F4, tanpa unsur merah dan tanpa kunc
   const t = teksDari(xml);
   assert.ok(t.includes('الامتحان في الدور الثاني')); assert.ok(t.includes('بالمدرسة الدينية السلفية المعارف'));
   assert.ok(t.includes('السنة الدراسة 1446 – 1447'));
-  assert.ok(t.includes('المادة : ') && t.includes('فقه'));
+  assert.ok(t.includes('المادة') && t.includes('فقه')); // label dan titik dua kini di kolom terpisah agar sejajar dengan baris Nama/Nomor
   for (const b of n.bagian) assert.ok(t.includes(b.judul), b.kode);
   assert.match(xml, /<w:pgSz w:w="12240" w:h="18720"/);
   assert.doesNotMatch(xml, /w:val="FF0000"/);
@@ -117,6 +117,22 @@ test('DOCX peserta: kop, tiga judul bagian, F4, tanpa unsur merah dan tanpa kunc
   assert.ok(!t.includes('jawab I0') && !t.includes('uraian U0')); // jawaban tidak bocor
   assert.ok(kaki.includes('L@b I'));
   assert.ok(media.some((m) => /\.png$/.test(m)));
+});
+
+test('kop mengikuti template asli: Arial tebal, kotak data bergaris ganda tebal-tipis, garis ganda di bawah judul, kotak nomor', async () => {
+  const n = susunNaskah(penuh(1), 1);
+  const { xml } = await bongkar(buatNaskah(D, n, { ...META_AWAL, mapel: 'حديث' }, { kunci: false, logo: LOGO }));
+  const kop = xml.slice(0, xml.lastIndexOf('</w:tbl>') + 8); // badan naskah tidak memuat tabel, jadi tabel terakhir menutup kop
+  assert.match(kop, /w:ascii="Arial"/); // template memakai Arial pada kop
+  assert.doesNotMatch(kop, /w:ascii="Traditional Arabic"/);
+  assert.match(kop, /<w:sz w:val="44"\/>/); assert.match(kop, /<w:sz w:val="32"\/>/); // judul 22 pt dan nama madrasah 16 pt
+  assert.match(kop, /<w:(top|bottom|left|right) w:val="thickThinSmallGap" w:color="000000" w:sz="26"\/>/); // kotak data 3,25 pt
+  assert.match(kop, /<w:bottom w:val="double" w:color="000000" w:sz="\d+"\/>/); // garis ganda di bawah judul
+  assert.equal((kop.match(/<w:bdr /g) || []).length, 3); // tiga kotak nomor
+  assert.equal((kop.match(/<w:tbl>/g) || []).length, 2); // tabel kop + tabel kotak data (bersarang)
+  // sel dalam kotak data tidak boleh menimpa garis kotak dengan border "none" (cacat kop lama)
+  const dalam = kop.slice(kop.indexOf('<w:tbl>', kop.indexOf('<w:tbl>') + 1));
+  assert.doesNotMatch(dalam, /<w:tcBorders>/);
 });
 
 test('DOCX kunci: huruf opsi benar, jawaban tertulis, dan ص + halaman berwarna merah; ada keterangan di kaki', async () => {
@@ -153,4 +169,35 @@ test('penjaga: format Naskah ada di tab Export dan logo tersedia di public/', ()
   assert.match(app, /buatNaskah\(D, naskah, nm, \{ kunci, logo \}\)/);
   assert.match(app, /fetch\('\/logo-madrasah\.png'\)/);
   assert.ok(LOGO.length > 1000 && LOGO.subarray(1, 4).toString() === 'PNG');
+});
+
+test('mode template di form: bentuk yang tersedia, ringkasan Dawr, dan nilai per bagian mengikuti preset', () => {
+  assert.deepEqual([...BENTUK_TEMPLATE].sort(), ['isian', 'lanjutan', 'pilgan', 'uraian']); // Benar–Salah tidak ada di template
+  assert.equal(ringkasDawr(1), 'أ 5×5 + ب 5×7 + ج 5×8 = 100');
+  assert.equal(ringkasDawr(2), 'أ 7×4 + ب 6×5 + ج 7×6 = 100');
+  assert.equal(ringkasDawr('x'), ringkasDawr(1)); // Dawr tidak sah jatuh ke Dawr I, sama seperti ekspor
+  const b = ringkasBagian(4, 'b');
+  assert.deepEqual([b.huruf, b.n, b.nilai], ['ب', 6, 5]);
+  assert.equal(b.judul, judulBagian('b', 5));
+  assert.equal(ringkasBagian(1, 'z'), null);
+});
+
+test('catatan template: soal yang sudah sesuai tanpa catatan; penyimpangan dicatat dengan awalan bagian', () => {
+  assert.deepEqual(catatanTemplate(pg('Soal', ['1', '2', '3'], 'A', '11'), 1), []);
+  assert.deepEqual(catatanTemplate(isi('Syarat ada ..... perkara', '5'), 1), []);
+  // empat opsi, ada narasi, halaman kosong
+  const c = catatanTemplate({ ...pg('Soal', ['1', '2', '3', '4']), stimulus: 'Narasi singkat' }, 1);
+  assert.equal(c.length, 3);
+  assert.ok(c.every((t) => t.startsWith('Bagian أ: ')));
+  assert.ok(c.some((t) => t.includes('4')) && c.some((t) => t.includes('Narasi')) && c.some((t) => t.includes('ص')));
+  // kurang dari tiga opsi
+  assert.ok(catatanTemplate(pg('Soal', ['1', '2', ''], 'A', '1'), 1).some((t) => t.includes('baru 2')));
+  // soal panjang
+  assert.ok(catatanTemplate(pg('x'.repeat(300), ['1', '2', '3'], 'A', '1'), 1).some((t) => t.includes('±')));
+  // isian/uraian tanpa jawaban
+  assert.ok(catatanTemplate({ bentuk: 'isian', pertanyaan: 'Syarat ..... perkara', jawaban: '', opsi: {}, hal: '2' }, 1).some((t) => t.startsWith('Bagian ب: ') && t.includes('Jawaban')));
+  assert.ok(catatanTemplate({ bentuk: 'uraian', pertanyaan: 'Jelaskan', jawaban: '', opsi: {}, hal: '2' }, 3).some((t) => t.startsWith('Bagian ج: ')));
+  // Benar–Salah: satu catatan tegas, tanpa awalan bagian
+  const bs = catatanTemplate({ bentuk: 'benarsalah', pertanyaan: 'Pernyataan', kunci: 'A', opsi: {}, hal: '1' }, 1);
+  assert.equal(bs.length, 1); assert.ok(bs[0].includes('Benar–Salah'));
 });
