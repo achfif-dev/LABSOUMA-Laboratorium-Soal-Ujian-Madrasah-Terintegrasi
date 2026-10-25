@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ImporExcel from './ImporExcel.jsx';
 import * as UT from './lib/ustadz.js';
+import * as DUP from './lib/duplikat.js';
+import * as CD from './lib/cadanganDrive.js';
+import * as DR from './lib/drive.js';
+import * as DB from './lib/dasbor.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target,
+  BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw,
 } from 'lucide-react';
 
 /* ---------- Data & constants ---------- */
@@ -2480,6 +2484,132 @@ function UserAdmin({ me, toast }) {
   );
 }
 
+/* ---------- Dasbor admin: kuota AI per pengguna, sisa kuota harian, antrean review ---------- */
+// Kuota dibaca di server (/api/admin-stats) dari dokumen rate/{id}; hitungan hanya untuk HARI INI (WIB), tanpa riwayat. Antrean review dihitung dari
+// soal pending yang sudah dimuat realtime di App, jadi tidak menambah bacaan Firestore.
+const KUOTA_LABEL = { aman: ['Aman', 'bg-ok-bg text-ok'], hampir: ['Hampir habis', 'bg-warn-bg text-warn'], habis: ['Habis', 'bg-bad-bg text-bad'] };
+const KUOTA_WARNA = { aman: 'bg-ok', hampir: 'bg-warn', habis: 'bg-bad' };
+const BadgeKuota = ({ status }) => <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${KUOTA_LABEL[status][1]}`}>{KUOTA_LABEL[status][0]}</span>;
+const BatangKuota = ({ persen, status, label }) => (
+  <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={persen} className="h-2 w-full overflow-hidden rounded-full bg-soft">
+    <div className={`h-full rounded-full ${KUOTA_WARNA[status]}`} style={{ width: persen + '%' }} />
+  </div>
+);
+const UMUR_CLS = { baru: 'text-mute', waspada: 'text-warn', lewat: 'text-bad' };
+
+function Dasbor({ pending, onBukaReview }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [semua, setSemua] = useState(false);
+  const [waktu, setWaktu] = useState(0);
+  const muat = async () => {
+    setBusy(true);
+    try { setD(await callApi('/api/admin-stats', { semua })); setWaktu(Date.now()); setErr(null); }
+    catch (e) { setErr(apiErr(e)); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => {
+    muat();
+    const t = setInterval(() => { if (document.visibilityState !== 'hidden') muat(); }, 120000);
+    return () => clearInterval(t);
+  }, [semua]);
+  const antrean = useMemo(() => DB.ringkasAntrean(pending, Date.now()), [pending, waktu]);
+  return <DasborView d={d} err={err} busy={busy} semua={semua} setSemua={setSemua} waktu={waktu} onMuat={muat} antrean={antrean} onBukaReview={onBukaReview} />;
+}
+
+// Tampilan murni (tanpa pengambilan data): dirender langsung di tes dengan data contoh.
+function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antrean, onBukaReview }) {
+  const kolamBermasalah = d ? d.kolam.filter((k) => k.status !== 'aman') : [];
+  return (
+    <div className="fade-in space-y-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
+        <p className="mr-auto text-mute">
+          {d ? <>Kuota direset otomatis pukul 00.00 WIB, <b className="text-ink">{DB.teksSisaWaktu(d.resetDalamDetik)}</b> lagi. </> : null}
+          {waktu ? `Diperbarui ${new Date(waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}; otomatis tiap 2 menit.` : 'Memuat...'}
+        </p>
+        <Btn kind="ghost" onClick={onMuat} disabled={busy}>{busy ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}Segarkan</Btn>
+      </div>
+      {err && <ErrorBox e={err} />}
+      {kolamBermasalah.map((k) => (
+        <p key={k.id} role="alert" className={`rounded-xl px-4 py-3 text-sm ${k.status === 'habis' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}`}>
+          <b>{k.status === 'habis' ? 'Kuota AI ' : 'Kuota AI hampir habis: '}{k.label}{k.status === 'habis' ? ' sudah habis.' : ` (${k.dipakai}/${k.batas}).`}</b>{' '}
+          {k.status === 'habis' ? 'Semua permintaan AI kelompok ini ditolak sampai reset. ' : ''}Naikkan <code>{k.env}</code> di Vercel (Environment Variables) lalu Redeploy, atau tunggu reset.
+        </p>
+      ))}
+      {!d && !err && <div className="flex justify-center py-12 text-mute"><Loader2 className="spin" /></div>}
+
+      {d && (
+        <Section title="Plafon harian AI" icon={Sparkles}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {d.kolam.map((k) => (
+              <div key={k.id} className="rounded-xl border border-line p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">{k.label}</p><BadgeKuota status={k.status} /></div>
+                <p className="mb-2 text-2xl font-extrabold">{k.dipakai}<span className="text-base font-semibold text-mute"> / {k.batas}</span></p>
+                <BatangKuota persen={k.persen} status={k.status} label={'Plafon ' + k.label} />
+                <p className="mt-2 text-xs text-mute">Sisa <b className="text-ink">{k.sisa}</b> permintaan hari ini, dipakai semua pengguna kelompok ini bersama.</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {d && (
+        <Section title="Pemakaian AI per pengguna (hari ini)" icon={Users}
+          action={<label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={semua} onChange={(e) => setSemua(e.target.checked)} />Tampilkan juga yang belum memakai</label>}>
+          {!d.pengguna.length ? <p className="text-sm text-mute">Belum ada yang memakai AI hari ini.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-mute">
+                  <tr><th className="px-2 py-2">Pengguna</th><th className="px-2 py-2">Terpakai</th><th className="w-32 px-2 py-2"><span className="sr-only">Proporsi</span></th><th className="px-2 py-2">Sisa</th><th className="px-2 py-2">Status</th></tr>
+                </thead>
+                <tbody>
+                  {d.pengguna.map((r) => (
+                    <tr key={r.uid} className="border-b border-line last:border-0">
+                      <td className="px-2 py-2.5"><p className="font-semibold">{r.nama}</p><p className="text-xs text-mute">{ROLE_LABEL[r.role] || r.role || 'Tidak dikenal'}{r.email && r.email !== r.nama ? ' · ' + r.email : ''}</p></td>
+                      <td className="whitespace-nowrap px-2 py-2.5 font-semibold">{r.dipakai} / {r.batas}</td>
+                      <td className="px-2 py-2.5"><BatangKuota persen={r.persen} status={r.status} label={'Kuota ' + r.nama} /></td>
+                      <td className="px-2 py-2.5">{r.sisa}</td>
+                      <td className="px-2 py-2.5"><BadgeKuota status={r.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mt-3 text-xs leading-relaxed text-mute">
+            Total {d.totalHariIni} permintaan hari ini{d.penggunaHabis > 0 ? `; ${d.penggunaHabis} pengguna sudah kena batas hariannya` : ''}. Permintaan yang gagal di sisi server sudah dikembalikan dan tidak dihitung.
+            Hanya hari ini yang tersimpan; belum ada riwayat harian atau bulanan.{d.terpotong ? ' Daftar dipotong 300 baris.' : ''}
+          </p>
+        </Section>
+      )}
+
+      <Section title="Antrean review" icon={ClipboardCheck} action={<Btn kind="ghost" onClick={onBukaReview}><ClipboardCheck size={15} />Buka Review</Btn>}>
+        {!antrean.total ? <p className="text-sm text-mute">Tidak ada soal yang menunggu review.</p> : (
+          <div className="space-y-3">
+            <p className="text-sm"><b>{antrean.total}</b> soal menunggu review; yang tertua <b className={UMUR_CLS[DB.tandaUmur(antrean.tertuaHari)]}>{DB.teksUmur(antrean.tertuaHari)}</b>.</p>
+            <div className="flex flex-wrap gap-2 text-xs font-semibold">
+              {antrean.lewat > 0 && <span className="rounded-full bg-bad-bg px-2.5 py-0.5 text-bad">{antrean.lewat} lewat {DB.HARI_LEWAT} hari</span>}
+              {antrean.waspada > 0 && <span className="rounded-full bg-warn-bg px-2.5 py-0.5 text-warn">{antrean.waspada} lewat {DB.HARI_WASPADA} hari</span>}
+              {antrean.perluAlasan > 0 && <span className="rounded-full bg-warn-bg px-2.5 py-0.5 text-warn">{antrean.perluAlasan} perlu catatan alasan (kutipan tak cocok / uji buta berbeda)</span>}
+            </div>
+            <p className="text-xs text-mute">Per penyusun: {antrean.perPenyusun.map((x) => `${x.nama} (${x.jumlah})`).join(', ')}</p>
+            <ul className="divide-y divide-line rounded-xl border border-line">
+              {antrean.tertua.map((t) => (
+                <li key={t.id} className="flex items-start gap-3 px-3 py-2.5 text-sm">
+                  <span className="min-w-0 flex-1"><span className="line-clamp-2">{t.pertanyaan || '(tanpa pertanyaan)'}</span><span className="block text-xs text-mute">{[t.nama, t.authorName].filter(Boolean).join(' · ')}{t.perluAlasan ? ' · perlu alasan' : ''}</span></span>
+                  <span className={`shrink-0 text-xs font-semibold ${UMUR_CLS[DB.tandaUmur(t.hari)]}`}>{DB.teksUmur(t.hari)}</span>
+                </li>
+              ))}
+            </ul>
+            {antrean.total > antrean.tertua.length && <p className="text-xs text-mute">Menampilkan {antrean.tertua.length} tertua dari {antrean.total}.</p>}
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
 /* ---------- App ---------- */
 /* ---------- Pegonizer: alih aksara Latin ke Pegon (standar al-Qolam '24), mesin aturan di browser + bantuan AI lewat server ---------- */
 // Pustaka berat dimuat malas dari paket npm (ikut dibundel Vite, dipisah jadi potongan sendiri); bukan lagi dari CDN.
@@ -2850,12 +2980,22 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
   });
   const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [saran, setSaran] = useState(null); // hasil saran bab terakhir (tidak dipulihkan setelah refresh: memakai kuota AI)
+  // Penanda kuota AI di menu (admin): hanya dua dokumen plafon (2 baca Firestore) tiap 3 menit selama halaman terlihat; rincian per pengguna hanya dimuat di tab Dasbor.
+  const [kuotaRingkas, setKuotaRingkas] = useState(null);
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let mati = false;
+    const ambil = () => { if (document.visibilityState === 'hidden') return; callApi('/api/admin-stats', { ringkas: true }).then((d) => { if (!mati) setKuotaRingkas(d); }).catch(() => { /* penanda saja: gagal dibaca tidak mengganggu */ }); };
+    ambil();
+    const t = setInterval(ambil, 180000);
+    return () => { mati = true; clearInterval(t); };
+  }, [isAdmin]);
   const keluar = () => {
     // Isian yang belum disimpan tidak hilang: tetap ada sebagai draf di perangkat ini untuk akun Anda dan muncul lagi saat Anda masuk.
     // Di komputer bersama, kosongkan form dulu (tombol Kosongkan) bila isiannya tidak boleh terlihat orang lain.
@@ -3012,7 +3152,35 @@ function App({ user, profile }) {
   };
   // Hapus form dan semua draf terkait (dipanggil setelah berhasil disimpan ke server, atau saat pengguna mengosongkan form).
   const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
+  // Deteksi soal kembar/mirip. Pembanding: soal yang sudah dimuat + soal sekitab (kitab yang sama, maks. 200, disimpan 10 menit per kitab agar hemat jatah baca Firestore).
+  // Soal lama di luar itu tidak diperiksa (bank dimuat berhalaman). Pemeriksaan yang gagal tidak menghalangi penyimpanan.
+  const cacheKitab = useRef(new Map());
+  const sudahDiakui = useRef(new Set());
+  const kandidatDuplikat = async () => {
+    const gabung = new Map(qs.map((q) => [q.id, q]));
+    const nama = String(form.nama || '').trim();
+    if (nama) {
+      let c = cacheKitab.current.get(nama);
+      if (!c || Date.now() - c.waktu > 600000) {
+        c = { waktu: Date.now(), daftar: (await col.where('nama', '==', nama).limit(200).get()).docs.map(dariDoc) };
+        cacheKitab.current.set(nama, c);
+      }
+      for (const q of c.daftar) if (!gabung.has(q.id)) gabung.set(q.id, q);
+    }
+    return [...gabung.values()];
+  };
+  const amanDariDuplikat = async () => {
+    let daftar; let hasil;
+    try { daftar = await kandidatDuplikat(); hasil = DUP.cari(Bt.selaraskan(form), daftar, { abaikanId: editingId || '' }); } catch (e) { return true; }
+    if (!hasil.length) return true;
+    const kunci = (editingId || 'baru') + '|' + hasil.map((h) => h.q.id).join(',');
+    if (sudahDiakui.current.has(kunci)) return true; // sudah ditanya untuk soal ini dan pengguna memilih tetap menyimpan
+    if (!window.confirm(DUP.pesanKonfirmasi(hasil, { total: daftar.length }))) return false;
+    sudahDiakui.current.add(kunci);
+    return true;
+  };
   const commit = async (status) => {
+    if (!(await amanDariDuplikat())) { toast('Penyimpanan dibatalkan. Ubah soalnya, atau simpan lagi dan pilih tetap simpan.'); return false; }
     try {
       if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
       else await col.add({ ...content(), status, catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
@@ -3066,11 +3234,12 @@ function App({ user, profile }) {
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
     ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
-    ...(isAdmin ? [{ id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
+    ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export' || tab === 'fokus';
   const aktif = TABS.find((t) => t.id === tab);
   const pendingBadge = canReview ? pending.length : 0;
+  const kuotaGenting = !!(isAdmin && kuotaRingkas && kuotaRingkas.peringatan > 0);
 
   return (
     <div className="font-sans">
@@ -3099,6 +3268,7 @@ function App({ user, profile }) {
               <span className="flex min-w-0 items-center gap-2 rounded-md bg-white/10 px-2.5 py-1">
                 {aktif && <aktif.icon size={15} className="shrink-0" />}<span className="truncate">{aktif ? aktif.label : 'Menu'}</span>
                 {pendingBadge > 0 && !menuOpen && <span aria-label={pendingBadge + ' soal menunggu review'} className="h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
+                {kuotaGenting && !menuOpen && <span aria-label="Kuota AI hampir atau sudah habis" className="h-2 w-2 shrink-0 rounded-full bg-red-400" />}
               </span>
             </button>
             {menuOpen && (
@@ -3153,6 +3323,7 @@ function App({ user, profile }) {
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
+        {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
         {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
@@ -3198,6 +3369,76 @@ function AppUstadz({ user, profile }) {
   const store = useMemo(() => { const st = UT.createSoalSaya({ storage: lokalStorage(), normal: normalForm }); st.setUser(user.uid); return st; }, [user.uid]);
   const [items, setItems] = useState(() => store.list());
   const segarkan = () => setItems(store.list());
+
+  // ---- Cadangan otomatis ke Google Drive pribadi ----
+  // Token hanya di memori; jendela izin Google hanya muncul dari klik (Simpan, Hapus, Pulihkan, atau tombol cadangan), jadi tidak ada pencadangan di latar belakang.
+  const prefDrive = useMemo(() => { const pf = CD.createPrefDrive({ storage: lokalStorage() }); pf.setUser(user.uid); return pf; }, [user.uid]);
+  const [dm, setDm] = useState(() => prefDrive.baca());
+  const [drvBusy, setDrvBusy] = useState('');
+  const [drvErr, setDrvErr] = useState(null);
+  const [drvSiap, setDrvSiap] = useState(false);
+  const [drvDaftar, setDrvDaftar] = useState(null);
+  const tokenDrv = useRef({ v: '', exp: 0 }); const idKlien = useRef('');
+  const sedang = useRef(false); const ulang = useRef(false);
+  useEffect(() => {
+    if (tab !== 'saya' && !dm.aktif) return;
+    muatGis().catch(() => {}); // dimuat lebih awal supaya jendela izin tidak terblokir saat tombol diklik
+    if (idKlien.current) { setDrvSiap(true); return; }
+    callApi('/api/drive-client', {}).then((r) => { idKlien.current = (r && r.driveClientId) || ''; setDrvSiap(true); }).catch((e) => setDrvErr(apiErr(e)));
+  }, [tab, dm.aktif]);
+  const ambilTokenDrv = () => {
+    const t = tokenDrv.current;
+    if (t.v && Date.now() < t.exp - 60000) return Promise.resolve(t.v);
+    return new Promise((selesai, gagal) => {
+      if (!idKlien.current) { gagal(new DR.DriveError('DRIVE_BELUM_DIATUR', 'Client ID Google Drive belum diisi di server (GOOGLE_DRIVE_CLIENT_ID). Minta admin mengisinya (lihat README, bagian Backup).')); return; }
+      const mulai = () => {
+        const klien = window.google.accounts.oauth2.initTokenClient({
+          client_id: idKlien.current, scope: DR.SCOPE, login_hint: user.email || undefined,
+          callback: (r) => {
+            if (r && r.access_token) { tokenDrv.current = { v: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; selesai(r.access_token); }
+            else gagal(new DR.DriveError('DRIVE_IZIN', 'Izin Google Drive tidak diberikan.'));
+          },
+          error_callback: (e) => gagal(new DR.DriveError('DRIVE_IZIN', e && e.type === 'popup_closed' ? 'Jendela izin ditutup sebelum selesai.' : e && e.type === 'popup_failed_to_open' ? 'Browser memblokir jendela izin. Izinkan pop-up untuk situs ini lalu ulangi.' : 'Izin Google Drive gagal diminta.')),
+        });
+        klien.requestAccessToken({ prompt: '' });
+      };
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) mulai(); else muatGis().then(mulai, gagal);
+    });
+  };
+  const galatDrv = (e) => { if (e && e.code === 'DRIVE_TOKEN') tokenDrv.current = { v: '', exp: 0 }; setDrvErr(apiErr(e)); };
+  const cadangkan = async ({ aktifkan = false } = {}) => {
+    if (!aktifkan && !store.list().length) return; // tidak ada yang dicadangkan: jangan memunculkan jendela izin
+    if (sedang.current) { ulang.current = true; return; }
+    sedang.current = true; setDrvBusy('cadang'); setDrvErr(null);
+    try {
+      await ambilTokenDrv(); // pertama: jendela izin harus muncul dari klik pengguna
+      if (aktifkan) { prefDrive.aktifkan(); setDm(prefDrive.baca()); }
+      do {
+        ulang.current = false;
+        const daftar = store.list();
+        if (!daftar.length) break; // daftar kosong tidak diunggah: akan menimpa cadangan hari ini dengan berkas kosong
+        const r = await CD.cadangkanSoalSaya({ drive: DR.buatDrive({ ambilToken: ambilTokenDrv }), isi: store.ekspor(), jumlah: daftar.length });
+        prefDrive.catatBerhasil({ sidik: CD.sidikDaftar(daftar), jumlah: daftar.length, nama: r.nama, link: r.link });
+        setDm(prefDrive.baca());
+      } while (ulang.current);
+    } catch (e) { galatDrv(e); } finally { sedang.current = false; setDrvBusy(''); }
+  };
+  const picuCadangan = () => { if (prefDrive.baca().aktif) cadangkan(); };
+  const matikanCadangan = () => { prefDrive.matikan(); setDm(prefDrive.baca()); tokenDrv.current = { v: '', exp: 0 }; setDrvErr(null); setDrvDaftar(null); toast('Cadangan otomatis dimatikan. Berkas di Google Drive tidak dihapus.'); };
+  const muatDaftarDrive = async () => {
+    setDrvErr(null); setDrvBusy('daftar');
+    try { await ambilTokenDrv(); setDrvDaftar(await CD.daftarSoalSaya(DR.buatDrive({ ambilToken: ambilTokenDrv }))); } catch (e) { galatDrv(e); } finally { setDrvBusy(''); }
+  };
+  const pulihDariDrive = async (f) => {
+    setDrvErr(null); setDrvBusy('pulih');
+    try {
+      const r = store.impor(await DR.buatDrive({ ambilToken: ambilTokenDrv }).unduh(f.id));
+      if (!r.ok) { toast(PESAN_IMPOR[r.reason] || 'Berkas tidak bisa dipakai.'); return; }
+      segarkan(); setDrvDaftar(null);
+      toast(`Dipulihkan dari Drive: ${r.tambah} soal baru, ${r.perbarui} diperbarui, ${r.lewati} dilewati.`);
+    } catch (e) { galatDrv(e); } finally { setDrvBusy(''); }
+    picuCadangan();
+  };
   const semuaQ = useMemo(() => items.map((it) => ({ ...it.isi, id: it.id, status: 'approved', authorName: displayName, updatedAt: it.updatedAt })), [items]);
 
   // ---- Form soal (draf otomatis seperti di App) ----
@@ -3245,10 +3486,14 @@ function AppUstadz({ user, profile }) {
 
   const kosongkanForm = () => { Draft.remove('form'); Draft.remove('composeEx'); setForm(emptyForm()); setEditingId(null); setComposeKey((n) => n + 1); };
   const simpanSoal = () => {
+    // Soal kembar/mirip di Soal Saya (perangkat ini saja). Konfirmasi sinkron, jadi jendela izin Drive di bawah tetap muncul dari klik yang sama.
+    const mirip = DUP.cari(Bt.selaraskan(form), semuaQ, { abaikanId: editingId || '' });
+    if (mirip.length && !window.confirm(DUP.pesanKonfirmasi(mirip, { total: semuaQ.length, lokal: true }))) { toast('Penyimpanan dibatalkan. Ubah soalnya, atau simpan lagi dan pilih tetap simpan.'); return; }
     const r = store.simpan(form, editingId);
     if (!r.ok) { toast(PESAN_SIMPAN[r.reason] || 'Gagal menyimpan soal.'); return; } // gagal: isian dan drafnya tetap ada
     kosongkanForm(); segarkan(); setTab('saya');
     toast('Soal disimpan di perangkat ini (tab Soal Saya).');
+    picuCadangan();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const edit = (id) => {
@@ -3258,7 +3503,7 @@ function AppUstadz({ user, profile }) {
     setForm(normalForm(it.isi)); setEditingId(id); setTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const hapus = (id) => { const r = store.hapus(id); segarkan(); toast(r.ok ? 'Soal dihapus dari perangkat ini.' : (PESAN_SIMPAN[r.reason] || 'Gagal menghapus.')); };
+  const hapus = (id) => { const r = store.hapus(id); segarkan(); toast(r.ok ? 'Soal dihapus dari perangkat ini.' : (PESAN_SIMPAN[r.reason] || 'Gagal menghapus.')); if (r.ok) picuCadangan(); };
 
   // Dari saran bab ke form soal (sama dengan App): form kosong diisi kitab, jenjang, bab; form berisi hanya kolom Bab.
   const pakaiBab = (o) => {
@@ -3364,7 +3609,13 @@ function AppUstadz({ user, profile }) {
         </p>
         {tab === 'compose' && <Compose key={composeKey} ustadz form={form} setForm={setForm} editingId={editingId} onSave={() => {}} onSend={simpanSoal}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
-        {tab === 'saya' && <SoalSaya store={store} semuaQ={semuaQ} onEdit={edit} onDelete={hapus} onChanged={segarkan} toast={toast} />}
+        {tab === 'saya' && (
+          <div className="space-y-4">
+            <CadanganDriveUstadz dm={dm} busy={drvBusy} err={drvErr} siap={drvSiap} jumlah={items.length} sidik={CD.sidikDaftar(items)} daftar={drvDaftar}
+              onAktifkan={() => cadangkan({ aktifkan: true })} onSekarang={() => cadangkan()} onMatikan={matikanCadangan} onDaftar={muatDaftarDrive} onPulih={pulihDariDrive} onTutupDaftar={() => setDrvDaftar(null)} />
+            <SoalSaya store={store} semuaQ={semuaQ} onEdit={edit} onDelete={hapus} onChanged={() => { segarkan(); picuCadangan(); }} toast={toast} />
+          </div>
+        )}
         {tab === 'export' && <Export all={semuaQ} toast={toast} />}
         {tab === 'fokus' && <FokusUjian all={semuaQ} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
@@ -3443,6 +3694,55 @@ function SoalSaya({ store, semuaQ, onEdit, onDelete, onChanged, toast }) {
           </article>
         ))}
     </div>
+  );
+}
+
+/* ---------- Panel cadangan otomatis Soal Saya ke Google Drive (peran Ustadz) ---------- */
+// Logika di web/lib/cadanganDrive.js (tes: test/cadanganDrive.test.js). Panel ini hanya tampilan.
+function CadanganDriveUstadz({ dm, busy, err, siap, jumlah, sidik, daftar, onAktifkan, onSekarang, onMatikan, onDaftar, onPulih, onTutupDaftar }) {
+  const belum = CD.perluCadangan({ aktif: dm.aktif, jumlah, sidik, ok: dm.ok });
+  const sibuk = !!busy;
+  return (
+    <Section title="Cadangan otomatis ke Google Drive" icon={CloudUpload}>
+      <p className="mb-3 text-sm leading-relaxed text-mute">
+        Setiap kali Anda menyimpan, menghapus, atau memulihkan soal, salinan Soal Saya dikirim ke folder “LABSOUMA Backup” di <b className="text-ink">Google Drive akun Anda sendiri</b>:
+        satu berkas per hari, 14 hari terakhir disimpan. Aplikasi hanya melihat berkas buatannya sendiri. Pencadangan tidak berjalan di latar belakang: hanya saat Anda membuka aplikasi dan menyimpan,
+        dan kira-kira tiap satu jam Google meminta izin lagi lewat jendela singkat.
+      </p>
+      {err && <div className="mb-3"><ErrorBox e={err} /></div>}
+      {!dm.aktif ? (
+        <Btn kind="primary" onClick={onAktifkan} disabled={sibuk || !siap}>{busy === 'cadang' ? <Loader2 size={16} className="spin" /> : <CloudUpload size={16} />}Aktifkan cadangan otomatis</Btn>
+      ) : (
+        <div className="space-y-3">
+          {dm.ok
+            ? <p className="flex flex-wrap items-center gap-x-2 text-sm"><CheckCircle2 size={16} className="shrink-0 text-ok" />Cadangan terakhir: <b>{waktuLokal(new Date(dm.ok.waktu).toISOString())}</b> · {dm.ok.jumlah} soal{tautanDriveAman(dm.ok.link) && <> · <a href={tautanDriveAman(dm.ok.link)} target="_blank" rel="noopener noreferrer" className="underline">Buka di Drive</a></>}</p>
+            : <p className="text-sm text-mute">Cadangan otomatis aktif, tetapi belum ada cadangan yang berhasil.</p>}
+          {belum && !sibuk && <p role="status" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">Ada perubahan yang belum tercadangkan di Drive (izin ditolak, koneksi putus, atau halaman ditutup sebelum selesai).</p>}
+          <div className="flex flex-wrap gap-2">
+            <Btn kind={belum ? 'primary' : 'ghost'} onClick={onSekarang} disabled={sibuk || !jumlah}>{busy === 'cadang' ? <Loader2 size={15} className="spin" /> : <CloudUpload size={15} />}Cadangkan sekarang</Btn>
+            <Btn kind="ghost" onClick={onDaftar} disabled={sibuk}>{busy === 'daftar' ? <Loader2 size={15} className="spin" /> : <Upload size={15} />}Pulihkan dari Drive</Btn>
+            <Btn kind="ghost" onClick={onMatikan} disabled={sibuk}>Matikan</Btn>
+          </div>
+        </div>
+      )}
+      {busy && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{busy === 'cadang' ? 'Mencadangkan ke Google Drive...' : busy === 'daftar' ? 'Membaca daftar cadangan...' : 'Memulihkan soal...'}</p>}
+      {daftar && (
+        <div className="mt-4 rounded-xl border border-line p-3">
+          <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold">Pilih cadangan</p><Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={onTutupDaftar}>Tutup</Btn></div>
+          {!daftar.length ? <p className="text-sm text-mute">Belum ada cadangan Soal Saya di Drive akun ini.</p> : (
+            <ul className="divide-y divide-line">
+              {daftar.map((f) => (
+                <li key={f.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span className="min-w-0"><b>{f.name.replace(/^labsouma-soal-saya-|\.json$/g, '')}</b>{f.size ? <span className="text-xs text-mute"> · {ukuranBerkas(Number(f.size))}</span> : null}</span>
+                  <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => onPulih(f)} disabled={sibuk}>Pulihkan</Btn>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-mute">Pemulihan digabung dengan soal di perangkat ini: soal dengan ID sama diganti hanya bila isi cadangan lebih baru.</p>
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -3836,3 +4136,5 @@ class ErrorBoundary extends React.Component {
 }
 
 export { Root, ErrorBoundary, SetupError };
+// Hanya untuk tes render (test/dasborUi.test.js): tampilan murni tanpa pengambilan data.
+export { DasborView, CadanganDriveUstadz };

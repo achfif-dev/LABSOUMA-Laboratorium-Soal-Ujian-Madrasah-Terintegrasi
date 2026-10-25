@@ -446,3 +446,20 @@ Perubahan lain: `ci.yml` menambah `npm run build`; `.gitignore` menambah `dist/`
 ### Tahap 2 (opsional, nanti)
 
 Ganti Proxy dan `window.*` di `App.jsx` dengan `import` langsung lalu hapus `web/globals.js` (tes `bentukUi` memerlukan penyesuaian karena memberi `window` palsu); pecah `App.jsx` per tab; hapus kode cadangan ("modul tidak termuat") yang tidak mungkin terjadi lagi di bundel.
+
+## 10. Pembaruan 25 Oktober 2026: Dasbor admin, soal mirip, cadangan Drive Ustadz
+
+Cakupan audit: jalur yang disentuh tiga fitur ini (`src/platform.js`, `src/access.js`, `firestore.rules`, `web/lib/drive.js`, `web/lib/ustadz.js`, `api/backup.js`, App, AppUstadz, BackupTab). Bukan audit ulang seluruh repositori. Tes sebelum perubahan: 269 lulus; sesudah: 315 lulus, build Vite lulus.
+
+| # | Tingkat | Temuan | Status |
+|---|---|---|---|
+| A1 | Sedang | Admin tidak punya cara melihat kuota: `rate/*` tertutup untuk klien dan hanya hitungan hari ini yang tersimpan, sehingga kuota habis baru terlihat setelah ada yang gagal. | **Dikerjakan:** `/api/admin-stats` + tab Dasbor + titik merah di menu. Riwayat harian/bulanan tetap tidak ada (butuh satu tulis tambahan per panggilan AI; belum dikerjakan). |
+| A2 | Sedang | Ustadz tidak bisa memperoleh Client ID Drive: `/api/backup` aksi `info` khusus editor/admin (dan tes menjaganya). | **Dikerjakan:** `/api/drive-client` terpisah; `/api/backup` tidak diubah. |
+| A3 | Sedang | Cadangan Ustadz yang menimpa satu berkas tetap bisa menghapus cadangan baik bila penyimpanan browser terhapus lalu satu soal disimpan. | **Dikerjakan:** berkas per hari (14 terakhir), daftar kosong tidak pernah diunggah, verifikasi unduh-ulang. Penghapusan data browser di hari yang sama tetap menimpa berkas hari itu. |
+| A4 | Info | Bank soal dimuat berhalaman (100 terbaru + pending + milik), jadi deteksi duplikat tidak bisa memeriksa seluruh bank tanpa membaca seluruhnya. | **Dikerjakan dengan batas:** soal termuat + hingga 200 soal sekitab (cache 10 menit). Pemindaian seluruh bank belum ada. |
+| A5 | Info | `firestore.rules` mengizinkan klien menulis hanya kunci yang terdaftar, jadi menyimpan sidik duplikat di dokumen soal butuh perubahan aturan. | Dihindari: tidak ada perubahan `firestore.rules` maupun indeks. |
+
+Temuan dari tes, sudah diperbaiki: titik isian di akhir kalimat ("هو ....") membuat soal lanjutan yang sama hanya dinilai "mirip"; titik isian kini diabaikan saat membandingkan.
+
+**Belum diuji (tidak ada browser, akun Firebase, atau Google Cloud di lingkungan ini):** jendela izin Google di ponsel (terutama Safari iOS, yang ketat soal pop-up di luar klik langsung), perilaku token Drive sungguhan setelah ±1 jam, layar Dasbor di browser (hanya dirender di Node dengan React SSR), kueri `where('dayKey','==',...)` terhadap Firestore asli, dan biaya baca Firestore nyata. Layar persetujuan OAuth berstatus Testing akan menolak Ustadz yang belum terdaftar sebagai Test user.
+

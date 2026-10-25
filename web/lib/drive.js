@@ -47,6 +47,16 @@ export function buatBackup({ soal, config, kustom, oleh, now = new Date() }) {
 const dua = (n) => String(n).padStart(2, '0');
 export const namaBerkas = (d = new Date()) => `labsouma-backup-${d.getFullYear()}-${dua(d.getMonth() + 1)}-${dua(d.getDate())}-${dua(d.getHours())}${dua(d.getMinutes())}.json`;
 
+// Cadangan Soal Saya (peran Ustadz): satu berkas per hari, ditimpa bila disimpan lagi di hari yang sama; hari-hari sebelumnya tetap ada.
+export const PREFIKS_SOAL_SAYA = 'labsouma-soal-saya-';
+export const SIMPAN_SOAL_SAYA = 14;
+export const namaSoalSaya = (d = new Date()) => `${PREFIKS_SOAL_SAYA}${d.getFullYear()}-${dua(d.getMonth() + 1)}-${dua(d.getDate())}.json`;
+export const adalahSoalSaya = (nama) => /^labsouma-soal-saya-\d{4}-\d{2}-\d{2}\.json$/.test(String(nama || ''));
+/** Berkas Soal Saya terbaru dulu (nama memuat tanggal), berkas lain di folder diabaikan. */
+export const soalSayaTerbaru = (files) => (files || []).filter((f) => f && adalahSoalSaya(f.name)).sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+/** Berkas Soal Saya di luar `simpan` terbaru: kandidat dihapus. */
+export const soalSayaLama = (files, simpan = SIMPAN_SOAL_SAYA) => soalSayaTerbaru(files).slice(simpan);
+
 /** Periksa berkas cadangan yang dibaca dari Drive atau komputer. Melempar Error berpesan Indonesia bila bukan cadangan LABSOUMA yang didukung. */
 export function periksaBackup(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || obj.format !== FORMAT) throw new Error('Berkas ini bukan cadangan LABSOUMA.');
@@ -114,6 +124,18 @@ export function buatDrive({ ambilToken, fetchImpl }) {
       return r.json();
     },
     async unduh(id) { return (await api(`${BASE}/files/${encodeURIComponent(id)}?alt=media`)).text(); },
+    /** Cari satu berkas menurut nama di dalam folder (hanya berkas buatan aplikasi ini yang terlihat dengan scope drive.file). */
+    async cari(folderId, nama) {
+      const q = `'${kutip(folderId)}' in parents and name='${kutip(nama)}' and trashed=false`;
+      const r = await (await api(`${BASE}/files?${qs({ q, fields: 'files(id,name,webViewLink)', pageSize: 1, spaces: 'drive' })}`)).json();
+      return (r.files && r.files[0]) || null;
+    },
+    /** Ganti isi berkas yang sudah ada (ID tetap). */
+    async perbarui(id, isi) {
+      const r = await api(`${UPLOAD}/files/${encodeURIComponent(id)}?${qs({ uploadType: 'media', fields: 'id,name,size,webViewLink' })}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: isi });
+      return r.json();
+    },
+    async hapus(id) { await api(`${BASE}/files/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
     async daftar(folderId) {
       const q = `'${kutip(folderId)}' in parents and trashed=false`;
       const r = await (await api(`${BASE}/files?${qs({ q, orderBy: 'modifiedTime desc', pageSize: 50, fields: 'files(id,name,size,modifiedTime,webViewLink)' })}`)).json();

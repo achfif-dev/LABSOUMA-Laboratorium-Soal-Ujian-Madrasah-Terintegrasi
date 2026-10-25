@@ -27,6 +27,11 @@ export const domainAllowed = (email, domain) => {
 
 const WIB = 7 * 3600 * 1000;
 
+/** Kunci hari menurut WIB (yyyy-mm-dd), sama dengan `dayKey` pada dokumen rate/{id}. */
+export const dayKeyWib = (now) => new Date(now + WIB).toISOString().slice(0, 10);
+/** Detik sampai pergantian hari WIB berikutnya (saat hitungan harian direset). */
+export const detikSampaiResetWib = (now) => Math.ceil((Math.floor((now + WIB) / 86_400_000) * 86_400_000 + 86_400_000 - WIB - now) / 1000);
+
 /**
  * Keputusan batas pemakaian. `state` = dokumen rate/{uid} sebelumnya (boleh kosong).
  * Mengembalikan {ok:true, state} atau {ok:false, code, retryAfter}.

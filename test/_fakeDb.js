@@ -17,8 +17,10 @@ export function fakeDb(data = {}) {
     orderBy: (f, dir = 'asc') => query(name, { ...st, f, dir }),
     limit: (n) => query(name, { ...st, n }),
     select: (...fields) => query(name, { ...st, fields }),
+    where: (f, op, v) => { if (op !== '==') throw new Error('fakeDb: hanya where == yang didukung'); return query(name, { ...st, w: [...(st.w || []), [f, v]] }); },
     get: async () => {
       let docs = Object.keys(data).filter((p) => p.startsWith(name + '/') && !p.slice(name.length + 1).includes('/')).map((p) => ({ p, v: data[p] }));
+      if (st.w) docs = docs.filter(({ v }) => st.w.every(([f, val]) => v[f] === val));
       if (st.f) docs.sort((a, b) => (a.v[st.f] < b.v[st.f] ? -1 : a.v[st.f] > b.v[st.f] ? 1 : 0) * (st.dir === 'desc' ? -1 : 1));
       if (st.n) docs = docs.slice(0, st.n);
       return { docs: docs.map(({ p, v }) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => salin(st.fields ? Object.fromEntries(st.fields.filter((f) => f in v).map((f) => [f, v[f]])) : v) })) };

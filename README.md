@@ -100,7 +100,7 @@ Untuk guru yang ingin membuat soal latihan bagi muridnya sendiri tanpa melewati 
 | Boleh | Tidak boleh |
 |---|---|
 | Menyusun soal, generate AI, telaah, uji jawab buta, saran bab, ambil halaman kitab | Membaca bank soal, soal orang lain, atau kunci jawaban tim |
-| Pegonizer (kamus bersama hanya dibaca) | Mengirim ke editor, Review, Backup Drive, Pengguna, Konfigurasi, Pengaturan AI |
+| Pegonizer (kamus bersama hanya dibaca), cadangan otomatis Soal Saya ke Drive pribadi | Mengirim ke editor, Review, Backup Drive tim, Pengguna, Dasbor, Konfigurasi, Pengaturan AI |
 | Ekspor dan kisi-kisi dari soalnya sendiri | Mengubah kamus Pegon bersama |
 
 - **Penyimpanan.** Soal Ustadz **tidak pernah** dikirim ke server atau Firestore. Soal disimpan di browser perangkat itu (tab **Soal Saya**), per akun, tanpa kedaluwarsa, maksimal 500 soal. Tidak ikut pindah perangkat: pakai **Unduh cadangan** (berkas `.json`) dan **Pulihkan dari cadangan**. Di komputer bersama, hapus Soal Saya sebelum keluar.
@@ -285,6 +285,27 @@ Nama menu mengikuti tampilan Google Cloud saat ini ("Google Auth Platform"). Bil
 
 Galat yang paling umum: *Google Drive API belum aktif* (langkah 2), *origin_mismatch* (alamat yang dipakai tidak terdaftar di langkah 4), dan *access_denied* (email belum menjadi Test user, langkah 3). Cadangan yang sangat besar (di atas sekitar 5 MB) diunggah sekali jalan; bila gagal, verifikasi menolaknya dan tidak ada soal yang dihapus.
 
+## Dasbor admin, deteksi soal mirip, dan cadangan otomatis Ustadz
+
+**Dasbor (menu Dasbor, khusus admin).** Menampilkan plafon harian AI (tim dan Ustadz), pemakaian AI per pengguna hari ini beserta sisa kuotanya, dan antrean review.
+- Titik merah di menu muncul saat salah satu plafon harian sudah 80% atau lebih (dicek tiap 3 menit selama halaman terlihat, hanya 2 bacaan Firestore). Rincian per pengguna hanya dimuat saat tab Dasbor dibuka (otomatis tiap 2 menit) dan hanya membaca dokumen `rate/*` yang aktif hari ini.
+- Hitungan bersifat **hari ini saja** (reset 00.00 WIB) dan sudah dikurangi pengembalian kuota akibat kegagalan server. Belum ada riwayat harian atau bulanan.
+- Menaikkan batas: ubah `LIMIT_GLOBAL_PER_DAY`, `LIMIT_USTADZ_GLOBAL_PER_DAY`, `LIMIT_PER_DAY`, atau `LIMIT_USTADZ_PER_DAY` di Vercel lalu Redeploy.
+- Antrean review dihitung dari soal pending yang sudah dimuat di browser (tanpa bacaan tambahan). Soal tertua, yang lewat 3 dan 7 hari, dan yang butuh catatan alasan (kutipan tak cocok atau uji buta berbeda) ditandai.
+- Endpoint: `POST /api/admin-stats` (khusus admin; `{ringkas:true}` untuk dua plafon saja, `{semua:true}` untuk menyertakan yang belum memakai AI).
+
+**Deteksi soal kembar atau mirip.** Saat Simpan Draft atau Kirim ke Editor (dan Simpan ke Soal Saya untuk Ustadz), soal dibandingkan dengan soal yang sudah ada. Bila kembar (>= 92%) atau mirip (>= 70%), muncul konfirmasi berisi soal pembandingnya; pengguna bisa tetap menyimpan. Pertanyaan yang sama dengan kunci berbeda diberi peringatan khusus.
+- Yang dibandingkan: soal yang sudah dimuat di browser ditambah hingga 200 soal dengan nama kitab yang sama (disimpan 10 menit per kitab supaya hemat jatah baca). Soal lama di kitab lain atau dengan nama kitab yang ditulis berbeda **tidak** diperiksa.
+- Pembandingan berdasarkan kata (harakat dan variasi huruf Arab diabaikan), bukan makna. Soal yang diparafrase habis-habisan bisa lolos. Ambang ada di `web/lib/duplikat.js`.
+- Tidak ada perubahan `firestore.rules` atau indeks.
+
+**Cadangan otomatis Soal Saya ke Google Drive (peran Ustadz).** Di tab Soal Saya, Ustadz menekan *Aktifkan cadangan otomatis* sekali. Setelah itu setiap menyimpan, menghapus, atau memulihkan soal menjalankan pencadangan ke folder "LABSOUMA Backup" di Drive akun Ustadz sendiri.
+- Satu berkas per hari (`labsouma-soal-saya-YYYY-MM-DD.json`, ditimpa bila disimpan lagi di hari yang sama); 14 hari terakhir disimpan, yang lebih lama dihapus. Isi diunduh kembali dan dibandingkan sebelum dianggap berhasil. Daftar kosong tidak pernah diunggah.
+- **Bukan pencadangan latar belakang.** Token Drive hanya di memori browser (±1 jam) dan jendela izin Google hanya boleh muncul dari klik. Jadi pencadangan terjadi saat Ustadz membuka aplikasi dan bertindak; bila izin ditolak atau koneksi putus, muncul penanda "belum tercadangkan" dan tombol *Cadangkan sekarang*.
+- Pemulihan: tombol *Pulihkan dari Drive* memilih salah satu dari 14 berkas dan menggabungkannya ke Soal Saya di perangkat.
+- Syarat di Google Cloud: `GOOGLE_DRIVE_CLIENT_ID` terisi (sama dengan Backup Drive tim), dan akun Ustadz harus bisa memakai aplikasi OAuth. Bila layar persetujuan OAuth masih berstatus **Testing**, tambahkan email setiap Ustadz sebagai Test user (maksimal 100), atau ubah status ke **In production** (scope `drive.file` tidak perlu verifikasi Google).
+- Endpoint baru `POST /api/drive-client` (semua peran pemakai alat AI) hanya mengembalikan Client ID yang bersifat publik; Ustadz tetap tidak punya akses ke `/api/backup`.
+
 ## Pengembangan lokal
 
 ```bash
@@ -305,7 +326,11 @@ web/App.jsx             frontend React (satu berkas; dipecah per komponen di tah
 web/styles.css          gaya halaman + lapisan Tailwind (tailwind.config.js)
 public/                 berkas statis: ikon, manifest
 web/lib/drive.js        cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
-api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup
+web/lib/cadanganDrive.js cadangan otomatis Soal Saya (Ustadz) ke Drive pribadi
+web/lib/duplikat.js     deteksi soal kembar/mirip saat menyimpan
+web/lib/dasbor.js       ringkasan antrean review dan format tampilan Dasbor
+src/adminStats.js       data Dasbor admin (pemakaian AI per pengguna, sisa kuota) dari dokumen rate/*
+api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
 src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
 src/gemini.js            adapter Gemini (tanpa dependensi)
 src/soalService.js       validasi, system prompt, pemilihan penyedia AI
