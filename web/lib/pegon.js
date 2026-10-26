@@ -11,6 +11,8 @@ const CONSONANT = {
   b:'ب', c:'چ', d:'د', f:'ف', g:'ڬ', h:'ه', j:'ج', k:'ك', l:'ل', m:'م',
   n:'ن', p:'ڤ', q:'ق', r:'ر', s:'س', t:'ت', v:'ف', w:'و', y:'ي', z:'ز'
 };
+// [KLASIK] Hanya menyala selama convertTextEjaan('klasik') berjalan (selalu dimatikan lagi di blok finally), supaya ejaan Al-Qolam tidak berubah.
+let KLASIK = false;
 const NG = 'ڠ';     // 'ain + 3 titik, SATU huruf utuh — jangan dipecah n+g
 const NY = 'پ';     // ya' bertitik tiga
 
@@ -356,12 +358,13 @@ function transliterateBase(word, isWordStart){
 
   if (isWordStart && n > 0 && isVowelLetter(word[0])){
     const v = word[0];
-    if (v === 'a'){ out += 'أ'; i = 1; }
-    else if (v === 'u' || v === 'o'){ out += 'أو'; i = 1; }
-    else if (v === 'i'){ out += 'إي'; i = 1; }
+    const H_A = KLASIK ? 'ا' : 'أ', H_U = KLASIK ? 'او' : 'أو', H_I = KLASIK ? 'اي' : 'إي';
+    if (v === 'a'){ out += H_A; i = 1; }
+    else if (v === 'u' || v === 'o'){ out += H_U; i = 1; }
+    else if (v === 'i'){ out += H_I; i = 1; }
     else if (v === 'e'){
       const t = EA.types[eIdx++] || 'pepet';
-      if (t === 'keras'){ out += 'إي'; } else { out += 'أ'; }
+      if (t === 'keras'){ out += H_I; } else { out += H_A; }
       i = 1;
     }
   }
@@ -486,6 +489,16 @@ function transliterateWordCore(rawWord){
   // konsisten dengan aturan umum "kata ditulis disambung".
   if (word.endsWith('nya') && word.length > 4 && !isFalseNyaWord(word)){
     const root = word.slice(0, -3);
+    if (KLASIK){
+      for (const suf of Object.keys(COMPACT_SUFFIX)){
+        if (root.endsWith(suf) && !SUFFIX_EXCEPTIONS.has(root) && root.length - suf.length >= 2){
+          const r2 = transliterateBase(root.slice(0, -suf.length), true);
+          // -kan + -nya berbagi satu nun di naskah asli (melakukannya = ملاكوكنيا, bukan ملاكوكننيا): -kan menjadi ك lalu ny + a
+          const inti = suf === 'kan' ? 'ك' : COMPACT_SUFFIX[suf];
+          return { pegon: r2.pegon + inti + NY + 'ا', flagged: r2.flagged, note: r2.flagged ? 'ada bunyi e — cek pepet/keras' : '' };
+        }
+      }
+    }
     const rootRes = transliterateBase(root, true);
     return { pegon: rootRes.pegon + NY + 'ا', flagged: rootRes.flagged, note: rootRes.flagged ? 'ada bunyi e — cek pepet/keras' : '' };
   }
@@ -696,7 +709,9 @@ export { convertText, escapeHtml };
  * 'klasik': huruf Arab biasa seperti pada contoh naskah madrasah (FIQH.docx):
  *   p/v = ف, c = ج, k = ك (sudah ك di kedua ejaan), g = ك (juga = جوكا), ng = غ (orang = اوراغ), ngg = غك (bertanggung = برتغكوغ),
  *   ny dan -nya = ني / نيا (tanya = تانيا).
- * Diterapkan sebagai pemetaan huruf pada hasil mesin, sehingga aturan lain (kamus, vokal, serapan Arab) sama persis. */
+ * Diterapkan sebagai pemetaan huruf pada hasil mesin; selain itu ejaan klasik menulis hamzah awal kata sebagai alif polos
+ * (adalah = اداله، orang = اوراغ، apa = افا، untuk = اونتوك) dan akar -kan/-kah/-lah + -nya tetap ringkas (melakukannya = ملاكوكنيا),
+ * persis seperti FIQH.docx. Serapan Arab dari kamus tetap berhamzah (إمام، أذان). */
 export const EJAAN = Object.freeze({ alqolam: 'Al-Qolam \'24 (ڤ ڬ ڠ چ پ)', klasik: 'Klasik (ف غ ك ج)' });
 const PETA_KLASIK = { 'ڤ': 'ف', 'ڬ': 'ك', 'ڠ': 'غ', 'چ': 'ج', 'پ': 'ني' };
 export const ejaanSah = (v) => (Object.hasOwn(EJAAN, v) ? v : 'alqolam');
@@ -706,8 +721,10 @@ export const ubahEjaan = (teks, ejaan) => {
 };
 /** Seperti convertText, dengan pilihan ejaan huruf. Hasil (pegon, html, details) berbentuk sama. */
 export function convertTextEjaan(text, ejaan = 'alqolam') {
-  const r = convertText(text);
-  if (ejaanSah(ejaan) === 'alqolam') return r;
+  if (ejaanSah(ejaan) === 'alqolam') return convertText(text);
+  let r;
+  KLASIK = true;
+  try { r = convertText(text); } finally { KLASIK = false; }
   return { ...r, pegon: ubahEjaan(r.pegon, ejaan), html: ubahEjaan(r.html, ejaan), details: r.details.map((d) => ({ ...d, pegon: ubahEjaan(d.pegon, ejaan) })) };
 }
 

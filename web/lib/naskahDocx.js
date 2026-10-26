@@ -3,28 +3,22 @@
 //   kunci:false -> naskah untuk peserta: nomor, soal, garis jawaban; tanpa unsur merah.
 //   kunci:true  -> naskah pengoreksi: huruf opsi benar, jawaban tertulis, dan "ص <halaman kitab>" berwarna merah, seperti contoh template.
 //   pegon:fn    -> fungsi alih aksara Latin ke Pegon (mis. t => window.Pegon.convertText(t).pegon). Dipakai untuk kalimat soal, opsi, dan
-//                  jawaban kunci; tanpa fungsi ini teks dicetak apa adanya. Kop sudah berbahasa Arab dan tidak diubah.
+//                  jawaban kunci; tanpa fungsi ini teks dicetak apa adanya. Kop sudah berbahasa Arab dan tidak diubah (lihat kopAsli.js).
 //   narasi:true -> narasi/stimulus ikut dicetak di depan kalimat soal. Bawaan false: template hanya satu kalimat soal per nomor.
 import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal } from './naskah.js';
 import { bentukDari, opsiTerpakai } from './bentuk.js';
+import { runGrup, LOGO_H, LOGO_V, GRUP } from './kopAsli.js';
 
 const AR = 'Traditional Arabic';
 const LATIN = 'Times New Roman';
-const KOP = 'Arial';               // kop template memakai Arial, bukan Traditional Arabic
 const MERAH = 'FF0000';
 const LEBAR_ISI = 11197;           // 12240 - 476 - 567 (margin template)
-const LEBAR_KOTAK = 5150;          // kotak data kiri, sama dengan kotak template (5150 twip)
-const LEBAR_JARAK = 60;            // celah antara kotak dan garis judul
-const LEBAR_LOGO = 830;
-const LEBAR_JUDUL = LEBAR_ISI - LEBAR_KOTAK - LEBAR_JARAK - LEBAR_LOGO;
-const LEBAR_KOTAK_DALAM = 5000;
-const GARIS_KOTAK = { style: 'thickThinSmallGap', size: 26, color: '000000' }; // garis ganda tebal-tipis 3,25 pt seperti kotak template
 const POSISI_TAB = 11055;          // tab rata kanan dengan garis pengisi, sama dengan template
 const adaArab = (s) => /[\u0600-\u06FF\u0750-\u077F]/.test(String(s));
 const bersih = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/\s*\n\s*/g, ' ').trim();
 
 export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null, pegon = null, narasi = false } = {}) {
-  const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, TableLayoutType, VerticalAlign, Tab, HeightRule } = D;
+  const { Document, Paragraph, TextRun, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, Tab, ImportedXmlComponent, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom, TextWrappingType } = D;
   const meta = { ...META_AWAL, ...(metaMasuk || {}) };
 
   const T = (text, o = {}) => {
@@ -48,60 +42,30 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   };
 
   /* ---------- kop ----------
-   * Meniru kop template (FORMAT_SOAL_IMDA_*.docx): font Arial tebal (judul 22 pt, madrasah 16 pt, pesantren dan tahun 10 pt),
-   * logo di kanan, garis ganda tipis di bawah judul, dan kotak data di kiri dengan garis ganda tebal-tipis 3,25 pt.
-   * Template memakai grup VML mengambang; di sini dipakai tabel biasa supaya tampil sama di Word dan LibreOffice dan tetap bisa diedit. */
-  const tanpa = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
-  const tanpaGaris = { top: tanpa, bottom: tanpa, left: tanpa, right: tanpa };
-  const garisGanda = { style: BorderStyle.DOUBLE, size: 12, color: '000000' };
-  const K = (text, o = {}) => new TextRun({
-    text: String(text ?? ''), font: KOP, size: o.size || 22, bold: true, boldComplexScript: true,
-    rightToLeft: o.rtl ?? adaArab(text), ...(o.border ? { border: { style: BorderStyle.SINGLE, size: 6, color: '000000', space: 0 } } : {}),
-  });
+   * Meniru kop template asli (FIQH.docx): grup gambar Word berisi kotak data bergaris tebal-tipis, tiga kotak nomor dan garis ganda,
+   * ditambah tiga paragraf judul Arial tebal (16 pt, 16 pt, 10 pt). Rinciannya ada di kopAsli.js. */
+  // fromXmlString membungkus hasilnya dalam elemen tanpa nama (tertulis <undefined> di XML dan membuat Word menolak berkas);
+  // komponen sebenarnya adalah anak pertama pembungkus itu.
+  const xml = (s) => { const w = ImportedXmlComponent.fromXmlString(s); return w.root && w.root[0] ? w.root[0] : w; };
   const barisKop = (children, o = {}) => new Paragraph({ spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO }, ...o, children });
-  const sel = (w, children, o = {}) => new TableCell({
-    width: { size: w, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, margins: { top: 0, bottom: 0, left: 20, right: 20 }, // tanpa `borders`: garis luar kotak datang dari tabel
-    children: [barisKop(children, { bidirectional: true })], ...o,
-  });
-  const rapat = () => new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT }, children: [new TextRun({ text: '', size: 2 })] });
-
-  // Judul: dua baris pertama rata kanan biasa (seperti template), baris tahun dua arah supaya tanda kutip dan angka tidak terbalik.
-  const logoCell = new TableCell({
-    width: { size: LEBAR_LOGO, type: WidthType.DXA }, verticalAlign: VerticalAlign.TOP, margins: { top: 0, bottom: 0, left: 0, right: 0 }, borders: { ...tanpaGaris, bottom: garisGanda },
-    children: [new Paragraph({ bidirectional: true, spacing: { before: 0, after: 40 }, children: logo ? [new ImageRun({ type: 'png', data: logo, transformation: { width: 54, height: 68 }, altText: { title: 'Logo', description: 'Logo madrasah', name: 'logo' } })] : [] })],
-  });
-  const judulCell = new TableCell({
-    width: { size: LEBAR_JUDUL, type: WidthType.DXA }, verticalAlign: VerticalAlign.TOP, margins: { top: 0, bottom: 40, left: 0, right: 40 },
-    borders: { ...tanpaGaris, bottom: garisGanda },
-    children: [
-      barisKop([K(judulDawr(naskah.dawr), { size: 44, rtl: true })], { alignment: AlignmentType.RIGHT }),
-      barisKop([K(meta.baris1, { size: 32, rtl: true })], { alignment: AlignmentType.RIGHT }),
-      barisKop([K(`" ${meta.baris2}  السنة الدراسة `, { size: 19, rtl: true }), K(meta.tahun, { size: 19, rtl: true }), K(' هـــ "', { size: 19, rtl: true })], { bidirectional: true }),
-    ],
-  });
-  const jarak = new TableCell({ width: { size: LEBAR_JARAK, type: WidthType.DXA }, borders: tanpaGaris, children: [rapat()] });
-
-  // Kotak data: dua baris, tujuh kolom (label, titik dua, isian, pemisah, label, titik dua, isian) supaya sejajar antarbaris.
-  const kotakNomor = () => [0, 1, 2].flatMap((i) => [K('\u00A0'.repeat(6), { size: 22, rtl: true, border: true }), ...(i < 2 ? [K('\u00A0', { size: 8, rtl: true })] : [])]);
-  const kolom = [640, 140, 1420, 120, 700, 140, 1840];
-  const baris = (isi) => new TableRow({ height: { value: 481, rule: HeightRule.ATLEAST }, children: isi.map((c, i) => sel(kolom[i], c)) });
-  const kotakData = new Table({
-    visuallyRightToLeft: true, layout: TableLayoutType.FIXED, width: { size: LEBAR_KOTAK_DALAM, type: WidthType.DXA }, columnWidths: kolom,
-    borders: { top: GARIS_KOTAK, bottom: GARIS_KOTAK, left: GARIS_KOTAK, right: GARIS_KOTAK, insideHorizontal: tanpa, insideVertical: tanpa },
-    rows: [
-      baris([[K('الاسم')], [K(':')], [K('_'.repeat(11), { rtl: true })], [], [K('الفصـل')], [K(':')], [K(`${meta.kelas} [   ] ${meta.tingkat}`)]]),
-      baris([[K('الرقم')], [K(':')], kotakNomor(), [], [K('المادة')], [K(':')], [K(meta.mapel || '')]]),
-    ],
-  });
-  const kotakCell = new TableCell({
-    width: { size: LEBAR_KOTAK, type: WidthType.DXA }, verticalAlign: VerticalAlign.BOTTOM, borders: tanpaGaris, margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    children: [kotakData, rapat()],
-  });
-  const header = new Table({
-    visuallyRightToLeft: true, layout: TableLayoutType.FIXED, width: { size: LEBAR_ISI, type: WidthType.DXA }, columnWidths: [LEBAR_LOGO, LEBAR_JUDUL, LEBAR_JARAK, LEBAR_KOTAK],
-    borders: { ...tanpaGaris, insideHorizontal: tanpa, insideVertical: tanpa },
-    rows: [new TableRow({ children: [logoCell, judulCell, jarak, kotakCell] })],
-  });
+  const logoRun = logo ? [new ImageRun({
+    type: 'png', data: logo, altText: { title: 'Logo', description: 'Logo madrasah', name: 'logo' },
+    transformation: { width: GRUP.logoLebar / 9525, height: GRUP.logoTinggi / 9525 },
+    floating: {
+      horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: LOGO_H },
+      verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: LOGO_V },
+      wrap: { type: TextWrappingType.NONE }, allowOverlap: true, behindDocument: false,
+    },
+  })] : [];
+  // Run judul: Arial tebal hitam untuk huruf Arab maupun Latin (template: rFonts ascii/hAnsi Arial, cs Arial dari bawaan dokumen).
+  const J = (text, size, { rtl = true } = {}) => new TextRun({ text, font: { ascii: 'Arial', hAnsi: 'Arial', cs: 'Arial' }, bold: true, boldComplexScript: true, color: '000000', size, rightToLeft: rtl });
+  const kop = [
+    // Baris 1: jangkar grup, logo, run spasi 22 pt (menentukan tinggi baris) lalu judul 16 pt; rata kanan, bukan paragraf dua arah.
+    barisKop([xml(runGrup(meta)), ...logoRun, J('  ', 44), J('  ', 44, { rtl: false }), J(' '.repeat(17), 44), J(judulDawr(naskah.dawr), 32)], { alignment: AlignmentType.RIGHT }),
+    barisKop([J(' '.repeat(17), 32), J(` ${meta.baris1}`, 32), J('   ', 32)], { alignment: AlignmentType.RIGHT }),
+    // Baris 3 dua arah supaya tanda kutip dan angka tidak terbalik; angka tahun 12 pt, selebihnya 10 pt.
+    barisKop([J(' '.repeat(15) + `" ${meta.baris2}  السنة الدراسة `, 20), J(meta.tahun, 24), J(' هـــ "', 24)], { bidirectional: true, indent: { right: 57 } }),
+  ];
 
   /* ---------- butir soal ---------- */
   const pilihan = (no, q) => {
@@ -150,7 +114,7 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
     sections: [{
       properties: { page: { size: { width: 12240, height: 18720 }, margin: { top: 737, right: 476, bottom: 567, left: 567, header: 709, footer: 709 } } },
       footers: { default: new Footer({ children: kaki.length ? kaki : [new Paragraph({ children: [] })] }) },
-      children: [header, ...body],
+      children: [...kop, ...body],
     }],
   });
 }

@@ -121,20 +121,40 @@ test('DOCX peserta: kop, tiga judul bagian, F4, tanpa unsur merah dan tanpa kunc
   assert.ok(media.some((m) => /\.png$/.test(m)));
 });
 
-test('kop mengikuti template asli: Arial tebal, kotak data bergaris ganda tebal-tipis, garis ganda di bawah judul, kotak nomor', async () => {
+test('kop sama dengan template asli (FIQH.docx): grup gambar Word, kotak data tebal-tipis, tiga kotak nomor, garis ganda, Arial 16/16/10 pt', async () => {
   const n = susunNaskah(penuh(1), 1);
   const { xml } = await bongkar(buatNaskah(D, n, { ...META_AWAL, mapel: 'حديث' }, { kunci: false, logo: LOGO }));
-  const kop = xml.slice(0, xml.lastIndexOf('</w:tbl>') + 8); // badan naskah tidak memuat tabel, jadi tabel terakhir menutup kop
-  assert.match(kop, /w:ascii="Arial"/); // template memakai Arial pada kop
+  const kop = xml.slice(0, xml.lastIndexOf('<w:p>', xml.indexOf('أ – إختر'))); // kop = semua paragraf sebelum judul bagian pertama
+  assert.doesNotMatch(xml, /<undefined/); // pembungkus tanpa nama dari ImportedXmlComponent membuat Word menolak berkas
+  assert.doesNotMatch(xml, /<w:tbl>/); // kop asli bukan tabel
+  assert.match(kop, /<mc:AlternateContent><mc:Choice Requires="wpg">/);
+  assert.match(kop, /<wp:extent cx="7087870" cy="659130"\/>/); // ukuran grup sama dengan template
+  assert.match(kop, /<wp:posOffset>29210<\/wp:posOffset>/); assert.match(kop, /<wp:posOffset>43815<\/wp:posOffset>/);
+  assert.match(kop, /prst="flowChartProcess"/); assert.match(kop, /<a:ln w="41275" cmpd="thickThin">/); // kotak data 3,25 pt tebal-tipis
+  assert.match(kop, /<a:ln w="38100" cmpd="dbl">/); // garis ganda 3 pt di bawah judul
+  assert.equal((kop.match(/<a:ext cx="357" cy="207"\/>/g) || []).length, 3); // tiga kotak nomor
+  assert.match(kop, /<a:ext cx="5150" cy="963"\/>/); // kotak data selebar 5150 unit
+  assert.match(kop, /w:ascii="Arial"/); assert.match(kop, /w:cs="Arial"/); // huruf Arab kop juga Arial, bukan Traditional Arabic
   assert.doesNotMatch(kop, /w:ascii="Traditional Arabic"/);
-  assert.match(kop, /<w:sz w:val="44"\/>/); assert.match(kop, /<w:sz w:val="32"\/>/); // judul 22 pt dan nama madrasah 16 pt
-  assert.match(kop, /<w:(top|bottom|left|right) w:val="thickThinSmallGap" w:color="000000" w:sz="26"\/>/); // kotak data 3,25 pt
-  assert.match(kop, /<w:bottom w:val="double" w:color="000000" w:sz="\d+"\/>/); // garis ganda di bawah judul
-  assert.equal((kop.match(/<w:bdr /g) || []).length, 3); // tiga kotak nomor
-  assert.equal((kop.match(/<w:tbl>/g) || []).length, 2); // tabel kop + tabel kotak data (bersarang)
-  // sel dalam kotak data tidak boleh menimpa garis kotak dengan border "none" (cacat kop lama)
-  const dalam = kop.slice(kop.indexOf('<w:tbl>', kop.indexOf('<w:tbl>') + 1));
-  assert.doesNotMatch(dalam, /<w:tcBorders>/);
+  for (const sz of [44, 32, 24, 20, 22]) assert.match(kop, new RegExp(`<w:sz w:val="${sz}"/>`), `sz ${sz}`); // spasi 22 pt, judul 16 pt, tahun 12 pt, pesantren 10 pt, kotak data 11 pt
+  assert.equal((kop.match(/<w:bidi\/><w:spacing w:after="200" w:line="276" w:lineRule="auto"\/>/g) || []).length, 2); // dua paragraf kotak data: spasi bawaan Normal template
+  // kurung tidak bergantung pada pencerminan otomatis: '[' lebih dulu (sisi kelas), lalu ']' (sisi tingkat), keduanya run LTR
+  assert.ok(kop.indexOf('>[     <') > 0 && kop.indexOf('>[     <') < kop.indexOf('>] <'));
+  assert.match(kop, /<w:jc w:val="right"\/>/); // dua baris judul pertama rata kanan biasa
+  assert.match(kop, /<w:ind w:right="57"\/>/); // baris tahun dua arah dengan indentasi 57 seperti template
+  const t = teksDari(kop);
+  for (const s of ['الامتحان في الدور الأول', 'بالمدرسة الدينية السلفية المعارف', 'الاسم', 'الفصـل', 'الرقم', 'المادة', 'حديث', 'الثانوي', '_________']) assert.ok(t.includes(s), s);
+  assert.match(kop, /<wp:positionH relativeFrom="column"><wp:posOffset>6598920<\/wp:posOffset>/); // logo mengambang tepat di titik logo template (29210 + 6569710 EMU)
+  assert.ok(kop.indexOf('<pic:pic') > kop.indexOf('</mc:AlternateContent>')); // logo di luar grup (docx tidak dapat menaruh gambar di dalam grup)
+});
+
+test('kop: isi dari luar (kelas, tingkat, mapel, tahun) lolos escape XML dan spasi di kotak data tidak hilang', async () => {
+  const n = susunNaskah(penuh(2), 2);
+  const { xml } = await bongkar(buatNaskah(D, n, { kelas: 'الثاني', tingkat: 'الثانوي', mapel: '<b>&"x"</b>', tahun: '1447 – 1448' }, { kunci: false }));
+  assert.ok(!xml.includes('<b>')); assert.ok(teksDari(xml).includes('&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;') || teksDari(xml).includes('&lt;b&gt;&amp;"x"&lt;/b&gt;'));
+  assert.ok(teksDari(xml).includes('الثاني ')); // spasi sesudah kelas dan antara kurung ] [ dipertahankan
+  assert.match(xml, /<w:t xml:space="preserve">\[     <\/w:t>/);
+  assert.ok(teksDari(xml).includes('1447 – 1448'));
 });
 
 test('DOCX kunci: huruf opsi benar, jawaban tertulis, dan ص + halaman berwarna merah; ada keterangan di kaki', async () => {
@@ -272,10 +292,11 @@ test('ejaan klasik: p/v = ف, c = ج, g = ك, ng = غ, ngg = غك, ny/nya = ني
   const q = convertTextEjaan(lat, 'alqolam'); const k = convertTextEjaan(lat, 'klasik');
   assert.equal(q.pegon, convertText(lat).pegon);
   assert.ok(/[ڤڬڠچپ]/.test(q.pegon) && !/[ڤڬڠچپ]/.test(k.pegon));
-  assert.equal(k.pegon, ubahEjaan(q.pegon, 'klasik'));
+  const tanpaHamzah = (s) => s.replace(/[أإ]/g, 'ا');
+  assert.equal(tanpaHamzah(k.pegon), tanpaHamzah(ubahEjaan(q.pegon, 'klasik'))); // beda hanya di hamzah awal kata
   const kl = (w) => convertTextEjaan(w, 'klasik').pegon;
   assert.equal(kl('yang'), 'ياغ'); assert.equal(kl('dengan'), 'دغان'); assert.equal(kl('paling'), 'فاليغ');
-  assert.equal(kl('juga'), 'جوكا'); assert.equal(kl('cara'), 'جارا'); assert.equal(kl('orang'), 'أوراغ'); // sama dengan contoh FIQH.docx
+  assert.equal(kl('juga'), 'جوكا'); assert.equal(kl('cara'), 'جارا'); assert.equal(kl('orang'), 'اوراغ'); // alif polos tanpa hamzah, sama dengan contoh FIQH.docx
   assert.equal(kl('bertanggung'), 'برتاغكوغ'); assert.equal(kl('meninggalkan'), 'منيغكالكن'); // ngg = غك, persis contoh
   assert.equal(kl('tanya'), 'تانيا'); assert.equal(kl('penjual'), 'فنجوال');
   assert.equal(k.details.length, q.details.length); assert.ok(k.details.every((d) => !/[ڤڬڠچپ]/.test(d.pegon)));
@@ -286,4 +307,13 @@ test('DOCX naskah dengan ejaan klasik tidak memuat huruf ڤ ڬ ڠ چ پ', async 
   const n = susunNaskah([pg('Yang paling penting dengan orang', ['pergi', 'gagal', 'pintu'], 'A', '1')], 1);
   const { xml } = await bongkar(buatNaskah(D, n, {}, { pegon: (t) => convertTextEjaan(t, 'klasik').pegon }));
   assert.ok(!/[ڤڬڠچپ]/.test(xml)); assert.ok(teksDari(xml).includes('فاليغ'));
+});
+
+test('penjaga: ejaan Pegon dipasang di tab Pegonizer, pratinjau Pegonkan, dan ekspor Soal Pegon (bukan hanya Naskah Ujian)', () => {
+  assert.match(app, /function useEjaan\(\)/);
+  assert.match(app, /P\.convertTextEjaan\(latin, ejaan\)/); // tab Pegonizer
+  assert.match(app, /P\.ubahEjaan\(d\.hasil\.pegon, ejaan\)/); // hasil AI (foto dan perkuat) ikut ejaan
+  assert.match(app, /P\.convertTextEjaan\(String\(teks\), ejaan\)/); // pratinjau Pegonkan
+  assert.match(app, /buildDocx = async \(qs, mode, catatan = '', ejaan = 'alqolam'\)/); assert.match(app, /'daftar', catatan, ejaanTersimpan\(\)\)/); // ekspor DOCX Soal Pegon
+  assert.doesNotMatch(app, /window\.Pegon\.convertText\(/); // tidak ada jalur Pegon yang melewati pilihan ejaan
 });

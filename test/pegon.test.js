@@ -173,3 +173,18 @@ test('mesin Pegon: koma antarkata tetap diarabkan dan teks sekitar terlindung te
   assert.match(pegon, /[\u0600-\u06FF]/);
   assert.ok(!/<span/.test(html.replace(/<span class="flag"[^>]*>.*?<\/span>/g, '')), 'html tidak bocor');
 });
+
+/* ---------- ejaan klasik penuh (contoh naskah FIQH.docx) ---------- */
+import { convertTextEjaan as konvEjaan } from '../web/lib/pegon.js';
+test('ejaan klasik: hamzah awal alif polos, ف غ ج, dan -kan + -nya ringkas, sama dengan FIQH.docx', () => {
+  const k = (s) => konvEjaan(s, 'klasik').pegon;
+  const cocok = { dapat: 'دافات', dengan: 'دغان', yang: 'ياغ', adalah: 'اداله', atau: 'اتاو', orang: 'اوراغ', untuk: 'اونتوك', apa: 'افا', melakukannya: 'ملاكوكنيا', sudah: 'سوداه', kembali: 'كمبالي', siapakah: 'سيافاكه', juga: 'جوكا' };
+  for (const [l, h] of Object.entries(cocok)) assert.equal(k(l), h, l);
+  assert.equal(k('imam'), 'إمام'); assert.equal(k('akhir'), 'آخر'); // serapan Arab dari kamus tetap berhamzah
+});
+test('ejaan klasik tidak bocor: Al-Qolam tetap berhamzah sesudah konversi klasik, bahkan bila konversi melempar', () => {
+  konvEjaan('adalah', 'klasik');
+  assert.equal(konvEjaan('adalah', 'alqolam').pegon, 'أداله');
+  assert.equal(convertText('adalah').pegon, 'أداله');
+  assert.equal(kalibrasiOk(), true);
+});

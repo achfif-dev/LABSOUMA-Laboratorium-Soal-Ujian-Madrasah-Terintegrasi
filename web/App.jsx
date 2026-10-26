@@ -103,6 +103,22 @@ const bacaPref = (nama, awal) => {
   const o = { ...awal }; for (const k of Object.keys(awal)) if (typeof s[k] === typeof awal[k]) o[k] = s[k];
   return o;
 };
+// Ejaan huruf Pegon (Al-Qolam '24 atau klasik) yang dipakai tab Pegonizer, pratinjau Pegonkan, dan ekspor Soal Pegon; disimpan per perangkat.
+const ejaanTersimpan = () => (window.Pegon ? window.Pegon.ejaanSah(bacaPref('pegonEjaan', { ejaan: 'alqolam' }).ejaan) : 'alqolam');
+function useEjaan() {
+  const [e, setE] = useState(ejaanTersimpan);
+  const ubah = (v) => { const s = window.Pegon ? window.Pegon.ejaanSah(v) : 'alqolam'; setE(s); Draft.save('pegonEjaan', { ejaan: s }); };
+  return [e, ubah];
+}
+function EjaanPilih({ id, value, onChange }) {
+  const P = window.Pegon;
+  return (
+    <div><Label htmlFor={id} hint="(huruf p, c, g, ng, ny)">Ejaan huruf Pegon</Label>
+      <Select id={id} value={value} onChange={onChange}>
+        {Object.entries(P ? P.EJAAN : { alqolam: 'Al-Qolam' }).map(([k, x]) => <option key={k} value={k}>{x}</option>)}
+      </Select></div>
+  );
+}
 // Bentuk form dari draf yang dibaca: total (tidak pernah melempar) dan hanya menerima string pada tempatnya, supaya draf rusak tidak membuat halaman gagal tampil.
 const normalForm = (src) => {
   const base = emptyForm(); const x = src && typeof src === 'object' ? src : {};
@@ -200,7 +216,7 @@ const buildCsvRdm = (qs, catatan = '') =>
   '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
   qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
-const buildDocx = async (qs, mode, catatan = '') => {
+const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
   const D = window.docx;
   if (!D) throw new Error('Pustaka DOCX tidak termuat.');
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
@@ -224,7 +240,7 @@ const buildDocx = async (qs, mode, catatan = '') => {
     const un = (h) => String(h || '').replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
     const bisaKomen = !!(D.CommentRangeStart && D.CommentRangeEnd && D.CommentReference);
     const runs = (text, o = {}) => {
-      const { html } = window.Pegon.convertText(String(text || '').replace(/\s*\n+\s*/g, ' '));
+      const { html } = window.Pegon.convertTextEjaan(String(text || '').replace(/\s*\n+\s*/g, ' '), ejaan);
       const out = []; const re = /<span class="flag"(?: title="([^"]*)")?[^>]*>(.*?)<\/span>/g; let last = 0, m;
       const push = (t, flag, note) => {
         if (!t) return;
@@ -633,13 +649,14 @@ function AssistView({ state, onIdea }) {
 function PegonSoal({ form, toast }) {
   const P = window.Pegon;
   const kc = useKamus();
+  const [ejaan, setEjaan] = useEjaan();
   const [tick, setTick] = useState(0);
   const [bahas, setBahas] = useState(false);
   const [isi, setIsi] = useState({}); // kata -> { arab, tipe }
   const [busy, setBusy] = useState('');
   const bagian = useMemo(() => {
     const out = [];
-    const tambah = (label, teks) => { if (String(teks || '').trim()) out.push({ label, ...P.convertText(String(teks)) }); };
+    const tambah = (label, teks) => { if (String(teks || '').trim()) out.push({ label, ...P.convertTextEjaan(String(teks), ejaan) }); };
     tambah('Stimulus', form.stimulus);
     tambah('Pertanyaan', form.pertanyaan);
     (Bt.bentukDari(form) === 'benarsalah' ? [] : ['A', 'B', 'C', 'D', 'E']).forEach((k) => tambah('Opsi ' + k + (form.kunci === k ? ' (kunci)' : ''), (form.opsi || {})[k]));
@@ -647,7 +664,7 @@ function PegonSoal({ form, toast }) {
     if (Bt.bentukDari(form) === 'uraian') tambah('Pedoman penskoran', form.rubrik);
     if (bahas) tambah('Pembahasan', form.pembahasan);
     return out;
-  }, [form.stimulus, form.pertanyaan, form.opsi, form.kunci, form.pembahasan, form.bentuk, form.jawaban, form.rubrik, bahas, kc.ver, tick]);
+  }, [form.stimulus, form.pertanyaan, form.opsi, form.kunci, form.pembahasan, form.bentuk, form.jawaban, form.rubrik, bahas, ejaan, kc.ver, tick]);
   // Kata bersorot yang bisa dibereskan lewat kamus. Kata berhubung (rekan-rekan) dipecah: mesin mencari kamus per bagian, bukan per gabungan.
   const masalah = useMemo(() => {
     const peta = new Map();
@@ -682,6 +699,7 @@ function PegonSoal({ form, toast }) {
   return (
     <div className="mt-3 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-[200px]"><EjaanPilih id="pg-soal-ejaan" value={ejaan} onChange={setEjaan} /></div>
         <Btn onClick={salin}><Copy size={16} />Salin Pegon</Btn>
         <label className="inline-flex items-center gap-2 text-xs text-mute"><input type="checkbox" checked={bahas} onChange={(e) => setBahas(e.target.checked)} />Sertakan pembahasan</label>
       </div>
@@ -1492,7 +1510,7 @@ function Export({ all, toast }) {
   const nkUbah = nkPegon ? (t) => window.Pegon.convertTextEjaan(String(t || ''), nm.ejaan) : null;
   const nkRagu = naskah && nkUbah ? NK.kataRagu(naskah, nkUbah, { narasi: nkNarasi }) : [];
   const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
-  const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
+  const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertTextEjaan(String(t || ''), ejaanTersimpan()).pegon : t);
   const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
 
   const copy = async () => {
@@ -1518,7 +1536,7 @@ function Export({ all, toast }) {
     if (isNaskah) { unduhNaskah(false); return; }
     setBusy(true);
     try {
-      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar', catatan);
+      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar', catatan, ejaanTersimpan());
       saveFile(fname, data);
       toast('File diunduh.');
     } catch (e) {
@@ -2914,6 +2932,7 @@ function PegonTab({ toast }) {
   const P = window.Pegon;
   // Mode dan teks Latin dipulihkan setelah muat ulang. Foto (berkas), hasil konversi, dan hasil suntingan manual tidak ikut: konversi ulang dengan satu klik.
   const pgAwal = useRef(undefined); if (pgAwal.current === undefined) { const d = Draft.read('pegonTab'); pgAwal.current = d && typeof d === 'object' ? d : {}; }
+  const [ejaan, setEjaan] = useEjaan();
   const [mode, setMode] = useState(() => (['teks', 'file', 'foto'].includes(pgAwal.current.mode) ? pgAwal.current.mode : 'teks')); // teks | file | foto
   const [latin, setLatin] = useState(() => (typeof pgAwal.current.latin === 'string' ? pgAwal.current.latin : ''));
   const [fileInfo, setFileInfo] = useState(() => { const x = pgAwal.current.fileInfo; return x && typeof x === 'object' && typeof x.nama === 'string' ? { nama: x.nama.slice(0, 200), arab: x.arab === true } : null; }); // { nama, arab }
@@ -2940,8 +2959,8 @@ function PegonTab({ toast }) {
     setErr(null);
     if (mode === 'foto') return konversiFoto();
     if (!latin.trim()) return toast('Isi teks terlebih dahulu (atau unggah file / foto).');
-    const r = P.convertText(latin);
-    tampil(r.html, r.details, 'mesin aturan', latin);
+    const r = P.convertTextEjaan(latin, ejaan);
+    tampil(r.html, r.details, ejaan === 'klasik' ? 'mesin aturan · ejaan klasik' : 'mesin aturan', latin);
   };
   const konversiFoto = async () => {
     if (!foto) return toast('Pilih foto terlebih dahulu.');
@@ -2949,7 +2968,7 @@ function PegonTab({ toast }) {
     try {
       const gambar = await siapkanFoto(foto);
       const d = await callApi('/api/assist', { aksi: 'pegonfoto', gambar });
-      tampil(P.escapeHtml(d.hasil.pegon).replace(/\n/g, '<br>'), [], 'AI · baca foto', d.hasil.latin);
+      tampil(P.escapeHtml(P.ubahEjaan(d.hasil.pegon, ejaan)).replace(/\n/g, '<br>'), [], 'AI · baca foto', d.hasil.latin);
       setWarns(d.hasil.peringatan || []);
     } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
@@ -2958,7 +2977,7 @@ function PegonTab({ toast }) {
     setErr(null); setBusy('Meminta AI memeriksa & memperkuat hasil…');
     try {
       const d = await callApi('/api/assist', { aksi: 'pegon', teks: hasil.latin, hasilMesin: teksHasil() });
-      if (box.current) box.current.innerText = d.hasil.pegon;
+      if (box.current) box.current.innerText = P.ubahEjaan(d.hasil.pegon, ejaan);
       setHasil((h) => ({ ...h, tag: 'diperkuat AI', details: [] })); setWarns(d.hasil.peringatan || []); setRincian(false);
     } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
@@ -3030,6 +3049,7 @@ function PegonTab({ toast }) {
               {foto && <p className="text-xs text-mute">{foto.name}</p>}
             </div>
           )}
+          <div className="mt-4"><EjaanPilih id="pg-tab-ejaan" value={ejaan} onChange={setEjaan} /></div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Btn kind="primary" onClick={konversi} disabled={!!busy}>Konversi ke Pegon</Btn>
             <Btn onClick={bersihkan}>Bersihkan</Btn>
