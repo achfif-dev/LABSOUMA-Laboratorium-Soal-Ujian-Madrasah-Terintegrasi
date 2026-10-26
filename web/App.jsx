@@ -500,6 +500,20 @@ const Toast = ({ t }) => t ? (
   </div>
 ) : null;
 
+/* ---------- Jam & tanggal di header (WIB, sesuai hari reset kuota) ---------- */
+const FMT_JAM = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const FMT_TGL = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+function Jam() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  return (
+    <div className="ml-auto shrink-0 text-right" role="timer" aria-live="off" aria-label="Jam dan tanggal WIB">
+      <p className="text-xl font-bold tabular-nums leading-tight sm:text-3xl">{FMT_JAM.format(now).replace(/\./g, ':')}<span className="ml-1 text-xs font-semibold opacity-70">WIB</span></p>
+      <p className="mt-0.5 hidden text-xs font-medium opacity-80 sm:block">{FMT_TGL.format(now)}</p>
+    </div>
+  );
+}
+
 /* ---------- Helper API & tampilan bantuan AI ---------- */
 async function callApi(path, body, signal) {
   const token = await firebase.auth().currentUser.getIdToken();
@@ -3412,6 +3426,7 @@ function App({ user, profile }) {
               <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
               <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
             </div>
+            <Jam />
           </div>
         </div>
       </header>
@@ -3716,6 +3731,7 @@ function AppUstadz({ user, profile }) {
               <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
               <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
             </div>
+            <Jam />
           </div>
         </div>
       </header>
