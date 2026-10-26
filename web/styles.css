@@ -1,27 +1,37 @@
   /* Layout: sticky green masthead with tab bar, then a two-column workspace (kitab reference left, naskah soal right) */
   :root {
-    --bg: #f2f6f3; --surface: #ffffff; --ink: #10231b; --mute: #566b61; --line: #d6e2db;
-    --brand: #0f6b4f; --brand-fg: #ffffff; --soft: #e2f1e9; --soft-ink: #0b4f3a;
-    --head: #0b4d39; --head-ink: #eaf7f0;
+    --bg: #f4f7f5; --surface: #ffffff; --ink: #0f1f18; --mute: #53675d; --line: #dbe5df;
+    --brand: #0d6b4e; --brand-fg: #ffffff; --soft: #e6f2ec; --soft-ink: #0a4d38;
+    --head: #0a4535; --head-ink: #ecf7f1;
+    --accent: #b8923a; --ring: rgba(13,107,78,.28);
+    --shadow-sm: 0 1px 2px rgba(15,31,24,.05), 0 1px 3px rgba(15,31,24,.04);
+    --shadow-md: 0 4px 14px rgba(15,31,24,.08), 0 1px 3px rgba(15,31,24,.05);
     --warn: #7a5200; --warn-bg: #fcf1d6; --bad: #a3231c; --bad-bg: #fbe6e3; --ok: #0b5c3f; --ok-bg: #d9f0e3;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
+      --bg: #0b130f; --surface: #121e18; --ink: #e6efe9; --mute: #98ada2; --line: #25382e;
       --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
-      --head: #0a2f24; --head-ink: #e5f4ec;
+      --head: #0a2a20; --head-ink: #e5f4ec;
+      --accent: #d9b45f; --ring: rgba(63,191,143,.35);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.35); --shadow-md: 0 6px 18px rgba(0,0,0,.4);
       --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0c1511; --surface: #13201a; --ink: #e5efe9; --mute: #94aa9f; --line: #24382f;
+    --bg: #0b130f; --surface: #121e18; --ink: #e6efe9; --mute: #98ada2; --line: #25382e;
     --brand: #3fbf8f; --brand-fg: #04231a; --soft: #173228; --soft-ink: #92e2c1;
-    --head: #0a2f24; --head-ink: #e5f4ec;
+    --head: #0a2a20; --head-ink: #e5f4ec;
+    --accent: #d9b45f; --ring: rgba(63,191,143,.35);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.35); --shadow-md: 0 6px 18px rgba(0,0,0,.4);
     --warn: #f0c75a; --warn-bg: #33290d; --bad: #f19a93; --bad-bg: #3a1815; --ok: #7fe0b3; --ok-bg: #123a29;
     color-scheme: dark;
   }
-  html, body { background: var(--bg); }
+  html { background: var(--bg); scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body { background: var(--bg); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; line-height: 1.55; font-feature-settings: 'tnum' 1, 'cv11' 1; }
+  ::selection { background: var(--soft); color: var(--soft-ink); }
+  h1, h2, h3 { letter-spacing: -0.01em; }
   body {
     margin: 0; color: var(--ink); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
     padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -40,8 +50,15 @@
   .ar-input { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 1.2rem; line-height: 1.8; }
   textarea.ar { resize: vertical; }
   .field { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-           padding: 9px 12px; font-size: 14px; }
-  .field:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+           padding: 10px 12px; font-size: 14px; min-height: 40px; box-shadow: var(--shadow-sm);
+           transition: border-color .15s ease, box-shadow .15s ease; }
+  .field:hover { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }
+  .field:focus, .field:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--ring); }
+  .field:disabled { opacity: .6; cursor: not-allowed; background: var(--soft); }
+  button:focus-visible, summary:focus-visible, a:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--brand); }
+  button:not(:disabled), summary { cursor: pointer; }
+  button:active:not(:disabled) { transform: translateY(1px); }
   .field::placeholder { color: var(--mute); opacity: .7; }
   .tabs::-webkit-scrollbar { display: none; }
   .tabs { scrollbar-width: none; }
@@ -51,10 +68,33 @@
   .spin { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--head); z-index: 45; }
+
+  /* ---- Tampilan profesional: header, kartu, tabel, pemindai ---- */
   .pattern {
-    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 0);
-    background-size: 16px 16px;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(255,255,255,.07) 1px, transparent 0),
+      linear-gradient(135deg, var(--head) 0%, color-mix(in srgb, var(--head) 80%, var(--brand)) 100%);
+    background-size: 18px 18px, 100% 100%;
+    border-bottom: 3px solid var(--accent);
   }
+  .pattern h1 { letter-spacing: .08em; }
+  /* Kartu: bayangan halus dan tepi lembut untuk semua panel isi (tanpa mengubah markup) */
+  .rounded-2xl.border.bg-surface:not(.border-dashed) { box-shadow: var(--shadow-sm); }
+  .rounded-2xl.border.bg-surface:not(.border-dashed):hover { box-shadow: var(--shadow-md); }
+  section.rounded-2xl > div:first-child > h2 { text-transform: none; letter-spacing: -0.005em; font-size: 15px; }
+  /* Tabel dan kode: hanya angka rata dan sorot baris; tata letak tetap dari kelas Tailwind di komponen */
+  table { font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: color-mix(in srgb, var(--soft) 55%, transparent); }
+  code { background: var(--soft); color: var(--soft-ink); padding: .1em .4em; border-radius: 6px; }
+  /* Bilah gulir tipis */
+  * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  /* Skip link untuk pembaca layar dan papan ketik */
+  .skip-link { position: absolute; left: 12px; top: -48px; z-index: 100; background: var(--brand); color: var(--brand-fg); padding: 8px 14px; border-radius: 8px; font-weight: 600; transition: top .15s; }
+  .skip-link:focus { top: 10px; }
+  /* Kartu masuk */
+  .login-card { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-md); padding: 32px 24px; }
+  .login-wrap { background: radial-gradient(60rem 30rem at 50% -10%, var(--soft), transparent 70%); }
+  @media print { header, nav, footer, .skip-link { display: none !important; } body { background: #fff; } }
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

@@ -366,23 +366,23 @@ const FORMATS = [
 
 /* ---------- Small UI parts ---------- */
 const Badge = ({ status }) => (
-  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS[status].cls}`}>{STATUS[status].label}</span>
+  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ring-black/5 ${STATUS[status].cls}`}>{STATUS[status].label}</span>
 );
 const Chip = ({ children }) => (
   <span className="inline-flex items-center rounded-md border border-line px-2 py-0.5 text-xs font-medium text-mute">{children}</span>
 );
 const Label = ({ htmlFor, children, hint }) => (
-  <label htmlFor={htmlFor} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-mute">
+  <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-mute">
     {children}{hint && <span className="ml-1 normal-case font-normal tracking-normal">{hint}</span>}
   </label>
 );
 const Btn = ({ kind = 'ghost', className = '', children, ...p }) => {
-  const base = 'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ';
+  const base = 'inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed ';
   const k = {
-    primary: 'bg-brand text-brand-fg hover:opacity-90',
+    primary: 'bg-brand text-brand-fg shadow-sm hover:brightness-110 hover:shadow-md',
     soft: 'bg-soft text-soft-ink hover:opacity-80',
-    ghost: 'border border-line text-ink hover:bg-soft',
-    danger: 'bg-bad-bg text-bad hover:opacity-80',
+    ghost: 'border border-line bg-surface text-ink shadow-sm hover:border-brand hover:bg-soft',
+    danger: 'bg-bad-bg text-bad ring-1 ring-inset ring-black/5 hover:brightness-95',
   }[kind];
   return <button type="button" className={base + k + ' ' + className} {...p}>{children}</button>;
 };
@@ -392,8 +392,8 @@ const Select = ({ id, value, onChange, children, className = '', ...rest }) => (
 const Section = ({ title, icon: Icon, children, action }) => (
   <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-      <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-soft-ink">
-        {Icon && <Icon size={16} />}{title}
+      <h2 className="flex items-center gap-2.5 text-sm font-bold text-ink">
+        {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-soft text-soft-ink"><Icon size={15} /></span>}{title}
       </h2>
       {action}
     </div>
@@ -494,7 +494,7 @@ const Meta = ({ q }) => {
 const refText = (q) => [q.nama || 'Kitab belum diisi', q.juz && `Juz ${q.juz}`, q.hal && `Hal. ${q.hal}`].filter(Boolean).join(' · ');
 
 const Toast = ({ t }) => t ? (
-  <div role="status" className="fade-in fixed left-1/2 z-50 -translate-x-1/2 rounded-xl bg-head px-4 py-3 text-sm font-medium text-head-ink shadow-lg"
+  <div role="status" className="fade-in fixed left-1/2 z-50 -translate-x-1/2 rounded-xl border border-white/10 bg-head px-4 py-3 text-sm font-medium text-head-ink shadow-xl"
        style={{ bottom: 'calc(20px + env(safe-area-inset-bottom, 0px))', maxWidth: 'calc(100vw - 32px)' }}>
     {t}
   </div>
@@ -3456,7 +3456,7 @@ function App({ user, profile }) {
         </div>
       </div>
 
-      <main className="mx-auto max-w-6xl py-6 sm:py-8">
+      <main id="konten" tabIndex={-1} className="mx-auto max-w-6xl py-6 outline-none sm:py-8">
         <AppCfgCtx.Provider value={appCfg}>
         <KamusCtx.Provider value={kamusCtx}>
         <SaranCtx.Provider value={saranCtx}>
@@ -3759,7 +3759,7 @@ function AppUstadz({ user, profile }) {
         </div>
       </div>
 
-      <main className="mx-auto max-w-6xl py-6 sm:py-8">
+      <main id="konten" tabIndex={-1} className="mx-auto max-w-6xl py-6 outline-none sm:py-8">
         <AppCfgCtx.Provider value={appCfg}>
         <KamusCtx.Provider value={kamusCtx}>
         <SaranCtx.Provider value={saranCtx}>
@@ -4194,24 +4194,30 @@ function Login() {
     } finally { setBusy(false); }
   };
   return (
-    <Centered>
-      <Logo />
-      <h1 className="text-2xl font-extrabold" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
-      <p className="text-sm font-medium text-mute">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
-      <p dir="rtl" lang="ar" className="ar" style={{ fontSize: '1.4rem', lineHeight: 2 }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
-      <p className="text-sm text-mute">Masuk dengan akun Google untuk menyusun, meninjau, dan mengekspor soal.</p>
-      <Btn kind="primary" className="w-full" onClick={signIn} disabled={busy}>
-        {busy ? <Loader2 size={16} className="spin" /> : <LogIn size={16} />}Masuk dengan Google
-      </Btn>
-      {error && <p role="alert" className="rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{error}</p>}
-    </Centered>
+    <div className="login-wrap -mx-4 px-4">
+      <Centered>
+        <div className="login-card flex flex-col items-center gap-3">
+          <Logo />
+          <h1 className="text-2xl font-extrabold tracking-[.08em]" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
+          <p className="text-sm font-medium text-mute">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+          <p dir="rtl" lang="ar" className="ar" style={{ fontSize: '1.4rem', lineHeight: 2 }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+          <hr className="my-1 w-16 border-0 border-t-2" style={{ borderColor: 'var(--accent)' }} />
+          <p className="text-sm text-mute">Masuk dengan akun Google untuk menyusun, meninjau, dan mengekspor soal.</p>
+          <Btn kind="primary" className="mt-1 w-full" onClick={signIn} disabled={busy}>
+            {busy ? <Loader2 size={16} className="spin" /> : <LogIn size={16} />}Masuk dengan Google
+          </Btn>
+          {error && <p role="alert" className="w-full rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{error}</p>}
+        </div>
+        <p className="text-xs text-mute">Akses terbatas untuk staf madrasah yang telah disetujui admin.</p>
+      </Centered>
+    </div>
   );
 }
 
 function Blocked({ title, text, user }) {
   return (
     <Centered>
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-warn-bg text-warn"><ShieldCheck size={28} /></div>
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-warn-bg text-warn shadow-sm"><ShieldCheck size={28} /></div>
       <h1 className="text-xl font-extrabold">{title}</h1>
       <p className="text-sm leading-relaxed text-mute">{text}</p>
       {user && <p className="text-xs text-mute">Masuk sebagai {user.email}</p>}
