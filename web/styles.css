@@ -33,7 +33,7 @@
   ::selection { background: var(--soft); color: var(--soft-ink); }
   h1, h2, h3 { letter-spacing: -0.01em; }
   body {
-    margin: 0; color: var(--ink); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
+    margin: 0; color: var(--ink); font-family: 'Plus Jakarta Sans', 'Amiri', 'Scheherazade New', system-ui, sans-serif; font-size: 15px;
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
@@ -69,6 +69,17 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--head); z-index: 45; }
 
+
+  /* Teks Arab di seluruh aplikasi (isian maupun tampilan) memakai Amiri.
+     1) Semua kontrol form mewarisi tumpukan font body, yang memuat Amiri untuk huruf Arab.
+     2) Elemen yang ditandai Arab/RTL dipaksa penuh ke Amiri. */
+  input, textarea, select, button, optgroup, option { font-family: inherit; }
+  [lang="ar"], [dir="rtl"], .ar, .ar-sm, .ar-nama, .ar-input,
+  input[dir="rtl"], textarea[dir="rtl"], select[dir="rtl"] {
+    font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif;
+  }
+  /* Isian bertanda dir="auto" (Arab atau Latin): Latin tetap Plus Jakarta Sans, huruf Arab jatuh ke Amiri. */
+  [dir="auto"] { font-family: 'Plus Jakarta Sans', 'Amiri', 'Scheherazade New', system-ui, sans-serif; }
   /* ---- Tampilan profesional: header, kartu, tabel, pemindai ---- */
   .pattern {
     background-image:

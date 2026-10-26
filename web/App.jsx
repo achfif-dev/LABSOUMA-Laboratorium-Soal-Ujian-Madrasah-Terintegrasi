@@ -1691,7 +1691,7 @@ function Export({ all, toast }) {
                 </div>
               ) :
               isText ? (
-                <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{text}</pre>
+                <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: "ui-monospace, Menlo, 'Amiri', monospace" }}>{text}</pre>
               ) : (
                 <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl bg-bg p-4">
                   {chosen.map((q, i) => (
