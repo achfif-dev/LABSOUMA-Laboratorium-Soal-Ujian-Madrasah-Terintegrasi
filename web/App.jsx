@@ -995,7 +995,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                   ) : null;
                 })()}
                 {NK.catatanTemplate(form, dawr).map((t, i) => <p key={i} role="status" className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{t}</p>)}
-                <p className="text-xs leading-relaxed text-mute">Template memuat tiga opsi (أ ب ج) dan satu kalimat soal per nomor. Isian di form tetap tersimpan utuh; mode ini hanya menyaring tampilan dan memberi catatan.</p>
+                <p className="text-xs leading-relaxed text-mute">Template memuat tiga opsi (أ ب ج) dan satu kalimat soal ringkas per nomor (sekitar 150 karakter). Saat diekspor, kalimat soal, opsi, dan jawaban ditulis dalam Pegon. Isian di form tetap tersimpan utuh dalam Latin; mode ini hanya menyaring tampilan dan memberi catatan.</p>
               </div>
             )}
           </div>
@@ -1487,6 +1487,10 @@ function Export({ all, toast }) {
   };
   const isNaskah = fmt === 'naskah';
   const naskah = isNaskah ? NK.susunNaskah(chosen, nm.dawr) : null;
+  // Soal di bank tetap Latin; hanya berkas naskah yang ditulis Pegon (bawaan menyala). Narasi tidak dicetak kecuali dinyalakan.
+  const nkPegon = nm.pegon !== false && !!window.Pegon; const nkNarasi = nm.narasi === true;
+  const nkUbah = nkPegon ? (t) => window.Pegon.convertTextEjaan(String(t || ''), nm.ejaan) : null;
+  const nkRagu = naskah && nkUbah ? NK.kataRagu(naskah, nkUbah, { narasi: nkNarasi }) : [];
   const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
   const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertText(String(t || '')).pegon : t);
   const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
@@ -1503,7 +1507,7 @@ function Export({ all, toast }) {
       const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
       let logo = null;
       try { const r = await fetch('/logo-madrasah.png'); if (r.ok) logo = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* tanpa logo: kop tetap tercetak */ }
-      saveFile(NK.namaBerkasNaskah(nm, kunci), await D.Packer.toBlob(buatNaskah(D, naskah, nm, { kunci, logo })));
+      saveFile(NK.namaBerkasNaskah(nm, kunci), await D.Packer.toBlob(buatNaskah(D, naskah, nm, { kunci, logo, pegon: nkUbah ? (t) => nkUbah(t).pegon : null, narasi: nkNarasi })));
       toast(kunci ? 'Naskah kunci diunduh. Jangan dibagikan kepada peserta.' : 'Naskah diunduh.');
     } catch (e) {
       toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.');
@@ -1587,6 +1591,14 @@ function Export({ all, toast }) {
                 <div><Label htmlFor="nk-penanda" hint="(kaki halaman)">Penanda</Label><input id="nk-penanda" className="field" dir="ltr" value={nm.penanda} maxLength={40} onChange={(e) => setN('penanda', e.target.value)} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="nk-b1">Baris kop 1 (madrasah)</Label><input id="nk-b1" className="field" dir="rtl" lang="ar" value={nm.baris1} maxLength={80} onChange={(e) => setN('baris1', e.target.value)} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="nk-b2">Baris kop 2 (lembaga)</Label><input id="nk-b2" className="field" dir="rtl" lang="ar" value={nm.baris2} maxLength={80} onChange={(e) => setN('baris2', e.target.value)} /></div>
+                <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" className="mt-1" checked={nm.pegon !== false} onChange={(e) => setN('pegon', e.target.checked)} disabled={!window.Pegon} />
+                  <span><b>Tulis soal dalam Pegon</b> <span className="text-xs text-mute">(kalimat soal, opsi, dan jawaban kunci; soal di bank tetap Latin)</span></span></label>
+                <div className="sm:col-span-2"><Label htmlFor="nk-ejaan" hint="(huruf p, c, g, ng, ny)">Ejaan huruf Pegon</Label>
+                  <Select id="nk-ejaan" value={window.Pegon ? window.Pegon.ejaanSah(nm.ejaan) : 'alqolam'} onChange={(v) => setN('ejaan', v)} disabled={nm.pegon === false}>
+                    {Object.entries(window.Pegon ? window.Pegon.EJAAN : { alqolam: 'Al-Qolam' }).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                  </Select></div>
+                <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" className="mt-1" checked={nm.narasi === true} onChange={(e) => setN('narasi', e.target.checked)} />
+                  <span><b>Sertakan narasi/stimulus</b> <span className="text-xs text-mute">(bawaan mati: template hanya satu kalimat soal per nomor, seperti contoh)</span></span></label>
               </div>
               <p className="mt-3 text-xs leading-relaxed text-mute">Soal dimasukkan ke bagian menurut bentuknya, dengan urutan pilihan Anda: <b>أ</b> pilihan ganda dan lanjutan, <b>ب</b> isian, <b>ج</b> uraian. Benar–Salah tidak ada di template. Naskah peserta tidak memuat kunci; <b>naskah kunci</b> menandai jawaban dan halaman kitab (ص) dengan warna merah.</p>
             </Section>
@@ -1607,6 +1619,11 @@ function Export({ all, toast }) {
                     <li className="flex items-center justify-between gap-2 bg-soft px-3 py-2.5 font-bold"><span>Total nilai</span><span className={naskah.total === naskah.maks ? 'text-ok' : 'text-warn'}>{naskah.total} / {naskah.maks}</span></li>
                   </ul>
                   {naskah.peringatan.map((t, i) => <p key={i} role="status" className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">{t}</p>)}
+                  {nkRagu.length > 0 && (
+                    <p role="status" className="rounded-xl bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">
+                      <b>{nkRagu.length} kata diragukan mesin Pegon:</b> {nkRagu.map((x) => x.kata).join(', ')}. Pastikan ejaan Arabnya lalu tambahkan ke kamus di tab Pegonizer; naskah yang diunduh sesudahnya memakai ejaan itu.
+                    </p>
+                  )}
                   {naskah.tidakDipakai.length > 0 && (
                     <div className="rounded-xl border border-line p-3 text-xs">
                       <p className="mb-1 font-semibold">{naskah.tidakDipakai.length} soal tidak masuk naskah</p>

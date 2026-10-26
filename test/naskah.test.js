@@ -6,6 +6,8 @@ import * as D from 'docx';
 import JSZip from 'jszip';
 import { BENTUK_TEMPLATE, ringkasBagian, ringkasDawr, catatanTemplate, PRESET_DAWR, DAFTAR_DAWR, MAKS_NILAI, susunNaskah, judulBagian, judulDawr, kataNilai, dawrSah, bagianDari, namaBerkasNaskah, rujukanHalaman, jawabanKunci, akhiriTanya, META_AWAL } from '../web/lib/naskah.js';
 import { buatNaskah } from '../web/lib/naskahDocx.js';
+import { teksSoal, kataRagu, BATAS_SOAL } from '../web/lib/naskah.js';
+import { convertText, convertTextEjaan, ubahEjaan, ejaanSah, EJAAN } from '../web/lib/pegon.js';
 
 const pg = (pertanyaan, o = ['x', 'y', 'z'], kunci = 'A', hal = '') => ({ bentuk: 'pilgan', pertanyaan, opsi: { A: o[0], B: o[1], C: o[2], D: o[3] || '', E: o[4] || '' }, kunci, hal });
 const isi = (pertanyaan, hal = '') => ({ bentuk: 'isian', pertanyaan, jawaban: 'jawab ' + pertanyaan, opsi: {}, hal });
@@ -139,7 +141,7 @@ test('DOCX kunci: huruf opsi benar, jawaban tertulis, dan ص + halaman berwarna 
   const n = susunNaskah(penuh(1), 1);
   const { xml, kaki } = await bongkar(buatNaskah(D, n, {}, { kunci: true }));
   const merah = [...xml.matchAll(/<w:r>(?:(?!<\/w:r>).)*?w:val="FF0000"(?:(?!<\/w:r>).)*?<\/w:r>/gs)].map((m) => teksDari(m[0]));
-  assert.ok(merah.includes('ب- ')); // pilgan: kunci B
+  assert.ok(merah.includes('ب-')); // pilgan: kunci B, ditulis "ب-3" tanpa spasi seperti contoh template
   assert.ok(merah.some((x) => x === 'ص 1') && merah.some((x) => x === 'ص 5'));
   assert.ok(merah.includes('jawab I0') && merah.includes('uraian U0'));
   assert.ok(merah.length >= 5 + 5 + 5 + 5 + 5);
@@ -166,7 +168,8 @@ const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
 test('penjaga: format Naskah ada di tab Export dan logo tersedia di public/', () => {
   assert.match(app, /id: 'naskah', label: 'Naskah Ujian IMDA \(DOCX\)'/);
   assert.match(app, /NK\.susunNaskah\(chosen, nm\.dawr\)/);
-  assert.match(app, /buatNaskah\(D, naskah, nm, \{ kunci, logo \}\)/);
+  assert.match(app, /buatNaskah\(D, naskah, nm, \{ kunci, logo, pegon: nkUbah/);
+  assert.match(app, /NK\.kataRagu\(naskah, nkUbah/); // kata yang diragukan mesin Pegon ditampilkan sebelum unduh
   assert.match(app, /fetch\('\/logo-madrasah\.png'\)/);
   assert.ok(LOGO.length > 1000 && LOGO.subarray(1, 4).toString() === 'PNG');
 });
@@ -189,7 +192,9 @@ test('catatan template: soal yang sudah sesuai tanpa catatan; penyimpangan dicat
   const c = catatanTemplate({ ...pg('Soal', ['1', '2', '3', '4']), stimulus: 'Narasi singkat' }, 1);
   assert.equal(c.length, 3);
   assert.ok(c.every((t) => t.startsWith('Bagian أ: ')));
-  assert.ok(c.some((t) => t.includes('4')) && c.some((t) => t.includes('Narasi')) && c.some((t) => t.includes('ص')));
+  assert.ok(c.some((t) => t.includes('4')) && c.some((t) => t.includes('tidak dicetak')) && c.some((t) => t.includes('ص')));
+  // narasi dinyalakan: catatan berubah menjadi peringatan bahwa narasi dicetak di depan kalimat soal
+  assert.ok(catatanTemplate({ ...pg('Soal', ['1', '2', '3']), stimulus: 'Narasi singkat', hal: '1' }, 1, { narasi: true }).some((t) => t.includes('akan dicetak di depan')));
   // kurang dari tiga opsi
   assert.ok(catatanTemplate(pg('Soal', ['1', '2', ''], 'A', '1'), 1).some((t) => t.includes('baru 2')));
   // soal panjang
@@ -200,4 +205,85 @@ test('catatan template: soal yang sudah sesuai tanpa catatan; penyimpangan dicat
   // Benar–Salah: satu catatan tegas, tanpa awalan bagian
   const bs = catatanTemplate({ bentuk: 'benarsalah', pertanyaan: 'Pernyataan', kunci: 'A', opsi: {}, hal: '1' }, 1);
   assert.equal(bs.length, 1); assert.ok(bs[0].includes('Benar–Salah'));
+});
+
+/* ------------------------------------------------------------ Pegon dan ringkas (naskah mengikuti contoh FIQH.docx) */
+const ubahPegon = (t) => convertText(t).pegon;
+const ARAB_SAJA = /^[\u0600-\u06FF\u0750-\u077F\s\d.,:;!?()\-–—\u061F\u060C\u066B\u066C"'“”‘’…_/\\\[\]|*@]*$/;
+
+test('teksSoal: hanya pertanyaan; narasi ikut hanya bila dinyalakan', () => {
+  const q = { ...pg('Apa yang disebut nazar?'), stimulus: 'Narasi  panjang\nbaris dua' };
+  assert.equal(teksSoal(q), 'Apa yang disebut nazar?');
+  assert.equal(teksSoal(q, { narasi: true }), 'Narasi panjang baris dua Apa yang disebut nazar?');
+  assert.equal(teksSoal(null), ''); assert.equal(teksSoal({}), '');
+});
+
+test('DOCX Pegon: kalimat soal, opsi, dan jawaban kunci ditulis Pegon; tak ada huruf Latin tersisa di badan naskah', async () => {
+  const soal = [pg('Ibadah haji dan umrah dapat dilakukan dengan berapa macam cara?', ['dua', 'tiga', 'empat'], 'B', '12'), isi('Syarat sah salat adalah ..... perkara', '3'), { bentuk: 'uraian', pertanyaan: 'Apa yang disebut nazar?', jawaban: 'Mewajibkan diri', opsi: {}, hal: '4' }];
+  const n = susunNaskah(soal, 1);
+  const peserta = await bongkar(buatNaskah(D, n, { ...META_AWAL, mapel: 'فقه' }, { kunci: false, logo: LOGO, pegon: ubahPegon }));
+  const t = teksDari(peserta.xml);
+  assert.ok(t.includes(ubahPegon('Ibadah haji dan umrah dapat dilakukan dengan berapa macam cara?')));
+  assert.ok(t.includes(ubahPegon('tiga')) && t.includes(ubahPegon('Apa yang disebut nazar?')));
+  const badan = t.replace(/&\w+;/g, '').replace(/L@b I/g, ''); // entitas XML (&quot; di kop) dan penanda kaki bukan teks soal
+  assert.ok(!/[A-Za-z]/.test(badan), 'masih ada huruf Latin: ' + (badan.match(/[A-Za-z]+/g) || []).join(','));
+  const kunci = await bongkar(buatNaskah(D, n, { ...META_AWAL, mapel: 'فقه' }, { kunci: true, pegon: ubahPegon }));
+  assert.ok(teksDari(kunci.xml).includes(ubahPegon('Mewajibkan diri'))); // jawaban uraian di naskah kunci juga Pegon
+  assert.ok(!/Mewajibkan/.test(teksDari(kunci.xml)));
+});
+
+test('DOCX tanpa fungsi Pegon: teks dicetak apa adanya (perilaku lama); fungsi yang gagal tidak menggagalkan unduhan', async () => {
+  const n = susunNaskah([pg('Apa itu nazar', ['a', 'b', 'c'], 'A', '1')], 1);
+  assert.ok(teksDari((await bongkar(buatNaskah(D, n, {}, {}))).xml).includes('Apa itu nazar'));
+  const rusak = await bongkar(buatNaskah(D, n, {}, { pegon: () => { throw new Error('mesin rusak'); } }));
+  assert.ok(teksDari(rusak.xml).includes('Apa itu nazar'));
+  const kosong = await bongkar(buatNaskah(D, n, {}, { pegon: () => '' }));
+  assert.ok(teksDari(kosong.xml).includes('Apa itu nazar'));
+});
+
+test('DOCX ringkas: narasi tidak dicetak bawaan, dicetak bila dinyalakan; opsi ditulis "أ-opsi" satu baris seperti contoh', async () => {
+  const q = { ...pg('Soal inti', ['satu', 'dua', 'tiga'], 'A', '1'), stimulus: 'NARASI-PANJANG' };
+  const n = susunNaskah([q], 1);
+  const tanpa = teksDari((await bongkar(buatNaskah(D, n, {}, {}))).xml);
+  assert.ok(!tanpa.includes('NARASI-PANJANG') && tanpa.includes('Soal inti'));
+  assert.ok(tanpa.includes('أ-satu ب-dua ج-tiga)')); assert.ok(!tanpa.includes('أ- satu')); // nomor yang belum terisi tetap memakai kerangka kosong "(أ- ب- ج-)"
+  const dengan = teksDari((await bongkar(buatNaskah(D, n, {}, { narasi: true }))).xml);
+  assert.ok(dengan.includes('NARASI-PANJANG Soal inti'));
+});
+
+test('kataRagu: kata serapan Arab yang belum ada di kamus dilaporkan sekali; kata di kamus tidak', () => {
+  const n = susunNaskah([pg('Hukum mengulangi sai setelah tawaf ifadhah adalah', ['makruh', 'sunah', 'haram'], 'A', '1'), isi('Waktu khiyar syarat ..... hari', '3')], 1);
+  const ragu = kataRagu(n, convertText).map((x) => x.kata);
+  assert.ok(ragu.includes('ifadhah') && ragu.includes('khiyar'));
+  assert.ok(!ragu.includes('hukum') && !ragu.includes('Hukum') && !ragu.includes('sunah'));
+  assert.equal(new Set(ragu).size, ragu.length);
+  assert.deepEqual(kataRagu(n, null), []); assert.deepEqual(kataRagu(null, convertText), []);
+});
+
+test('catatan ringkas: opsi dan kalimat soal yang melebihi contoh template diberi catatan; soal sependek contoh tanpa catatan', () => {
+  assert.deepEqual(catatanTemplate(pg('Ibadah haji dan umrah dapat dilakukan dengan berapa macam cara?', ['2', '3', '4'], 'B', '12'), 1), []);
+  assert.ok(catatanTemplate(pg('Soal', ['x'.repeat(60), 'b', 'c'], 'A', '1'), 1).some((t) => t.includes('opsi lebih dari')));
+  assert.ok(catatanTemplate(pg('k'.repeat(BATAS_SOAL + 1), ['1', '2', '3'], 'A', '1'), 1).some((t) => t.includes('±')));
+  assert.ok(!catatanTemplate({ ...pg('Soal pendek', ['1', '2', '3'], 'A', '1'), stimulus: 'n'.repeat(400) }, 1).some((t) => t.includes('±'))); // narasi tak dicetak, jadi tak dihitung
+});
+
+test('ejaan klasik: p/v = ف, c = ج, g = ك, ng = غ, ngg = غك, ny/nya = ني/نيا; al-Qolam tetap bawaan; hasil lain sama persis', () => {
+  const lat = 'Yang paling penting dengan orang pergi, sungguh vokal cara nyata.';
+  const q = convertTextEjaan(lat, 'alqolam'); const k = convertTextEjaan(lat, 'klasik');
+  assert.equal(q.pegon, convertText(lat).pegon);
+  assert.ok(/[ڤڬڠچپ]/.test(q.pegon) && !/[ڤڬڠچپ]/.test(k.pegon));
+  assert.equal(k.pegon, ubahEjaan(q.pegon, 'klasik'));
+  const kl = (w) => convertTextEjaan(w, 'klasik').pegon;
+  assert.equal(kl('yang'), 'ياغ'); assert.equal(kl('dengan'), 'دغان'); assert.equal(kl('paling'), 'فاليغ');
+  assert.equal(kl('juga'), 'جوكا'); assert.equal(kl('cara'), 'جارا'); assert.equal(kl('orang'), 'أوراغ'); // sama dengan contoh FIQH.docx
+  assert.equal(kl('bertanggung'), 'برتاغكوغ'); assert.equal(kl('meninggalkan'), 'منيغكالكن'); // ngg = غك, persis contoh
+  assert.equal(kl('tanya'), 'تانيا'); assert.equal(kl('penjual'), 'فنجوال');
+  assert.equal(k.details.length, q.details.length); assert.ok(k.details.every((d) => !/[ڤڬڠچپ]/.test(d.pegon)));
+  assert.equal(ejaanSah('x'), 'alqolam'); assert.deepEqual(Object.keys(EJAAN), ['alqolam', 'klasik']);
+});
+
+test('DOCX naskah dengan ejaan klasik tidak memuat huruf ڤ ڬ ڠ چ پ', async () => {
+  const n = susunNaskah([pg('Yang paling penting dengan orang', ['pergi', 'gagal', 'pintu'], 'A', '1')], 1);
+  const { xml } = await bongkar(buatNaskah(D, n, {}, { pegon: (t) => convertTextEjaan(t, 'klasik').pegon }));
+  assert.ok(!/[ڤڬڠچپ]/.test(xml)); assert.ok(teksDari(xml).includes('فاليغ'));
 });

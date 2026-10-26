@@ -2,7 +2,10 @@
 // paket docx di tes) dan mengembalikan objek Document; pemanggil yang mengemasnya (Packer).
 //   kunci:false -> naskah untuk peserta: nomor, soal, garis jawaban; tanpa unsur merah.
 //   kunci:true  -> naskah pengoreksi: huruf opsi benar, jawaban tertulis, dan "ص <halaman kitab>" berwarna merah, seperti contoh template.
-import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya } from './naskah.js';
+//   pegon:fn    -> fungsi alih aksara Latin ke Pegon (mis. t => window.Pegon.convertText(t).pegon). Dipakai untuk kalimat soal, opsi, dan
+//                  jawaban kunci; tanpa fungsi ini teks dicetak apa adanya. Kop sudah berbahasa Arab dan tidak diubah.
+//   narasi:true -> narasi/stimulus ikut dicetak di depan kalimat soal. Bawaan false: template hanya satu kalimat soal per nomor.
+import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal } from './naskah.js';
 import { bentukDari, opsiTerpakai } from './bentuk.js';
 
 const AR = 'Traditional Arabic';
@@ -20,7 +23,7 @@ const POSISI_TAB = 11055;          // tab rata kanan dengan garis pengisi, sama 
 const adaArab = (s) => /[\u0600-\u06FF\u0750-\u077F]/.test(String(s));
 const bersih = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/\s*\n\s*/g, ' ').trim();
 
-export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null } = {}) {
+export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null, pegon = null, narasi = false } = {}) {
   const { Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, TableLayoutType, VerticalAlign, Tab, HeightRule } = D;
   const meta = { ...META_AWAL, ...(metaMasuk || {}) };
 
@@ -37,6 +40,12 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   const P = (children, o = {}) => new Paragraph({ bidirectional: true, spacing: { before: 0, after: 0, line: 400, lineRule: LineRuleType.EXACT }, children, ...o });
   const TAB = (leader) => ({ tabStops: [{ type: TabStopType.RIGHT, position: POSISI_TAB, leader }] });
   const merah = (cond, o = {}) => (kunci && cond ? { ...o, color: MERAH } : o);
+  // Teks isi soal: dibersihkan, lalu ditulis Pegon bila fungsi alih aksara diberikan. Kegagalan mesin tidak boleh menggagalkan unduhan.
+  const tulis = (s) => {
+    const t = bersih(s);
+    if (!t || typeof pegon !== 'function') return t;
+    try { const r = pegon(t); return typeof r === 'string' && r.trim() ? bersih(r) : t; } catch (e) { return t; }
+  };
 
   /* ---------- kop ----------
    * Meniru kop template (FORMAT_SOAL_IMDA_*.docx): font Arial tebal (judul 22 pt, madrasah 16 pt, pesantren dan tahun 10 pt),
@@ -99,11 +108,11 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
     const huruf = q ? Object.keys(HURUF_OPSI).filter((k) => opsiTerpakai(q).includes(k)) : ['A', 'B', 'C'];
     const kunciHuruf = q ? q.kunci : '';
     const runs = [N(`${no}- `), N('(     )'), N(' ')];
-    if (q) runs.push(T(bersih([q.stimulus, q.pertanyaan].filter(Boolean).join(' ')) + ' '));
+    if (q) runs.push(T(tulis(teksSoal(q, { narasi })) + ' '));
     runs.push(N('('));
     huruf.forEach((k, i) => {
-      runs.push(N(`${HURUF_OPSI[k]}- `, merah(k === kunciHuruf)));
-      if (q) runs.push(T(bersih(q.opsi[k]) + (i < huruf.length - 1 ? ' ' : '')));
+      runs.push(N(`${HURUF_OPSI[k]}-`, merah(k === kunciHuruf)));   // seperti contoh: "أ-2 ب-3 ج-4", tanpa spasi setelah tanda hubung
+      if (q) runs.push(T(tulis(q.opsi[k]) + (i < huruf.length - 1 ? ' ' : '')));
       else if (i < huruf.length - 1) runs.push(N(' '));
     });
     runs.push(N(')'));
@@ -112,9 +121,9 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   };
   const isian = (no, q, garisLeader, tanya) => {
     const runs = [N(`${no}- `)];
-    if (q) runs.push(T(bersih(tanya ? akhiriTanya(bersih([q.stimulus, q.pertanyaan].filter(Boolean).join(' '))) : [q.stimulus, q.pertanyaan].filter(Boolean).join(' '))));
+    if (q) { const soal = tulis(teksSoal(q, { narasi })); runs.push(T(tanya ? akhiriTanya(soal) : soal)); }
     else if (tanya) runs.push(N(' ؟'));
-    if (kunci && q) { const j = jawabanKunci(q).teks; if (j) runs.push(N(' '), T(bersih(j), { color: MERAH })); }
+    if (kunci && q) { const j = tulis(jawabanKunci(q).teks); if (j) runs.push(N(' '), T(j, { color: MERAH })); }
     runs.push(new TextRun({ children: [new Tab()], font: AR, size: 32, rightToLeft: true }));
     if (kunci) runs.push(N(q ? rujukanHalaman(q) : 'ص', { color: MERAH }));
     return P(runs, TAB(garisLeader));

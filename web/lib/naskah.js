@@ -47,6 +47,9 @@ export const META_AWAL = Object.freeze({
   baris1: 'بالمدرسة الدينية السلفية المعارف',
   baris2: 'بمعهد شيخنا محمد خليل بغكالان',
   penanda: '(* L@b I *)',
+  ejaan: 'alqolam', // ejaan huruf Pegon: 'alqolam' (ڤ ڬ ڠ) atau 'klasik' (ف غ ك)
+  pegon: true,    // teks soal ditulis Pegon (bukan Latin) di berkas ekspor; isian di bank soal tetap Latin
+  narasi: false,  // template hanya satu kalimat soal per nomor; narasi/stimulus tidak dicetak kecuali dinyalakan
 });
 
 export const bagianDari = (q) => {
@@ -55,6 +58,32 @@ export const bagianDari = (q) => {
 };
 
 const potong = (s, n = 70) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+
+/* ---------- Ringkas sesuai contoh template ----------
+ * Contoh template (FIQH.docx): satu kalimat soal per nomor, satu sampai dua baris, tiga opsi di dalam kurung satu baris.
+ * Batas ini hanya memberi catatan; isi soal tidak pernah dipotong otomatis. */
+export const BATAS_SOAL = 150;   // karakter kalimat soal (Latin) yang masih sebaris-dua baris di template
+export const BATAS_OPSI = 40;    // karakter satu opsi pilihan agar tiga opsi tetap muat dalam kurung satu baris
+
+/** Kalimat soal yang dicetak: hanya pertanyaan (narasi ikut dicetak bila `narasi` dinyalakan). */
+export const teksSoal = (q, { narasi = false } = {}) => [narasi ? q && q.stimulus : '', q && q.pertanyaan].map((x) => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+
+/** Kata yang diragukan mesin Pegon pada semua teks yang akan dicetak (soal, opsi, dan jawaban naskah kunci), tanpa duplikat. */
+export function kataRagu(naskah, ubah, { narasi = false } = {}) {
+  if (typeof ubah !== 'function' || !naskah) return [];
+  const lihat = new Map();
+  const periksa = (t) => {
+    const r = t ? ubah(String(t)) : null;
+    for (const d of (r && r.details) || []) if (d.flagged && !lihat.has(d.latin)) lihat.set(d.latin, d.note || 'perlu diperiksa');
+  };
+  for (const bg of naskah.bagian) for (const { q } of bg.butir) {
+    if (!q) continue;
+    periksa(teksSoal(q, { narasi }));
+    if (bg.kode === 'a') for (const k of opsiTerpakai(q)) periksa((q.opsi || {})[k]);
+    else periksa(jawabanKunci(q).teks);
+  }
+  return [...lihat].map(([kata, catatan]) => ({ kata, catatan }));
+}
 
 /**
  * Menempatkan soal terpilih ke nomor-nomor template. Urutan soal dipertahankan; soal yang bentuknya tidak ada di template,
@@ -132,19 +161,24 @@ export function ringkasDawr(dawr) {
 }
 
 /** Catatan (teks) untuk soal yang sedang disusun, bila diekspor ke template. Daftar kosong berarti soal sudah sesuai. */
-export function catatanTemplate(q, dawr = 1) {
+export function catatanTemplate(q, dawr = 1, { narasi = false } = {}) {
   const kode = bagianDari(q); const c = [];
   if (!kode) return ['Bentuk Benar–Salah tidak ada di template IMDA. Pilih Pilihan ganda, Lanjutan, Isian, atau Uraian agar soal ini masuk naskah.'];
   const bg = ringkasBagian(dawr, kode);
-  if (BAGIAN[kode].bentuk.some((x) => ['pilgan', 'lanjutan'].includes(x))) {
+  const pilihan = BAGIAN[kode].bentuk.some((x) => ['pilgan', 'lanjutan'].includes(x));
+  if (pilihan) {
     const n = opsiTerpakai(q).length;
     if (n > OPSI_ASLI) c.push(`Template memuat ${OPSI_ASLI} opsi (أ ب ج); soal ini punya ${n}. Semua opsi tetap dicetak, tetapi baris soal jadi lebih panjang dari template.`);
     else if (n > 0 && n < OPSI_ASLI) c.push(`Template memuat ${OPSI_ASLI} opsi (أ ب ج); baru ${n} yang terisi.`);
+    const panjangOpsi = opsiTerpakai(q).filter((k) => String((q.opsi || {})[k] || '').length > BATAS_OPSI).length;
+    if (panjangOpsi) c.push(`${panjangOpsi} opsi lebih dari ${BATAS_OPSI} karakter; di template opsi berupa kata atau frasa pendek dalam satu baris. Pertimbangkan meringkas.`);
   }
   const stim = String((q && q.stimulus) || '').trim();
-  if (stim) c.push('Template hanya punya satu kalimat soal per nomor. Narasi/stimulus akan dicetak di depan kalimat soal pada baris yang sama.');
-  const panjang = (stim + ' ' + String((q && q.pertanyaan) || '')).trim().length;
-  if (panjang > 260) c.push(`Kalimat soal ±${panjang} karakter; di template aslinya satu sampai dua baris. Pertimbangkan meringkas.`);
+  if (stim) c.push(narasi
+    ? 'Template hanya punya satu kalimat soal per nomor. Narasi/stimulus akan dicetak di depan kalimat soal pada baris yang sama.'
+    : 'Template hanya punya satu kalimat soal per nomor: narasi/stimulus tidak dicetak di naskah. Pindahkan hal penting ke kalimat soal, atau nyalakan “Sertakan narasi” di tab Export.');
+  const panjang = teksSoal(q, { narasi }).length;
+  if (panjang > BATAS_SOAL) c.push(`Kalimat soal ±${panjang} karakter; di template aslinya satu sampai dua baris (sekitar ${BATAS_SOAL} karakter). Pertimbangkan meringkas.`);
   if (!String((q && q.hal) || '').trim()) c.push('Halaman kitab (ص) belum diisi: kolom ص di naskah kunci akan kosong.');
   if (['isian', 'uraian'].includes(bentukDari(q)) && !kunciTeks(q)) c.push('Jawaban belum diisi: naskah kunci memuat jawaban ini di samping nomor.');
   return c.map((t) => `Bagian ${bg.huruf}: ${t}`);

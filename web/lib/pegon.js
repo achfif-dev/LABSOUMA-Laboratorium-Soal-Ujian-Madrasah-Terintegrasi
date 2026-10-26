@@ -691,6 +691,26 @@ export const kamus = {
 
 export { convertText, escapeHtml };
 
+/* ---------- Ejaan huruf ----------
+ * 'alqolam' (bawaan): standar al-Qolam '24 dengan huruf bertitik ڤ ڬ ڠ چ پ.
+ * 'klasik': huruf Arab biasa seperti pada contoh naskah madrasah (FIQH.docx):
+ *   p/v = ف, c = ج, k = ك (sudah ك di kedua ejaan), g = ك (juga = جوكا), ng = غ (orang = اوراغ), ngg = غك (bertanggung = برتغكوغ),
+ *   ny dan -nya = ني / نيا (tanya = تانيا).
+ * Diterapkan sebagai pemetaan huruf pada hasil mesin, sehingga aturan lain (kamus, vokal, serapan Arab) sama persis. */
+export const EJAAN = Object.freeze({ alqolam: 'Al-Qolam \'24 (ڤ ڬ ڠ چ پ)', klasik: 'Klasik (ف غ ك ج)' });
+const PETA_KLASIK = { 'ڤ': 'ف', 'ڬ': 'ك', 'ڠ': 'غ', 'چ': 'ج', 'پ': 'ني' };
+export const ejaanSah = (v) => (Object.hasOwn(EJAAN, v) ? v : 'alqolam');
+export const ubahEjaan = (teks, ejaan) => {
+  const t = String(teks == null ? '' : teks);
+  return ejaanSah(ejaan) === 'klasik' ? t.replace(/ڠڬ/g, 'غك').replace(/[ڤڬڠچپ]/g, (c) => PETA_KLASIK[c]) : t;
+};
+/** Seperti convertText, dengan pilihan ejaan huruf. Hasil (pegon, html, details) berbentuk sama. */
+export function convertTextEjaan(text, ejaan = 'alqolam') {
+  const r = convertText(text);
+  if (ejaanSah(ejaan) === 'alqolam') return r;
+  return { ...r, pegon: ubahEjaan(r.pegon, ejaan), html: ubahEjaan(r.html, ejaan), details: r.details.map((d) => ({ ...d, pegon: ubahEjaan(d.pegon, ejaan) })) };
+}
+
 /** Dari catatan mesin pada kata bersorot: perbaikan apa yang bisa dilakukan pengguna lewat kamus? 'arab' | 'e' | null. */
 export function jenisPerbaikan(note) {
   const n = String(note || '');
