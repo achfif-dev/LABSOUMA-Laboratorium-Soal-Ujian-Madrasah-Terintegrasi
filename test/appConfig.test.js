@@ -149,3 +149,14 @@ test('katalog kitab: tautan hanya https di situs kitab yang diizinkan', () => {
   assert.equal(ke('https://shamela.ws.evil.com/book/1'), '');
   assert.equal(ke(undefined), '');
 });
+
+test('mapel: nama Arab bawaan terisi, divalidasi huruf Arab, dan konfigurasi lama tanpa namaArab tetap lolos', () => {
+  const bawaan = sanitizeAppConfig(salin(DEFAULT_APP_CONFIG));
+  assert.equal(bawaan.mapel.find((m) => m.nama === 'Fiqih').namaArab, 'فقه');
+  assert.equal(bawaan.mapel.find((m) => m.nama === 'Lainnya').namaArab, '');
+  const c = salin(DEFAULT_APP_CONFIG); c.mapel = [{ nama: 'Falak', namaArab: ' علم الفلك ', tingkat: ['Aliyah'] }, { nama: 'Lama' }];
+  const o = sanitizeAppConfig(c);
+  assert.equal(o.mapel[0].namaArab, 'علم الفلك'); assert.equal(o.mapel[1].namaArab, ''); // tanpa field = kosong, bukan galat
+  c.mapel[0].namaArab = 'Falak';
+  assert.throws(() => sanitizeAppConfig(c), (e) => e.status === 422 && /huruf Arab/.test(e.message));
+});

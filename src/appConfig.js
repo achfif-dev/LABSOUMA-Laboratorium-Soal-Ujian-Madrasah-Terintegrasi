@@ -8,7 +8,7 @@
 // Kelas (versi 3): kelas adalah data tersendiri milik tingkat, dipakai soal (soal.kelas) dan penempatan kitab. Sistem ujian (semester 4 kali atau
 // catur wulan 3 kali, nama dan periodenya bisa diubah) dipilih per tingkat; kode periode (soal.periode) bersifat tetap, labelnya boleh diganti.
 // Penempatan kitab (kitab.penempatan) menentukan kitab itu dipakai di kelas dan periode ujian mana; aturannya ada di web/lib/ujian.js.
-// Nama Arab: kitab punya `namaArab` dan `pengarangArab`; tingkat punya `labelArab`. Semuanya opsional dan harus berisi huruf Arab.
+// Nama Arab: kitab punya `namaArab` dan `pengarangArab`; mapel punya `namaArab`; tingkat punya `labelArab`. Semuanya opsional dan harus berisi huruf Arab.
 import { ApiError, cleanLine, daftarkanTingkat } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { DEFAULT_HOSTS, hostAllowed, normalisasiUrl } from './kitabFetch.js';
@@ -24,7 +24,14 @@ const HURUF_ARAB = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-
 
 const MI = 'Ibtidaiyah'; const MTS = 'Tsanawiyah'; const MA = 'Aliyah';
 const SEMUA = [MI, MTS, MA];
-const M = (nama, tingkat = SEMUA) => ({ nama, tingkat, aktif: true });
+// Nama Arab mapel bawaan (dicetak di kop naskah ujian). Usulan awal, mohon ditinjau ustadz/guru mapel lalu sesuaikan di menu Konfigurasi.
+// Daftar yang sama dipakai sebagai cadangan untuk konfigurasi lama di web/lib/naskahMeta.js (dijaga sama oleh tes).
+const ARAB_MAPEL = {
+  'Fiqih': 'فقه', 'Akidah': 'عقيدة', 'Akhlak': 'أخلاق', 'Tarikh (SKI)': 'تاريخ الإسلام', "Qur'an Hadits": 'القرآن والحديث', 'Bahasa Arab': 'اللغة العربية',
+  'Tajwid': 'تجويد', 'Nahwu': 'نحو', 'Sharaf': 'صرف', 'Hadits': 'حديث', 'Ilmu Hadits': 'مصطلح الحديث', 'Tafsir': 'تفسير', 'Ilmu Tafsir': 'علوم التفسير',
+  'Ushul Fiqih': 'أصول الفقه', 'Faraidh': 'فرائض', 'Ilmu Kalam': 'علم الكلام', 'Akhlak Tasawuf': 'الأخلاق والتصوف', 'Balaghah': 'بلاغة', 'Mantiq': 'منطق',
+};
+const M = (nama, tingkat = SEMUA) => ({ nama, namaArab: ARAB_MAPEL[nama] || '', tingkat, aktif: true });
 const K = (nama, pengarang, mapel, tingkat) => ({ nama, pengarang, mapel, tingkat, aktif: true });
 
 // Nama Arab kitab bawaan: [judul Arab, pengarang Arab]. Usulan awal, mohon ditinjau ustadz/guru mapel lalu sesuaikan di menu Konfigurasi.
@@ -274,7 +281,7 @@ export function sanitizeAppConfig(input) {
     if (dilihat.has(nama.toLowerCase())) throw bad(`Mata pelajaran "${nama}" tercatat dua kali.`);
     dilihat.add(nama.toLowerCase());
     const tk = subsetTingkat(m.tingkat);
-    return { nama, tingkat: tk.length ? tk : [...semuaNama], aktif: m.aktif !== false };
+    return { nama, namaArab: teksArab(arabSerupa(m.namaArab), BATAS.mapel, `Nama Arab mapel "${nama}"`), tingkat: tk.length ? tk : [...semuaNama], aktif: m.aktif !== false };
   });
   if (!mapel.some((m) => m.aktif)) throw bad('Minimal satu mata pelajaran harus aktif.');
   if (mapel.length > 60) throw bad('Mata pelajaran maksimal 60.');

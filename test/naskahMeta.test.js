@@ -100,3 +100,12 @@ test('nama berkas naskah memakai nama Latin mapel dari Konfigurasi, sehingga map
   assert.equal(namaBerkasNaskah(pilihMapel(cfg, { ...META_AWAL }, "Qur'an Hadits"), false), 'naskah-ujian-dawr-1-qur-an-hadits.docx');
   assert.equal(namaBerkasNaskah({ dawr: 4, mapel: 'فقه' }, false), 'naskah-ujian-dawr-4.docx'); // tanpa kunci Latin: perilaku lama
 });
+
+test('nama Arab mapel bawaan di Konfigurasi sama dengan cadangan di naskahMeta (tidak boleh bergeser)', () => {
+  for (const m of cfg.mapel) assert.equal(m.namaArab, arabMapel({ mapel: [{ nama: m.nama }] }, m.nama), m.nama);
+});
+
+test('kamus cadangan di naskahMeta sama dengan nama Arab mapel bawaan di appConfig (dua daftar tidak boleh berbeda)', () => {
+  const tanpaArab = { mapel: cfg.mapel.map(({ namaArab, ...m }) => m) }; // meniru konfigurasi lama yang belum punya namaArab
+  for (const m of cfg.mapel) assert.equal(arabMapel(tanpaArab, m.nama), m.namaArab, m.nama);
+});

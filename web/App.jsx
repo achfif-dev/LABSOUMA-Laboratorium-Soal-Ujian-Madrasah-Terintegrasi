@@ -2216,7 +2216,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
     const d = {
       sistemUjian: SU(a.d.sistemUjian) || SU(Uj.daftarSistem(cfg)) || [],
       tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), sistemUjian: S(o(x).sistemUjian), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
-      mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
+      mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
       kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), penempatan: P(o(x).penempatan), aktif: B(o(x).aktif), _k: kunci(x) })),
     };
     return { d, massal: S(a.massal).slice(0, 200000), basi: a.baseSig !== sigCfg(cfg), maks };
@@ -2354,7 +2354,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
     return { ...x, mapel: x.mapel.map((m) => (m._k === k ? { ...m, ...patch } : m)), kitab: ganti === null ? x.kitab : x.kitab.map((b) => (b.mapel === ganti ? { ...b, mapel: patch.nama } : b)) };
   });
   const hapusM = (k) => setD((x) => ({ ...x, mapel: x.mapel.filter((m) => m._k !== k) }));
-  const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current }] }));
+  const tambahM = () => setD((x) => ({ ...x, mapel: [...x.mapel, { nama: '', namaArab: '', tingkat: [...namaTingkat], aktif: true, _k: ++seq.current }] }));
   const setK = (k, patch) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => (b._k === k ? { ...b, ...patch } : b)) }));
   const hapusK = (k) => setD((x) => ({ ...x, kitab: x.kitab.filter((b) => b._k !== k) }));
   const kitabBaru = (o = {}) => ({ nama: '', namaArab: '', pengarang: '', pengarangArab: '', mapel: '', tautan: '', tingkat: [...namaTingkat], penempatan: [], aktif: true, _k: ++seq.current, ...o });
@@ -2485,6 +2485,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
           {d.mapel.map((m) => (
             <div key={m._k} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-bg p-3">
               <input aria-label="Nama mata pelajaran" className="field min-w-[160px] flex-1" maxLength={60} placeholder="Nama mata pelajaran" value={m.nama} onChange={(e) => setM(m._k, { nama: e.target.value })} />
+              <input aria-label={'Nama Arab ' + (m.nama || 'mapel')} dir="rtl" lang="ar" className="field ar-input min-w-[120px] flex-1" maxLength={60} placeholder="الاسم بالعربية (mis. فقه)" value={m.namaArab || ''} onChange={(e) => setM(m._k, { namaArab: e.target.value })} />
               <TingkatChecks daftar={d.tingkat} value={m.tingkat} onChange={(v) => setM(m._k, { tingkat: v })} />
               <AktifCek checked={m.aktif} onChange={(v) => setM(m._k, { aktif: v })} />
               <button type="button" aria-label={'Hapus ' + (m.nama || 'mapel')} className="rounded-lg p-2 text-bad hover:bg-bad-bg" onClick={() => hapusM(m._k)}><Trash2 size={16} /></button>
