@@ -34,6 +34,9 @@
   .ar-sm { font-size: 1.35rem; line-height: 2.1; }
   /* Nama Arab (kitab, pengarang, tingkat) yang disisipkan di baris teks Latin: kecil, rata kanan-ke-kiri, terisolasi dari teks Latin di sekitarnya */
   .ar-nama { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; unicode-bidi: isolate; font-size: 1.2em; line-height: 1.7; color: var(--ink); }
+  /* Dropdown yang opsinya memuat teks Arab: huruf Latin tetap Plus Jakarta Sans, huruf Arab jatuh ke Amiri. */
+  .sel-ar { font-family: 'Plus Jakarta Sans', 'Amiri', 'Scheherazade New', 'Traditional Arabic', sans-serif; }
+  .sel-ar option { font-family: 'Plus Jakarta Sans', 'Amiri', 'Scheherazade New', 'Traditional Arabic', sans-serif; font-size: 1.05em; }
   .ar-input { font-family: 'Amiri', 'Scheherazade New', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 1.2rem; line-height: 1.8; }
   textarea.ar { resize: vertical; }
   .field { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
