@@ -6,6 +6,7 @@ import * as CD from './lib/cadanganDrive.js';
 import * as DR from './lib/drive.js';
 import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
+import * as NM from './lib/naskahMeta.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -1479,9 +1480,22 @@ function Export({ all, toast }) {
   useDraftSync('exportPrefs', ePref, fmt === EAWAL.fmt && picked === null);
   const [busy, setBusy] = useState(false);
   // Kop dan pengaturan naskah ujian IMDA (hanya dipakai bila format Naskah dipilih); disimpan sebagai draf agar tidak diketik ulang.
-  const [nm, setNm] = useState(() => bacaPref('naskahMeta', { ...NK.META_AWAL, dawr: 1 }));
-  useDraftSync('naskahMeta', nm, JSON.stringify(nm) === JSON.stringify({ ...NK.META_AWAL, dawr: 1 }));
+  // Tahun ajaran awal = tahun ajaran hijriah yang sedang berjalan (bukan angka tetap); pilihan tingkat/kelas/mapel mengikuti filter di atas.
+  const nmAwal = useMemo(() => ({ ...NK.META_AWAL, dawr: 1, tahun: NM.tahunAjaranBawaan(new Date(), NK.META_AWAL.tahun) }), []);
+  const [nm, setNm] = useState(() => { const d = bacaPref('naskahMeta', nmAwal); return d.tingkatKey ? d : NM.selaraskanDenganFilter(cfg, d, f); });
+  useDraftSync('naskahMeta', nm, JSON.stringify(nm) === JSON.stringify(nmAwal));
   const setN = (k, v) => setNm((x) => ({ ...x, [k]: v }));
+  // Filter Mapel/Tingkat/Kelas di atas diteruskan ke pengaturan naskah hanya saat filter berubah; pilihan manual di form tidak ditimpa tiap render.
+  const fSebelum = useRef(f);
+  useEffect(() => {
+    const p = fSebelum.current; fSebelum.current = f;
+    if (p.tingkat === f.tingkat && p.kelas === f.kelas && p.mapel === f.mapel) return;
+    setNm((x) => NM.selaraskanDenganFilter(cfg, x, f));
+  }, [f, cfg]);
+  const opsiTahun = useMemo(() => NM.opsiTahunAjaran(new Date(), nm.tahun), [nm.tahun]);
+  const opsiTingkat = NM.opsiTingkat(cfg, nm.tingkatKey);
+  const opsiKelas = NM.opsiKelas(Uj.kelasUntuk(cfg, nm.tingkatKey), nm.kelasKey);
+  const opsiMapel = NM.opsiMapel(cfg, nm.tingkatKey, nm.mapelKey);
 
   const saveFile = (filename, data) => {
     const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/plain;charset=utf-8' });
@@ -1601,11 +1615,23 @@ function Export({ all, toast }) {
                   <Select id="nk-dawr" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dawrSah(v))}>
                     {NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({d.bagian.map((b) => `${b.n}×${b.nilai}`).join(' + ')})</option>)}
                   </Select></div>
-                <div><Label htmlFor="nk-mapel" hint="(Arab, mis. فقه / حديث)">Mata pelajaran</Label>
-                  <input id="nk-mapel" className="field" dir="rtl" lang="ar" value={nm.mapel} maxLength={40} onChange={(e) => setN('mapel', e.target.value)} /></div>
-                <div><Label htmlFor="nk-kelas">Kelas</Label><input id="nk-kelas" className="field" dir="rtl" lang="ar" value={nm.kelas} maxLength={30} onChange={(e) => setN('kelas', e.target.value)} /></div>
-                <div><Label htmlFor="nk-tingkat">Tingkat</Label><input id="nk-tingkat" className="field" dir="rtl" lang="ar" value={nm.tingkat} maxLength={30} onChange={(e) => setN('tingkat', e.target.value)} /></div>
-                <div><Label htmlFor="nk-tahun">Tahun ajaran (hijriah)</Label><input id="nk-tahun" className="field" dir="rtl" lang="ar" value={nm.tahun} maxLength={30} onChange={(e) => setN('tahun', e.target.value)} /></div>
+                <div><Label htmlFor="nk-tingkat-pilih">Tingkat</Label>
+                  <Select id="nk-tingkat-pilih" value={nm.tingkatKey} onChange={(v) => setNm((x) => NM.pilihTingkat(cfg, x, v))}>
+                    <option value="">Pilih dari Konfigurasi</option>{opsiTingkat.map((o) => <option key={o.kunci} value={o.kunci}>{o.label}</option>)}</Select>
+                  <input id="nk-tingkat" aria-label="Teks Arab tingkat di naskah" className="field mt-2" dir="rtl" lang="ar" value={nm.tingkat} maxLength={30} onChange={(e) => setN('tingkat', e.target.value)} /></div>
+                <div><Label htmlFor="nk-kelas-pilih">Kelas</Label>
+                  <Select id="nk-kelas-pilih" value={nm.kelasKey} onChange={(v) => setNm((x) => NM.pilihKelas(cfg, x, v))}>
+                    <option value="">{nm.tingkatKey ? 'Pilih dari Konfigurasi' : 'Pilih tingkat dulu'}</option>{opsiKelas.map((o) => <option key={o.kunci} value={o.kunci}>{o.kunci}</option>)}</Select>
+                  <input id="nk-kelas" aria-label="Teks Arab kelas di naskah" className="field mt-2" dir="rtl" lang="ar" value={nm.kelas} maxLength={30} onChange={(e) => setN('kelas', e.target.value)} /></div>
+                <div><Label htmlFor="nk-mapel-pilih" hint="(Arab, mis. فقه / حديث)">Mata pelajaran</Label>
+                  <Select id="nk-mapel-pilih" value={nm.mapelKey} onChange={(v) => setNm((x) => NM.pilihMapel(cfg, x, v))}>
+                    <option value="">Pilih dari Konfigurasi</option>{opsiMapel.map((o) => <option key={o.kunci} value={o.kunci}>{o.kunci}</option>)}</Select>
+                  <input id="nk-mapel" aria-label="Teks Arab mata pelajaran di naskah" className="field mt-2" dir="rtl" lang="ar" value={nm.mapel} maxLength={40} onChange={(e) => setN('mapel', e.target.value)} />
+                  {nm.mapelKey && !nm.mapel && <p role="status" className="mt-1 text-xs text-warn">Belum ada nama Arab untuk “{nm.mapelKey}”. Ketik di kolom di atas.</p>}</div>
+                <div><Label htmlFor="nk-tahun">Tahun ajaran (hijriah)</Label>
+                  {opsiTahun.length > 1
+                    ? <Select id="nk-tahun" value={nm.tahun} onChange={(v) => setN('tahun', v)}>{opsiTahun.map((t) => <option key={t} value={t}>{t}</option>)}</Select>
+                    : <input id="nk-tahun" className="field" dir="rtl" lang="ar" value={nm.tahun} maxLength={30} onChange={(e) => setN('tahun', e.target.value)} />}</div>
                 <div><Label htmlFor="nk-penanda" hint="(kaki halaman)">Penanda</Label><input id="nk-penanda" className="field" dir="ltr" value={nm.penanda} maxLength={40} onChange={(e) => setN('penanda', e.target.value)} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="nk-b1">Baris kop 1 (madrasah)</Label><input id="nk-b1" className="field" dir="rtl" lang="ar" value={nm.baris1} maxLength={80} onChange={(e) => setN('baris1', e.target.value)} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="nk-b2">Baris kop 2 (lembaga)</Label><input id="nk-b2" className="field" dir="rtl" lang="ar" value={nm.baris2} maxLength={80} onChange={(e) => setN('baris2', e.target.value)} /></div>

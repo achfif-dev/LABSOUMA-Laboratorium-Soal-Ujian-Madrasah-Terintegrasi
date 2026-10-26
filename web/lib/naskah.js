@@ -44,6 +44,8 @@ export const judulDawr = (dawr) => `الامتحان في الدور ${PRESET_DA
 export const META_AWAL = Object.freeze({
   dawr: 1, kelas: 'الأول', tingkat: 'الثانوي', mapel: '',
   tahun: '1446 – 1447',
+  // Pilihan dropdown di tab Export (kunci dari Konfigurasi). Teks Arab di atas yang dicetak; kunci hanya untuk menyambung dropdown dan nama berkas.
+  tingkatKey: '', kelasKey: '', mapelKey: '', mapelLatin: '',
   baris1: 'بالمدرسة الدينية السلفية المعارف',
   baris2: 'بمعهد شيخنا محمد خليل بغكالان',
   penanda: '(* L@b I *)',
@@ -132,10 +134,11 @@ export function jawabanKunci(q) {
 /** Isian dan uraian: kalimat tanya diberi tanda tanya bila belum diakhiri tanda baca. */
 export const akhiriTanya = (s) => { const t = String(s || '').trim(); return !t || /[?؟!.:…]$/.test(t) ? t : t + ' ؟'; };
 
-/** Nama berkas unduhan, mis. "naskah-ujian-dawr-2-fiqh.docx"; teks Arab/Latin dibersihkan agar aman di semua sistem berkas. */
+/** Nama berkas unduhan, mis. "naskah-ujian-dawr-2-fiqh.docx"; teks Arab/Latin dibersihkan agar aman di semua sistem berkas.
+ *  Mapel Arab tidak masuk nama berkas, jadi nama Latin dari Konfigurasi (`mapelLatin`) dipakai bila ada agar naskah berbagai mapel tidak bertabrakan. */
 export function namaBerkasNaskah(meta, kunci) {
   const m = { ...META_AWAL, ...(meta || {}) };
-  const mapel = String(m.mapel || '').normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+  const mapel = String(m.mapelLatin || m.mapel || '').normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 30);
   const latin = /^[a-z0-9-]+$/i.test(mapel) ? mapel.toLowerCase() : '';
   return `naskah-ujian-dawr-${dawrSah(m.dawr)}${latin ? '-' + latin : ''}${kunci ? '-kunci' : ''}.docx`;
 }
