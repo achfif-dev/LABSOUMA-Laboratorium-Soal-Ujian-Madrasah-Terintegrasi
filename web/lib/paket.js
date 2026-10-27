@@ -57,6 +57,47 @@ export function kelompokPaket(tampil, semua = tampil) {
   return { paket, lepas };
 }
 
+// Rujukan ke "teks/kitab" di dalam soal ("menurut kitab", "berdasarkan teks kitab", "pada bacaan di atas", "kutipan berikut"). Soal naskah ujian berdiri sendiri.
+const KATA_SUMBER = '(?:kitab|kitabnya|teks|nash|nas|naskah|matan|syarah|syarh|kutipan|bacaan|paragraf|referensi|penjelasan)';
+const PENGANTAR = '(?:menurut|berdasarkan|berdasar|sesuai|sebagaimana|merujuk|mengacu|bersumber|dalam|pada|di\\s+dalam)';
+const RE_RUJUKAN = new RegExp(`(?:^|[\\s(,;:])${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?![\\p{L}])|(?:^|[\\s(,;:])${KATA_SUMBER}\\s+(?:di\\s+atas|berikut|tersebut|ini|itu)(?![\\p{L}])|disebutkan\\s+di\\s+atas|(?:^|[\\s(,;:])menurut\\s+penulis\\s+kitab|(?:^|[\\s(,;:])menurut\\s+pengarang\\s+kitab`, 'iu');
+const RE_AWAL = new RegExp(`^\\s*${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?:\\s+[\\p{L}'’-]+){0,3}?\\s*[,:]\\s*`, 'iu');
+const RE_AKHIR = new RegExp(`\\s*,?\\s*${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?:\\s+[\\p{L}'’-]+){0,3}?\\s*(?=[?.!]|$)`, 'iu');
+export const adaRujukanTeks = (t) => RE_RUJUKAN.test(String(t || ''));
+/** Membuang klausa rujukan di awal atau akhir kalimat soal. Bila masih tersisa (di tengah kalimat), pemanggil menolak butirnya. */
+export function tanpaRujukanTeks(t) {
+  let x = String(t || '');
+  for (let i = 0; i < 2 && adaRujukanTeks(x); i++) {
+    x = x.replace(RE_AWAL, '').replace(RE_AKHIR, '').replace(/\s+([?!,:])/g, '$1').replace(/\s+\.(?!\.)/g, '.').trim();
+    x = x.charAt(0).toUpperCase() + x.slice(1);
+  }
+  return x;
+}
+
+
+export const LABEL_KUTIPAN = 'Kutipan kitab:';
+
+/** Pembahasan butir paket = baris "Kutipan kitab: <Arab>" (bila ada) + satu baris kosong + penjelasan. Dipecah/digabung agar kutipan bisa disunting terpisah. */
+export function pecahPembahasan(p) {
+  const x = String(p || '');
+  const m = /^\s*Kutipan kitab:[ \t]*(.*)(?:\r?\n\s*\r?\n|\r?\n|$)/.exec(x);
+  return m ? { kutipan: m[1].replace(/\s+/g, ' ').trim(), isi: x.slice(m[0].length).trim() } : { kutipan: '', isi: x.trim() };
+}
+export const gabungPembahasan = (kutipan, isi) => (String(kutipan || '').trim() ? `${LABEL_KUTIPAN} ${String(kutipan).replace(/\s+/g, ' ').trim()}\n\n${String(isi || '').trim()}` : String(isi || '').trim());
+
+/**
+ * Status kutipan terhadap teks sumber: 'cocok' | 'mirip' | 'tidak_cocok' | 'kosong'. `kutipan` hanya terisi bila cocok atau mirip.
+ * `periksa` = periksaKutipan (src/kutipan.js di server, window.Kutipan di browser).
+ */
+export function statusKutipan(periksa, mentah, teks) {
+  const k = String(mentah || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  if (!k) return { status: 'kosong', kutipan: '' };
+  const r = periksa({ pembahasan: k }, teks);
+  const cocok = r.ringkas.total > 0 && r.ringkas.tidak_ditemukan === 0;
+  const status = r.ringkas.total === 0 ? 'kosong' : (!cocok ? 'tidak_cocok' : (r.status === 'lolos' ? 'cocok' : 'mirip'));
+  return { status, kutipan: cocok ? k : '' };
+}
+
 export const MAKS_SEGMEN = 6000;        // batas satu panggilan AI (sama dengan MAX_TEKS di server)
 export const MAKS_MATERI = 60000;       // batas total materi satu paket (±10 segmen)
 export const MAKS_BUTIR_PANGGILAN = 6;  // butir soal per panggilan AI (keluaran ±250 token per butir: aman dalam anggaran 45 detik fungsi Vercel)
