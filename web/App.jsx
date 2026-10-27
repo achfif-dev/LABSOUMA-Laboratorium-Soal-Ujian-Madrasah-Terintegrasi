@@ -3280,31 +3280,57 @@ function EditButirPaket({ r, onSimpan, onBatal }) {
   );
 }
 
+// Pulihkan isian dan hasil AI Paket Dawr yang belum disimpan (muat ulang, tab tertutup, ponsel menutup tab). Hasil AI memakai kuota harian,
+// jadi tidak boleh hilang diam-diam. Setiap nilai dibangun ulang dari bidang yang dikenal dan bertipe benar; data rusak = dianggap tidak ada.
+function pulihPaket() {
+  const d = Draft.read('paketDawr'); if (!d || typeof d !== 'object') return {};
+  const S = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
+  const N = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : undefined);
+  const o = { tingkat: S(d.tingkat, 40), mapel: S(d.mapel, 60), kelas: S(d.kelas, 20), periode: S(d.periode, 20), nama: S(d.nama, 120), juz: S(d.juz, 20), halMulai: S(d.halMulai, 20), fokus: S(d.fokus, 300), teks: S(d.teks, 600000), lanjutan: N(d.lanjutan) };
+  if (Number.isInteger(d.dawr)) o.dawr = NK.dawrSah(d.dawr);
+  if (d.komposisi && typeof d.komposisi === 'object' && ['L1', 'L2', 'L3'].every((k) => N(d.komposisi[k]) !== undefined)) o.komposisi = { L1: N(d.komposisi.L1), L2: N(d.komposisi.L2), L3: N(d.komposisi.L3) };
+  if (Array.isArray(d.foto)) o.foto = d.foto.filter((f) => f && typeof f.id === 'string' && typeof f.teks === 'string').slice(0, 60)
+    .map((f) => ({ id: f.id.slice(0, 60), nama: S(f.nama, 120) || '', teks: f.teks.slice(0, 60000), hal: S(f.hal, 20) || '', kualitas: S(f.kualitas, 20) || '', ragu: Array.isArray(f.ragu) ? f.ragu.filter((r) => r && typeof r.kata === 'string').slice(0, 50) : [] }));
+  const segs = Array.isArray(d.segs) ? d.segs.map((x) => (typeof x === 'string' ? x : '')) : [];
+  if (Array.isArray(d.hasil)) o.hasil = d.hasil.filter((x) => x && typeof x.uid === 'string' && typeof x.bagian === 'string' && x.soal && typeof x.soal.pertanyaan === 'string' && x.soal.opsi && typeof x.soal.opsi === 'object').slice(0, 60)
+    .map((x) => ({ uid: x.uid.slice(0, 80), bagian: x.bagian, soal: x.soal, segmenTeks: segs[x.si] || '', segmenHal: S(x.segmenHal, 20) || '', kutipanStatus: S(x.kutipanStatus, 20) || 'kosong', sikap: x.sikap && typeof x.sikap === 'object' ? x.sikap : null, catatan: Array.isArray(x.catatan) ? x.catatan.filter((c) => typeof c === 'string') : [], model: S(x.model, 60) || '', diedit: x.diedit === true }));
+  return o;
+}
+
 function PaketDawr({ toast, onSimpan }) {
   const cfg = useCfg();
-  const [dawr, setDawr] = useState(() => NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
-  const [tingkat, setTingkat] = useState(() => (tingkatAktif(cfg)[0] || {}).nama || 'Aliyah');
-  const [mapel, setMapel] = useState('Fiqih');
-  const [kelas, setKelas] = useState('');
-  const [nama, setNama] = useState('');
-  const [juz, setJuz] = useState('');
-  const [halMulai, setHalMulai] = useState('');
-  const [periode, setPeriode] = useState('');
-  const [fokus, setFokus] = useState('');
-  const [teks, setTeks] = useState('');
-  const [foto, setFoto] = useState([]);              // [{id, nama, teks, hal, kualitas, ragu}] satu foto = satu halaman
+  const awal = useRef(null); if (awal.current === null) awal.current = pulihPaket();
+  const A0 = awal.current;
+  const [dawr, setDawr] = useState(() => (A0.dawr !== undefined ? A0.dawr : NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr)));
+  const [tingkat, setTingkat] = useState(() => A0.tingkat || (tingkatAktif(cfg)[0] || {}).nama || 'Aliyah');
+  const [mapel, setMapel] = useState(A0.mapel || 'Fiqih');
+  const [kelas, setKelas] = useState(A0.kelas || '');
+  const [nama, setNama] = useState(A0.nama || '');
+  const [juz, setJuz] = useState(A0.juz || '');
+  const [halMulai, setHalMulai] = useState(A0.halMulai || '');
+  const [periode, setPeriode] = useState(A0.periode || '');
+  const [fokus, setFokus] = useState(A0.fokus || '');
+  const [teks, setTeks] = useState(A0.teks || '');
+  const [foto, setFoto] = useState(A0.foto || []);              // [{id, nama, teks, hal, kualitas, ragu}] satu foto = satu halaman
   const [fotoStatus, setFotoStatus] = useState('');
-  const [komposisi, setKomposisi] = useState({ L1: 30, L2: 50, L3: 20 });
-  const [lanjutan, setLanjutan] = useState(40);
+  const [komposisi, setKomposisi] = useState(A0.komposisi || { L1: 30, L2: 50, L3: 20 });
+  const [lanjutan, setLanjutan] = useState(A0.lanjutan !== undefined ? A0.lanjutan : 40);
   const [jalan, setJalan] = useState(false);
   const [status, setStatus] = useState('');
-  const [hasil, setHasil] = useState([]);            // [{uid, bagian, soal, segmenTeks, segmenHal, kutipanStatus, sikap, catatan}]
+  const [hasil, setHasil] = useState(A0.hasil || []);            // [{uid, bagian, soal, segmenTeks, segmenHal, kutipanStatus, sikap, catatan}]
   const [kurang, setKurang] = useState([]);          // butir yang gagal dibuat setelah diulang sekali
   const [err, setErr] = useState(null);
   const [simpanBusy, setSimpanBusy] = useState(false);
   const [sunting, setSunting] = useState(null);      // uid butir yang sedang disunting
   const ctlRef = useRef(null);
   const fileRef = useRef(null); const galeriRef = useRef(null); const kameraRef = useRef(null);
+  // Teks segmen sama untuk banyak butir: disimpan sekali (segs) dan dirujuk lewat indeks, supaya draf tidak membengkak.
+  const rekam = useMemo(() => {
+    const segs = []; const idx = new Map();
+    const hs = hasil.map(({ segmenTeks, ...sisa }) => { let si = idx.get(segmenTeks); if (si === undefined) { si = segs.length; segs.push(segmenTeks || ''); idx.set(segmenTeks, si); } return { ...sisa, si }; });
+    return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, segs, hasil: hs };
+  }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, hasil]);
+  useDraftSync('paketDawr', rekam, !teks.trim() && !foto.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
 
   const tingkatOpsi = [...new Set(tingkatAktif(cfg).map((t) => t.nama).concat(tingkat))];
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, tingkat), mapel])];
@@ -3467,6 +3493,7 @@ function PaketDawr({ toast, onSimpan }) {
     <div className="space-y-4">
       <Section title="Paket Dawr (naskah IMDA utuh)" icon={Layers}>
         <p className="text-xs leading-relaxed text-mute">Tempel teks, unggah berkas, atau foto banyak halaman kitab. Materi boleh jauh lebih dari 6.000 karakter: aplikasi membaginya per segmen lalu menyusun semua soal satu Dawr sekaligus, tanpa narasi, tiga opsi, dan teks kitab rujukan tercatat untuk naskah kunci.</p>
+        <DraftNote names={['paketDawr']} className="mt-2" />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div><Label htmlFor="pk-dawr">Dawr</Label>
             <Select id="pk-dawr" value={String(dawr)} onChange={(v) => setDawr(NK.dawrSah(v))} disabled={jalan}>{NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({NK.ringkasDawr(d.dawr)})</option>)}</Select></div>
@@ -3602,7 +3629,7 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'paket', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
   });
   const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
