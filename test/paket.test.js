@@ -262,3 +262,22 @@ test('alihkanButir: butir segmen di luar cakupan dialihkan bergantian ke segmen 
   assert.equal(alihkanButir([], [0]).tanpaTempat.length, 0);
   assert.equal(alihkanButir([b(1)], [-1, 1.5, NaN, 1]).per.get(1).length, 1); // indeks tak sah diabaikan
 });
+
+test('tanpa rujukan "menurut kitab/teks" di soal: klausa di awal/akhir dibuang, sisanya ditolak untuk diulang, tokoh/mazhab tetap boleh', async () => {
+  const { tanpaRujukanTeks, adaRujukanTeks } = await import('../src/paketService.js');
+  assert.equal(tanpaRujukanTeks('Menurut kitab, apa hukum wudhu tanpa niat?'), 'Apa hukum wudhu tanpa niat?');
+  assert.equal(tanpaRujukanTeks('Apa hukum wudhu tanpa niat menurut teks kitab?'), 'Apa hukum wudhu tanpa niat?');
+  assert.equal(tanpaRujukanTeks('Berdasarkan teks kitab Safinatun Naja, berapa rukun wudhu?'), 'Berapa rukun wudhu?');
+  assert.equal(tanpaRujukanTeks('Dalam kitab ini, air mutlak adalah .....'), 'Air mutlak adalah .....'); // titik-titik isian utuh
+  assert.equal(tanpaRujukanTeks('Apa syarat sah salat pada bacaan di atas?'), 'Apa syarat sah salat?');
+  for (const ok of ['Menurut mazhab Syafii, apa hukum membaca basmalah?', 'Siapa pengarang kitab Safinatun Naja?', 'Air yang suci disebut .....']) assert.equal(adaRujukanTeks(ok), false, ok);
+  // Di tengah kalimat tidak bisa dibuang dengan aman: butir ditolak (masuk gagal, diulang sekali oleh aplikasi).
+  const tengah = { ...pil(1), pertanyaan: 'Apa hukum minum air kencing, menurut isi kitab, bagi orang sehat?' };
+  assert.throws(() => normalisasiButir(tengah, { bentuk: 'pilgan', level: 'L1' }, teksArab(300)), /merujuk/);
+  const opsiRujuk = { ...pil(1), pilihan_a: 'Menurut kitab, tujuh' };
+  assert.throws(() => normalisasiButir(opsiRujuk, { bentuk: 'pilgan', level: 'L1' }, teksArab(300)), /opsi merujuk/);
+  // Aturan masuk prompt sistem.
+  const c = fake(tool('serahkan_paket', { butir: [pil(1)] }));
+  await generatePaket(body([{ bentuk: 'pilgan', level: 'L1' }]), { client: c });
+  assert.match(c.calls[0].system, /TANPA RUJUKAN KE TEKS/);
+});

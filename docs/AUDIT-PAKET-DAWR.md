@@ -25,7 +25,8 @@ Permintaan: materi lebih dari 6.000 karakter (teks atau foto kitab), soal dibuat
 - `web/App.jsx`: tab **Paket Dawr** (teks, berkas `.txt .docx .pdf`, banyak foto yang bisa dikoreksi per halaman, komposisi L1:L2:L3, porsi "melanjutkan", ringkasan panggilan AI, tunggu otomatis bila kena batas per menit, tinjau dan hapus butir, simpan massal sebagai **Draft**).
 - Cakupan dari Konfigurasi: tab Paket Dawr memilih kelas, ujian, dan kitab (dari Konfigurasi). Cakupan kitab untuk kelas dan ujian itu (mis. "Thaharah – Puasa") dikirim ke AI sebagai batas materi; segmen yang seluruhnya di luar cakupan dilewati. Cakupan masih teks bebas (maks. 120 karakter), jadi AI mencocokkannya dengan judul bab di teks: **perkiraan**, periksa hasilnya. Aplikasi belum mengambil halaman kitab otomatis dari cakupan.
 - Butir dari segmen di luar cakupan **dialihkan** (`alihkanButir` di `web/lib/paket.js`) ke segmen yang terbukti memuat materi cakupan, bergantian, lalu ikut tahap ulang. Sebelumnya butir itu dibuang sehingga naskah Dawr bisa kurang nomor. Bila tidak ada satu pun segmen yang masuk cakupan, tampil pesan yang jelas dan tidak ada panggilan tambahan.
-- `test/paket.test.js`: 23 tes baru.
+- Soal tanpa rujukan ke teks: kalimat soal dan opsi dilarang memuat "menurut kitab", "berdasarkan teks kitab", "pada bacaan di atas", dan sejenisnya (aturan 3b di prompt). Server juga memeriksa: klausa di awal atau akhir kalimat dibuang otomatis, sisanya (mis. di tengah kalimat atau di opsi) ditolak dan diulang sekali. "Menurut mazhab Syafii" tetap boleh karena itu pokok soal. Pembahasan boleh menyebut teks.
+- `test/paket.test.js`: 24 tes baru.
 
 ## Batasan yang perlu Anda ketahui
 
