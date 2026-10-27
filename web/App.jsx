@@ -3256,7 +3256,7 @@ function PaketDawr({ toast, onSimpan }) {
     if (!window.confirm(`Membuat paket ${NK.PRESET_DAWR[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
     setErr(null); setHasil([]); setKurang([]); setJalan(true);
     const ctl = new AbortController(); ctlRef.current = ctl;
-    const kumpul = []; const sisa = [];
+    const kumpul = []; const sisa = []; const segmenAda = new Set();
     const jalankan = async (tugas, label) => {
       const seg = rencana.segmen[tugas.segmen];
       setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
@@ -3269,6 +3269,7 @@ function PaketDawr({ toast, onSimpan }) {
         const kode = tugas.spek[b.indeks].bagian;
         kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model });
       }
+      if (h.butir.length) segmenAda.add(tugas.segmen);
       for (const g of h.gagal) sisa.push({ segmen: tugas.segmen, spek: tugas.spek[g.indeks] });
       setHasil([...kumpul]);
     };
@@ -3282,12 +3283,17 @@ function PaketDawr({ toast, onSimpan }) {
           if (e && e.code === 'TEKS_TIDAK_MEMADAI') { luar.push(t.segmen + 1); t.spek.forEach((s) => sisa.push({ segmen: -1, spek: s })); } else throw e;
         }
       }
-      if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati: di luar cakupan atau tak memuat materi.`);
+      if (luar.length && !segmenAda.size) setErr({ code: 'TEKS_TIDAK_MEMADAI', message: `Tidak ada bagian teks yang masuk cakupan${cakupan ? ` "${cakupan}"` : ''}. Periksa apakah materi yang diberikan sesuai dengan cakupan di Konfigurasi.` });
+      else if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati (di luar cakupan); butirnya dialihkan ke segmen lain yang masuk cakupan.`);
       // Butir yang gagal diulang sekali, dikelompokkan per segmen.
       if (!ctl.signal.aborted && sisa.length) {
         const per = new Map();
         const gagalAkhir = [];
-        for (const s of sisa) { if (s.segmen < 0) { gagalAkhir.push(s.spek); continue; } if (!per.has(s.segmen)) per.set(s.segmen, []); per.get(s.segmen).push(s.spek); }
+        for (const s of sisa) { if (s.segmen < 0) continue; if (!per.has(s.segmen)) per.set(s.segmen, []); per.get(s.segmen).push(s.spek); }
+        // Butir dari segmen di luar cakupan dialihkan ke segmen yang terbukti memuat materi cakupan (bukan dibuang).
+        const alih = PK.alihkanButir(sisa.filter((s) => s.segmen < 0), [...segmenAda]);
+        for (const [segmen, spek] of alih.per) { if (!per.has(segmen)) per.set(segmen, []); per.get(segmen).push(...spek); }
+        gagalAkhir.push(...alih.tanpaTempat);
         for (const [segmen, spek] of per) {
           for (let off = 0; off < spek.length; off += PK.MAKS_BUTIR_PANGGILAN) {
             if (ctl.signal.aborted) break;

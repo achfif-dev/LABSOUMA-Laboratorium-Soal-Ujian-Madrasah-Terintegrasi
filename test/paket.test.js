@@ -246,3 +246,19 @@ test('cakupan dari Konfigurasi masuk prompt sebagai batas materi; tanpa cakupan 
   // Segmen di luar cakupan: model memanggil tolak_teks -> galat 422 yang ditangani klien per segmen.
   await assert.rejects(generatePaket(body(spek, { cakupan: 'Haji' }), { client: fake(tool('tolak_teks', { alasan: 'Teks di luar cakupan.' })) }), { code: 'TEKS_TIDAK_MEMADAI' });
 });
+
+test('alihkanButir: butir segmen di luar cakupan dialihkan bergantian ke segmen yang masuk cakupan, tidak hilang', async () => {
+  const { alihkanButir } = await import('../web/lib/paket.js');
+  const b = (n) => ({ spek: { bentuk: 'pilgan', level: 'L1', bagian: 'a', n } });
+  const r = alihkanButir([b(1), b(2), b(3), b(4), b(5)], [2, 0, 2]);
+  assert.deepEqual([...r.per.keys()].sort(), [0, 2]);
+  assert.equal([...r.per.values()].reduce((n, a) => n + a.length, 0), 5); // jumlah tetap
+  assert.deepEqual(r.per.get(0).map((x) => x.n), [1, 3, 5]); // bergantian, urut indeks segmen
+  assert.deepEqual(r.per.get(2).map((x) => x.n), [2, 4]);
+  assert.deepEqual(r.tanpaTempat, []);
+  // Tidak ada segmen yang masuk cakupan: semua butir dilaporkan, tidak ada panggilan baru.
+  const k = alihkanButir([b(1), b(2)], []);
+  assert.equal(k.per.size, 0); assert.equal(k.tanpaTempat.length, 2);
+  assert.equal(alihkanButir([], [0]).tanpaTempat.length, 0);
+  assert.equal(alihkanButir([b(1)], [-1, 1.5, NaN, 1]).per.get(1).length, 1); // indeks tak sah diabaikan
+});

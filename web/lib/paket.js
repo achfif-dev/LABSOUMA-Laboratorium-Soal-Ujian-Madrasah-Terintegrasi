@@ -187,3 +187,23 @@ export const urutkanSoal = (daftar) => daftar
   .map((q, i) => ({ q, i }))
   .sort((a, b) => URUT_LEVEL.indexOf(a.q.level) - URUT_LEVEL.indexOf(b.q.level) || a.i - b.i)
   .map((x) => x.q);
+
+/**
+ * Butir yang segmennya ditolak (di luar cakupan Konfigurasi) dialihkan ke segmen yang terbukti memuat materi cakupan,
+ * bergantian, supaya naskah Dawr tidak kurang nomor hanya karena sebagian materi berada di luar cakupan.
+ * @param {{spek:object}[]} butir   butir yang perlu tempat baru
+ * @param {number[]} segmenAda      indeks segmen yang sudah menghasilkan butir (di dalam cakupan)
+ * @returns {{per: Map<number, object[]>, tanpaTempat: object[]}} `tanpaTempat` terisi bila tidak ada segmen yang masuk cakupan
+ */
+export function alihkanButir(butir, segmenAda) {
+  const per = new Map();
+  const tempat = [...new Set((segmenAda || []).filter((x) => Number.isInteger(x) && x >= 0))].sort((a, b) => a - b);
+  const tanpaTempat = [];
+  (butir || []).forEach((b, i) => {
+    if (!tempat.length) { tanpaTempat.push(b.spek); return; }
+    const s = tempat[i % tempat.length];
+    if (!per.has(s)) per.set(s, []);
+    per.get(s).push(b.spek);
+  });
+  return { per, tanpaTempat };
+}

@@ -11,6 +11,7 @@ import appConfigHandler from '../api/app-config.js';
 import configBackupHandler from '../api/config-backup.js';
 import aiConfigHandler from '../api/ai-config.js';
 import kitabHandler from '../api/kitab.js';
+import assistHandler from '../api/assist.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';
 const SOAL = { stimulus: '', pertanyaan: 'Berapa macam air yang boleh dipakai bersuci?', pilihan_a: 'Tiga macam', pilihan_b: 'Lima macam', pilihan_c: 'Tujuh macam', pilihan_d: 'Sembilan macam', pilihan_e: 'Sebelas macam',
@@ -139,4 +140,18 @@ test('firestore.rules: isUstadz hanya dipakai membaca kamusPegon; blok soal dan 
   const kamus = rules.slice(rules.indexOf('match /kamusPegon/{id}'), rules.indexOf('match /config/{doc}'));
   assert.match(kamus, /allow read: if isStaff\(\) \|\| isUstadz\(\);/);
   assert.match(kamus, /allow create, update: if isReviewer\(\)/);
+});
+
+test('Paket Dawr: aksi paket ditolak 403 untuk ustadz sebelum kuota terpakai; penyusun/editor/admin tidak ditolak oleh peran', async () => {
+  const spek = [{ bentuk: 'pilgan', level: 'L1' }];
+  let dipanggil = 0;
+  await jalan(async (fb) => {
+    const r = mkRes();
+    await assistHandler(req('tu', { aksi: 'paket', teks: TEKS, tingkat: 'MA', spek }), r);
+    assert.equal(r.code, 403); assert.equal(r.body.error.code, 'FORBIDDEN_ROLE'); assert.equal(dipanggil, 0);
+    assert.ok(!Object.keys(fb.store).some((k) => /rate|ai_/i.test(k) && k.includes('tu')), 'kuota ustadz tidak tersentuh');
+    for (const t of ['tp', 'te', 'ta']) { const x = mkRes(); await assistHandler(req(t, { aksi: 'paket', teks: TEKS, tingkat: 'MA', spek }), x); assert.notEqual(x.body && x.body.error && x.body.error.code, 'FORBIDDEN_ROLE'); }
+    // aksi lain tetap terbuka untuk ustadz (tidak ditolak oleh peran)
+    const y = mkRes(); await assistHandler(req('tu', { aksi: 'bukanaksi' }), y); assert.equal(y.code, 400);
+  }, async () => { dipanggil++; return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ candidates: [] }) }; });
 });

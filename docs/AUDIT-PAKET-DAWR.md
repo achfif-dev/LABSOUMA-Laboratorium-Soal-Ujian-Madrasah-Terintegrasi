@@ -24,7 +24,8 @@ Permintaan: materi lebih dari 6.000 karakter (teks atau foto kitab), soal dibuat
 - `src/fotoKitab.js`: `penuh: true` tidak memotong hasil OCR di 6.000 (mode paket).
 - `web/App.jsx`: tab **Paket Dawr** (teks, berkas `.txt .docx .pdf`, banyak foto yang bisa dikoreksi per halaman, komposisi L1:L2:L3, porsi "melanjutkan", ringkasan panggilan AI, tunggu otomatis bila kena batas per menit, tinjau dan hapus butir, simpan massal sebagai **Draft**).
 - Cakupan dari Konfigurasi: tab Paket Dawr memilih kelas, ujian, dan kitab (dari Konfigurasi). Cakupan kitab untuk kelas dan ujian itu (mis. "Thaharah – Puasa") dikirim ke AI sebagai batas materi; segmen yang seluruhnya di luar cakupan dilewati. Cakupan masih teks bebas (maks. 120 karakter), jadi AI mencocokkannya dengan judul bab di teks: **perkiraan**, periksa hasilnya. Aplikasi belum mengambil halaman kitab otomatis dari cakupan.
-- `test/paket.test.js`: 22 tes baru.
+- Butir dari segmen di luar cakupan **dialihkan** (`alihkanButir` di `web/lib/paket.js`) ke segmen yang terbukti memuat materi cakupan, bergantian, lalu ikut tahap ulang. Sebelumnya butir itu dibuang sehingga naskah Dawr bisa kurang nomor. Bila tidak ada satu pun segmen yang masuk cakupan, tampil pesan yang jelas dan tidak ada panggilan tambahan.
+- `test/paket.test.js`: 23 tes baru.
 
 ## Batasan yang perlu Anda ketahui
 
@@ -34,3 +35,5 @@ Permintaan: materi lebih dari 6.000 karakter (teks atau foto kitab), soal dibuat
 4. "Kutipan cocok" berarti cocok dengan teks yang diunggah. Jika foto salah dibaca OCR dan tidak dikoreksi, kutipan salah pun bisa dinyatakan cocok.
 5. Biaya kuota: setiap foto 1 panggilan, ditambah ±3-4 panggilan per Dawr satu segmen (sekitar satu per segmen untuk materi panjang). Sepuluh foto + Dawr II ±14 dari 60 per hari.
 6. Simpan massal belum memeriksa soal kembar (fitur `duplikat.js` hanya dipakai di form biasa), dan tab belum ada di aplikasi peran Ustadz.
+7. Segmen di luar cakupan tetap **memakai satu panggilan AI** (AI yang menolak dengan `tolak_teks`, kuota tidak dikembalikan karena panggilan memang terjadi). Cakupan masih teks bebas, jadi aplikasi belum bisa menyaring segmen sebelum memanggil AI. Cara paling hemat: unggah materi yang memang sebatas bab cakupan.
+8. Pembuatan paket belum diuji di browser, dan pemasangan paket npm tidak bisa dilakukan di lingkungan audit 27 Oktober (registry npm diblokir): `vite build` belum dijalankan ulang; sintaks `web/App.jsx` diperiksa dengan esbuild, dan 369 dari 371 tes lulus. Dua yang gagal hanya karena paket `vite` dan `write-excel-file` tidak ada di sandbox (`dasborUi`, `excelConfig`), bukan karena kode.
