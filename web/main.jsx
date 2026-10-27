@@ -18,3 +18,8 @@ import { Root, ErrorBoundary, SetupError } from './App.jsx';
   } catch (e) { root.render(<SetupError />); return; }
   root.render(<ErrorBoundary><Root /></ErrorBoundary>);
 })();
+
+// Cangkang aplikasi tersedia offline (public/sw.js). Hanya di produksi; kegagalan mendaftar tidak mengganggu aplikasi.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}

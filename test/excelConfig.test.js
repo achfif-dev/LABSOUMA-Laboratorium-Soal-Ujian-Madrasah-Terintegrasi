@@ -28,7 +28,7 @@ test('gabung: memperbarui yang ada, menambah yang baru, menjaga yang lain dan pe
   cfg.kitab.find((k) => k.nama === 'Safinatun Naja').penempatan = [{ tingkat: 'Ibtidaiyah', kelas: 'II', periode: [{ kode: 'sem1-uts', cakupan: 'x' }] }];
   const f = await xlsx({
     Kitab: [KOLOM.kitab, ['safinatun naja', 'سفينة النجا', 'Salim', '', 'Fiqih', '', 'Ibtidaiyah', 'Ya'], ['Kitab Baru', '', 'Penulis', '', 'Fiqih', '', '', 'Tidak']],
-    Mapel: [KOLOM.mapel, ['Mapel Baru', 'Aliyah', 'Ya']],
+    Mapel: [KOLOM.mapel, ['Mapel Baru', '', 'Aliyah', 'Ya']],
   });
   const r = await bacaExcel(f); assert.deepEqual(r.galat, []);
   const { config } = gabungkan(cfg, r.bagian, 'gabung');
@@ -82,7 +82,7 @@ test('tingkat baru lewat Excel, lalu mapel/kitab merujuknya; sistem ujian tak di
   const cfg = dasar();
   const f = await xlsx({
     Tingkat: [KOLOM.tingkat, ['Wustha', 'Wustha (Wst)', '', 'Wst', 'VII, VIII', 'tidak-ada', 'Ya']],
-    Mapel: [KOLOM.mapel, ['Fiqih', 'Wustha', 'Ya']],
+    Mapel: [KOLOM.mapel, ['Fiqih', '', 'Wustha', 'Ya']],
   });
   const r = await bacaExcel(f);
   const { config, peringatan } = gabungkan(cfg, r.bagian, 'gabung');
@@ -90,4 +90,25 @@ test('tingkat baru lewat Excel, lalu mapel/kitab merujuknya; sistem ujian tak di
   assert.equal(s.tingkat.length, 4); assert.equal(s.tingkat[3].sistemUjian, 'semester');
   assert.deepEqual(s.mapel.find((m) => m.nama === 'Fiqih').tingkat, ['Wustha']);
   assert.ok(peringatan.some((p) => /sistem ujian "tidak-ada"/.test(p)));
+});
+
+test('Mapel: Nama Arab ikut ekspor dan impor, dan lembar lama tanpa kolom itu tidak menghapusnya', async () => {
+  const cfg = dasar();
+  const fiqih = cfg.mapel.find((m) => m.nama === 'Fiqih');
+  assert.equal(fiqih.namaArab, 'فقه');
+  // 1) ekspor lalu impor mempertahankan nama Arab
+  const r1 = await bacaExcel(await ekspor(cfg)); assert.deepEqual(r1.galat, []);
+  assert.equal(r1.bagian.mapel.find((m) => m.nama === 'Fiqih').namaArab, 'فقه');
+  // 2) lembar lama (tanpa kolom Nama Arab), mode ganti dan gabung: nama Arab yang sudah ada tetap
+  const f = await xlsx({ Mapel: [['Nama', 'Tingkat', 'Aktif'], ['Fiqih', 'Ibtidaiyah', 'Ya']] });
+  const r2 = await bacaExcel(f); assert.deepEqual(r2.galat, []);
+  for (const mode of ['ganti', 'gabung']) {
+    const { config } = gabungkan(cfg, r2.bagian, mode);
+    assert.equal(sanitizeAppConfig(config).mapel.find((m) => m.nama === 'Fiqih').namaArab, 'فقه', mode);
+  }
+  // 3) kolom ada tetapi kosong: sengaja dikosongkan. Berisi huruf Latin: ditolak.
+  const kosong = await bacaExcel(await xlsx({ Mapel: [KOLOM.mapel, ['Fiqih', '', 'Ibtidaiyah', 'Ya']] }));
+  assert.equal(gabungkan(cfg, kosong.bagian, 'gabung').config.mapel.find((m) => m.nama === 'Fiqih').namaArab, '');
+  const salah = await bacaExcel(await xlsx({ Mapel: [KOLOM.mapel, ['Fiqih', 'Fiqh', 'Ibtidaiyah', 'Ya']] }));
+  assert.match(salah.galat.join(' '), /Nama Arab harus berhuruf Arab/);
 });

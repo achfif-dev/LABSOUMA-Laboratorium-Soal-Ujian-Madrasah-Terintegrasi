@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ImporExcel from './ImporExcel.jsx';
+import AnalisisButir from './AnalisisButir.jsx';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
 import * as CD from './lib/cadanganDrive.js';
@@ -8,12 +9,14 @@ import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
 import * as NM from './lib/naskahMeta.js';
 import * as PK from './lib/paket.js';
+import * as RW from './lib/riwayat.js';
+import * as CS from './lib/cariSoal.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw,
+  BarChart3, BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw,
 } from 'lucide-react';
 
 /* ---------- Data & constants ---------- */
@@ -1200,6 +1203,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
       </div>
 
       <div className="min-w-0 space-y-5 lg:col-span-7">
+        {editingId && !ustadz && <RiwayatSoal id={editingId} form={form} setForm={setForm} toast={toast} />}
         <Section title={editingId ? 'Naskah Soal (sedang diedit)' : 'Naskah Soal'} icon={PenLine}
           action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
           {generated && (
@@ -1466,6 +1470,54 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
 const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
 
 /* ---------- Tab 3: Bank ---------- */
+/* ---------- Riwayat versi soal (hanya baca; versi lama bisa dimuat kembali ke form, belum tersimpan sampai penyusun menyimpan) ---------- */
+function RiwayatSoal({ id, form, setForm, toast }) {
+  const [buka, setBuka] = useState(false);
+  const [daftar, setDaftar] = useState(null); // null = belum dimuat
+  const [err, setErr] = useState('');
+  const muat = async () => {
+    setErr('');
+    try {
+      const snap = await firebase.firestore().collection('soal').doc(id).collection('riwayat').orderBy('at', 'desc').limit(30).get();
+      setDaftar(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (e) { setErr(e && e.code === 'permission-denied' ? 'Aturan Firestore belum diperbarui untuk riwayat. Minta admin menerbitkan firestore.rules terbaru.' : 'Riwayat gagal dimuat. Coba lagi.'); }
+  };
+  useEffect(() => { setBuka(false); setDaftar(null); setErr(''); }, [id]);
+  const pulihkan = (v) => {
+    if (!window.confirm('Muat versi ini ke form? Isian form saat ini diganti, dan baru tersimpan setelah Anda menekan Simpan.')) return;
+    const x = v.snapshot || {};
+    setForm((f) => ({ ...f, ...Object.fromEntries(FIELDS.filter((k) => x[k] !== undefined).map((k) => [k, x[k]])), opsi: { ...f.opsi, ...(x.opsi || {}) } }));
+    toast('Versi lama dimuat ke form. Periksa lalu simpan.');
+  };
+  const skrg = RW.potretSoal({ ...form });
+  return (
+    <div className="mb-4 rounded-xl border border-line bg-surface p-3 text-sm">
+      <button type="button" className="inline-flex items-center gap-2 font-semibold text-brand" onClick={() => { const b = !buka; setBuka(b); if (b && daftar === null) muat(); }}>
+        <RotateCcw size={15} />{buka ? 'Sembunyikan riwayat versi' : 'Lihat riwayat versi soal ini'}
+      </button>
+      {buka && (
+        <div className="mt-2">
+          {err && <p role="alert" className="text-bad">{err}</p>}
+          {daftar === null && !err && <p className="text-mute">Memuat…</p>}
+          {daftar && !daftar.length && <p className="text-mute">Belum ada versi lama. Riwayat mulai tercatat saat soal ini disimpan ulang.</p>}
+          {daftar && daftar.length > 0 && (
+            <ul className="space-y-2">
+              {daftar.map((v) => (
+                <li key={v.id} className="rounded-lg border border-line p-2">
+                  <p className="text-xs text-mute">{v.at && v.at.toDate ? v.at.toDate().toLocaleString('id-ID') : ''} · diubah oleh {v.namaOleh || '-'}</p>
+                  <p className="mt-0.5 text-xs">Berbeda dari isi form sekarang: {RW.ringkasBeda(v.snapshot, skrg)}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-mute">{(v.snapshot && v.snapshot.pertanyaan) || ''}</p>
+                  <button type="button" className="mt-1 text-xs font-semibold text-brand" onClick={() => pulihkan(v)}>Muat versi ini ke form</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
   const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
@@ -1473,7 +1525,8 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
   const [confirm, setConfirm] = useState(null);
   const [kirimBusy, setKirimBusy] = useState('');
   const cfg = useCfg();
-  const list = applyFilter(all, f);
+  const [kata, setKata] = useState(''); // pencarian teks: sengaja tidak disimpan sebagai preferensi
+  const list = useMemo(() => CS.saring(applyFilter(all, f), kata), [all, f, kata]);
   const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
   const kartu = (q) => (
           <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
@@ -1506,6 +1559,7 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
   return (
     <div className="fade-in space-y-4">
       <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      <input type="search" aria-label="Cari di bank soal" className="field w-full" placeholder="Cari kata di pertanyaan, pilihan, pembahasan, teks kitab (Latin atau Arab)…" value={kata} onChange={(e) => setKata(e.target.value)} />
       {f.status === 'approved' && uid && all.some((q) => q.paket && q.authorUid === uid && (q.status === 'draft' || q.status === 'revision')) && (
         <p className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn" role="status">Anda punya butir paket yang belum selesai (Draft atau diminta revisi). Filter status saat ini hanya menampilkan yang Approved.
           <Btn kind="ghost" onClick={() => setF({ ...f, status: '' })}>Tampilkan semua status</Btn></p>
@@ -3831,7 +3885,14 @@ function App({ user, profile }) {
   const commit = async (status) => {
     if (!(await amanDariDuplikat())) { toast('Penyimpanan dibatalkan. Ubah soalnya, atau simpan lagi dan pilih tetap simpan.'); return false; }
     try {
-      if (editingId) await col.doc(editingId).update({ ...content(), status, catatan: '', updatedAt: ts() });
+      if (editingId) {
+        const ref = col.doc(editingId); const baru = { ...content(), status, catatan: '', updatedAt: ts() };
+        let lama = null; try { lama = (await ref.get()).data() || null; } catch (e) { lama = null; } // gagal baca riwayat tidak boleh menggagalkan penyimpanan
+        if (lama && RW.adaPerubahan(lama, { ...lama, ...baru })) {
+          const b = db.batch(); b.update(ref, baru); b.set(ref.collection('riwayat').doc(), RW.buatRiwayat(lama, { uid: user.uid, nama: displayName }, ts()));
+          try { await b.commit(); } catch (e) { if (e && e.code === 'permission-denied') await ref.update(baru); else throw e; } // aturan lama belum memuat `riwayat`: simpan soal tetap berhasil
+        } else await ref.update(baru);
+      }
       else await col.add({ ...content(), status, catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
       kosongkanForm();
       return true;
@@ -3922,6 +3983,7 @@ function App({ user, profile }) {
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
+    { id: 'analisis', label: 'Analisis Butir', icon: BarChart3 },
     ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
     ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
@@ -4013,6 +4075,7 @@ function App({ user, profile }) {
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
+        {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}

@@ -7,7 +7,7 @@ export const LEMBAR = { petunjuk: 'Petunjuk', tingkat: 'Tingkat', sistem: 'Siste
 export const KOLOM = {
   tingkat: ['Kunci', 'Label', 'Label Arab', 'Singkatan', 'Kelas', 'Sistem Ujian', 'Aktif'],
   sistem: ['ID Sistem', 'Nama Sistem', 'Kode Periode', 'Nama Periode'],
-  mapel: ['Nama', 'Tingkat', 'Aktif'],
+  mapel: ['Nama', 'Nama Arab', 'Tingkat', 'Aktif'],
   kitab: ['Nama', 'Nama Arab', 'Pengarang', 'Pengarang Arab', 'Mapel', 'Tautan', 'Tingkat', 'Aktif'],
   penempatan: ['Kitab', 'Tingkat', 'Kelas', 'Kode Periode', 'Cakupan'],
 };
@@ -62,7 +62,7 @@ const PETUNJUK = [
   '',
   'Lembar Tingkat: Kunci dipakai pada setiap soal dan tidak bisa diubah setelah disimpan. Kelas maksimal 12 per tingkat. Sistem Ujian diisi ID sistem dari lembar Sistem Ujian.',
   'Lembar Sistem Ujian: satu baris = satu periode ujian. Baris dengan ID Sistem yang sama membentuk satu sistem; urutan baris = urutan ujian. Kode Periode huruf kecil, angka, atau tanda hubung (maks. 20 karakter) dan unik di seluruh lembar.',
-  'Lembar Mapel: kolom Tingkat berisi Kunci tingkat; kosong = semua tingkat.',
+  'Lembar Mapel: kolom Nama Arab opsional (huruf Arab); kolom Tingkat berisi Kunci tingkat, kosong = semua tingkat. Lembar lama tanpa kolom Nama Arab tetap bisa diimpor dan tidak menghapus nama Arab yang sudah ada.',
   'Lembar Kitab: Nama Arab dan Pengarang Arab harus berhuruf Arab (harakat boleh). Tautan hanya diterima dari situs kitab yang diizinkan aplikasi; selain itu dikosongkan saat disimpan. Tingkat kosong = semua tingkat.',
   'Lembar Penempatan: satu baris = satu kitab di satu kelas pada satu periode. Kode Periode kosong = semua periode kelas itu. Cakupan = bagian materi (opsional). Kitab yang tidak disebut di lembar ini tidak diubah penempatannya.',
   '',
@@ -72,7 +72,7 @@ const PETUNJUK = [
 const BARIS_CONTOH = {
   tingkat: [['(contoh) Wustha', 'Wustha (Wst)', 'الوسطى', 'Wst', 'VII, VIII, IX', 'semester', 'Ya']],
   sistem: [['(contoh) semester', 'Semester', 'sem1-uts', 'UTS Semester 1 (Ganjil)'], ['(contoh) semester', 'Semester', 'sem1-uas', 'UAS Semester 1 (Ganjil)']],
-  mapel: [['(contoh) Fiqih', 'Wustha, Aliyah', 'Ya']],
+  mapel: [['(contoh) Fiqih', 'فقه', 'Wustha, Aliyah', 'Ya']],
   kitab: [['(contoh) Safinatun Naja', 'سفينة النجا', 'Salim bin Sumair al-Hadhrami', 'سالم بن سمير الحضرمي', 'Fiqih', 'https://shamela.ws/book/12345', 'Wustha', 'Ya']],
   penempatan: [['(contoh) Safinatun Naja', 'Wustha', 'VII', 'sem1-uts', 'Bab Thaharah'], ['(contoh) Safinatun Naja', 'Wustha', 'VII', '', '']],
 };
@@ -82,7 +82,7 @@ function barisDariKonfigurasi(cfg) {
   const b = {
     tingkat: (cfg.tingkat || []).map((t) => [t.nama, t.label || '', t.labelArab || '', t.singkat || '', (t.kelas || []).join(', '), t.sistemUjian || '', ya(t.aktif)]),
     sistem: sistem.flatMap((s) => s.periode.map((p) => [s.id, s.label, p.kode, p.label])),
-    mapel: (cfg.mapel || []).map((m) => [m.nama, (m.tingkat || []).join(', '), ya(m.aktif)]),
+    mapel: (cfg.mapel || []).map((m) => [m.nama, m.namaArab || '', (m.tingkat || []).join(', '), ya(m.aktif)]),
     kitab: (cfg.kitab || []).map((k) => [k.nama, k.namaArab || '', k.pengarang || '', k.pengarangArab || '', k.mapel || '', k.tautan || '', (k.tingkat || []).join(', '), ya(k.aktif)]),
     penempatan: [],
   };
@@ -105,7 +105,7 @@ export async function buatBerkas(cfg = null) {
     { sheet: LEMBAR.petunjuk, data: PETUNJUK.map((t, i) => [{ value: t || null, fontWeight: i === 0 ? 'bold' : undefined, wrap: true }]), columns: [{ width: 120 }] },
     lembar(LEMBAR.tingkat, KOLOM.tingkat, bersih(b.tingkat), [18, 24, 20, 12, 24, 16, 8]),
     lembar(LEMBAR.sistem, KOLOM.sistem, bersih(b.sistem), [18, 20, 16, 34]),
-    lembar(LEMBAR.mapel, KOLOM.mapel, bersih(b.mapel), [28, 36, 8]),
+    lembar(LEMBAR.mapel, KOLOM.mapel, bersih(b.mapel), [28, 24, 36, 8]),
     lembar(LEMBAR.kitab, KOLOM.kitab, bersih(b.kitab), [30, 30, 32, 32, 18, 36, 24, 8]),
     lembar(LEMBAR.penempatan, KOLOM.penempatan, bersih(b.penempatan), [30, 16, 10, 16, 30]),
   ];
@@ -131,7 +131,7 @@ function bacaLembar(nama, data, galat) {
   const baris = [];
   for (let i = 1; i < data.length; i++) {
     const sel = data[i] || [];
-    const o = { _baris: i + 1 };
+    const o = { _baris: i + 1, _kolom: kepala };
     kepala.forEach((h, j) => { if (h && !(h in o)) o[h] = sel[j]; });
     const isi = kepala.some((h) => h && teks(o[h]) !== '');
     if (!isi) continue;
@@ -219,7 +219,12 @@ export async function bacaExcel(sumber) {
       if (lihat.has(nama.toLowerCase())) { galat.push(`${ket}: Mapel "${nama}" tercatat dua kali.`); continue; }
       lihat.add(nama.toLowerCase());
       const a = aktifDari(r.aktif); if (a.galat) { galat.push(`${ket}: ${a.galat}.`); continue; }
-      hasil.push({ nama: potong(nama, BATAS.mapel, ket, r._baris, peringatan), tingkat: daftar(r.tingkat), aktif: a.nilai });
+      const adaArab = r._kolom.includes('namaarab'); // lembar lama tanpa kolom ini: nama Arab yang sudah ada tidak dihapus
+      const namaArab = adaArab ? teks(r.namaarab).normalize('NFKC') : undefined;
+      if (namaArab && !HURUF_ARAB.test(namaArab)) { galat.push(`${ket}: Nama Arab harus berhuruf Arab.`); continue; }
+      const m = { nama: potong(nama, BATAS.mapel, ket, r._baris, peringatan), tingkat: daftar(r.tingkat), aktif: a.nilai };
+      if (adaArab) m.namaArab = namaArab;
+      hasil.push(m);
     }
     bagian.mapel = hasil; dibaca.push(LEMBAR.mapel);
   }
@@ -328,7 +333,10 @@ export function gabungkan(cfg, bagian, mode = 'gabung') {
   if (bagian.mapel) {
     const lama = out.mapel || [];
     ringkasan.push(hitung('Mapel', lama.map((m) => m.nama), bagian.mapel.map((m) => m.nama)));
-    const baru = bagian.mapel.map((m) => ({ nama: m.nama, tingkat: cocokkanTingkat(m.tingkat, `Mapel "${m.nama}"`), aktif: m.aktif }));
+    const baru = bagian.mapel.map((m) => {
+      const ada = lama.find((x) => ciSama(x.nama, m.nama));
+      return { nama: m.nama, namaArab: m.namaArab !== undefined ? m.namaArab : (ada ? ada.namaArab || '' : ''), tingkat: cocokkanTingkat(m.tingkat, `Mapel "${m.nama}"`), aktif: m.aktif };
+    });
     if (ganti) out.mapel = baru;
     else { const l = [...lama]; for (const m of baru) { const i = l.findIndex((x) => ciSama(x.nama, m.nama)); if (i >= 0) l[i] = m; else l.push(m); } out.mapel = l; }
   }

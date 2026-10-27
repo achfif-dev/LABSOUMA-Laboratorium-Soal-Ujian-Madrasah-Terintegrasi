@@ -391,3 +391,7 @@ Admin bisa mengisi tingkat, kelas, sistem ujian, mapel, kitab, dan penempatan ki
 - **Impor dari Excel**: berkas dibaca di browser, diperiksa, lalu dimasukkan ke editor sebagai perubahan yang BELUM disimpan. Tekan Simpan konfigurasi untuk menerapkan; versi sebelumnya masuk ke Cadangan & Riwayat. Server tetap memvalidasi ulang saat Simpan.
 - Lembar yang tidak ada atau kosong tidak mengubah apa pun. Cara memasukkan: *Tambah & perbarui* (aman) atau *Ganti seluruh daftar*.
 - Kode: `web/lib/excelConfig.js` (murni, diuji di `test/excelConfig.test.js`) dan `web/ImporExcel.jsx`. Pustaka: `write-excel-file` dan `read-excel-file` (dimuat hanya saat dipakai).
+
+## Analisis butir, riwayat versi, pencarian, offline
+
+Ringkasan dan langkah pemasangan: `docs/PERUBAHAN-28-OKT-2026.md`. Setelah memperbarui kode, **terbitkan ulang `firestore.rules`** agar riwayat versi soal tercatat.
