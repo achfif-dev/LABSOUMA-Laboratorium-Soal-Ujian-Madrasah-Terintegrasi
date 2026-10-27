@@ -11,10 +11,10 @@ import { KERANGKA_ASWAJA } from './aswaja.js';
 import { periksaKutipan } from './kutipan.js';
 import { periksaSikap } from './sikap.js';
 import { adaPenanda } from '../web/lib/bentuk.js';
-import { MAKS_BUTIR_PANGGILAN } from '../web/lib/paket.js';
+import { MAKS_BUTIR_PANGGILAN, adaRujukanTeks, tanpaRujukanTeks, LABEL_KUTIPAN, statusKutipan } from '../web/lib/paket.js';
+export { adaRujukanTeks, tanpaRujukanTeks, LABEL_KUTIPAN };
 
 export const BENTUK_PAKET = ['pilgan', 'lanjutan', 'isian', 'uraian'];
-export const LABEL_KUTIPAN = 'Kutipan kitab:';
 const LEVEL_NAMA = { L1: 'L1 (Ingatan: fakta atau definisi langsung dari teks)', L2: 'L2 (Aplikasi: menerapkan teks pada kasus yang diringkas dalam kalimat soal)', L3: 'L3 (HOTS: penalaran, membedakan, atau menentukan hukum dari kondisi yang diringkas dalam kalimat soal)' };
 const BATAS_SOAL = 150; // sama dengan BATAS_SOAL di web/lib/naskah.js (sekitar dua baris di template)
 
@@ -130,23 +130,6 @@ ${input.teks}
 
 /* ------------------------------------------------------------ Normalisasi */
 
-// Rujukan ke "teks/kitab" di dalam soal ("menurut kitab", "berdasarkan teks kitab", "pada bacaan di atas", "kutipan berikut"). Soal naskah ujian berdiri sendiri.
-const KATA_SUMBER = '(?:kitab|kitabnya|teks|nash|nas|naskah|matan|syarah|syarh|kutipan|bacaan|paragraf|referensi|penjelasan)';
-const PENGANTAR = '(?:menurut|berdasarkan|berdasar|sesuai|sebagaimana|merujuk|mengacu|bersumber|dalam|pada|di\\s+dalam)';
-const RE_RUJUKAN = new RegExp(`(?:^|[\\s(,;:])${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?![\\p{L}])|(?:^|[\\s(,;:])${KATA_SUMBER}\\s+(?:di\\s+atas|berikut|tersebut|ini|itu)(?![\\p{L}])|disebutkan\\s+di\\s+atas|(?:^|[\\s(,;:])menurut\\s+penulis\\s+kitab|(?:^|[\\s(,;:])menurut\\s+pengarang\\s+kitab`, 'iu');
-const RE_AWAL = new RegExp(`^\\s*${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?:\\s+[\\p{L}'’-]+){0,3}?\\s*[,:]\\s*`, 'iu');
-const RE_AKHIR = new RegExp(`\\s*,?\\s*${PENGANTAR}\\s+(?:[\\p{L}'’-]+\\s+){0,2}?${KATA_SUMBER}(?:\\s+[\\p{L}'’-]+){0,3}?\\s*(?=[?.!]|$)`, 'iu');
-export const adaRujukanTeks = (t) => RE_RUJUKAN.test(String(t || ''));
-/** Membuang klausa rujukan di awal atau akhir kalimat soal. Bila masih tersisa (di tengah kalimat), pemanggil menolak butirnya. */
-export function tanpaRujukanTeks(t) {
-  let x = String(t || '');
-  for (let i = 0; i < 2 && adaRujukanTeks(x); i++) {
-    x = x.replace(RE_AWAL, '').replace(RE_AKHIR, '').replace(/\s+([?!,:])/g, '$1').replace(/\s+\.(?!\.)/g, '.').trim();
-    x = x.charAt(0).toUpperCase() + x.slice(1);
-  }
-  return x;
-}
-
 const satuBaris = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const tanpaAwalan = (s) => s.replace(/^\s*[A-Ca-c][.):]\s+/, '');
 
@@ -181,13 +164,7 @@ export function normalisasiButir(raw, spek, teks) {
 
   // Kutipan: hanya dipakai bila cocok dengan teks. "mirip" (selisih harakat/satu kata) tetap dibawa tetapi ditandai.
   const kutipanMentah = satuBaris(raw.kutipan_kitab, 700);
-  let kutipanStatus = 'kosong'; let kutipan = '';
-  if (kutipanMentah) {
-    const r = periksaKutipan({ pembahasan: kutipanMentah }, teks);
-    const cocok = r.ringkas.total > 0 && r.ringkas.tidak_ditemukan === 0;
-    kutipanStatus = r.ringkas.total === 0 ? 'kosong' : (!cocok ? 'tidak_cocok' : (r.status === 'lolos' ? 'cocok' : 'mirip'));
-    if (cocok) kutipan = kutipanMentah;
-  }
+  const { status: kutipanStatus, kutipan } = statusKutipan(periksaKutipan, kutipanMentah, teks);
   const bidang = { pertanyaan, A: opsi.A, B: opsi.B, C: opsi.C, jawaban, pembahasan };
   const catatan = [];
   if (pertanyaan.length > BATAS_SOAL) catatan.push(`Kalimat soal ±${pertanyaan.length} karakter (template: sekitar ${BATAS_SOAL}).`);
