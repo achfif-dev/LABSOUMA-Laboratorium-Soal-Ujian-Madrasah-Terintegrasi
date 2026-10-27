@@ -53,5 +53,7 @@ export async function fotoKitab(body, deps = {}) {
   const kualitas = ['jelas', 'sedang', 'buruk'].includes(call.input?.kualitas) ? call.input.kualitas : 'sedang';
   const ragu = (Array.isArray(call.input?.ragu) ? call.input.ragu : [])
     .map((w) => ({ kata: s(w && w.kata, 80), catatan: s(w && w.catatan, 300) })).filter((w) => w.kata || w.catatan).slice(0, 30);
-  return { teks: mentah.slice(0, MAX_TEKS), kualitas, ragu, terpotong: mentah.length > MAX_TEKS };
+  // Mode paket (body.penuh): hasil per foto tidak dipotong di 6.000 karakter karena materi akan dibagi per segmen oleh perencana paket.
+  const batas = body && body.penuh === true ? MAX_TEKS * 3 : MAX_TEKS;
+  return { teks: mentah.slice(0, batas), kualitas, ragu, terpotong: mentah.length > batas };
 }

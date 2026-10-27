@@ -7,6 +7,7 @@ import * as DR from './lib/drive.js';
 import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
 import * as NM from './lib/naskahMeta.js';
+import * as PK from './lib/paket.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -3140,6 +3141,305 @@ function PegonTab({ toast }) {
   );
 }
 
+/* ---------- Paket Dawr: satu naskah IMDA utuh dari materi panjang (teks, berkas, atau banyak foto) ----------
+ * Perencana ada di lib/paket.js (murni, bertes). Materi dibagi per segmen <= 6.000 karakter; tiap panggilan AI menyusun <= 6 butir dari satu segmen.
+ * Hasil tidak langsung masuk bank: ditinjau dulu, lalu disimpan massal sebagai Draft (bukan Pending) agar penyusun sempat memeriksa kutipan dan kunci. */
+const LABEL_BAGIAN = { a: 'أ  Pilihan', b: 'ب  Isian', c: 'ج  Uraian' };
+const LABEL_KUTIPAN_STATUS = { cocok: 'Kutipan cocok dengan teks', mirip: 'Kutipan mirip teks (cek harakat)', tidak_cocok: 'Kutipan dibuang: tidak ada di teks', kosong: 'Tanpa kutipan' };
+/** Pemeriksaan awal di klien (sama dengan arabicProblem di server): jangan buang kuota AI untuk teks yang pasti ditolak. */
+const masalahArabPaket = (txt) => {
+  let huruf = 0; let arab = 0;
+  for (const ch of String(txt || '')) { if (/\p{L}/u.test(ch)) { huruf++; if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(ch)) arab++; } }
+  if (huruf < 15) return 'Materi terlalu pendek. Tempel minimal satu kalimat Arab lengkap.';
+  if (arab / huruf < 0.6) return 'Materi harus berbahasa Arab. Teks yang terdeteksi sebagian besar bukan Arab.';
+  return null;
+};
+const tidur = (ms, sinyal) => new Promise((res) => { const t = setTimeout(res, ms); if (sinyal) sinyal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true }); });
+
+/** Panggilan API dengan tunggu-dan-ulang untuk batas per menit (429) dan gangguan sesaat. Kuota harian habis tidak diulang. */
+async function panggilSabar(path, body, sinyal, { onTunggu } = {}) {
+  for (let i = 0; ; i++) {
+    try { return await callApi(path, body, sinyal); } catch (e) {
+      const ulang = e && ((e.status === 429 && e.code !== 'RATE_LIMIT_DAILY') || e.code === 'AI_OVERLOADED' || e.code === 'AI_TIMEOUT');
+      if (!ulang || i >= 3 || (sinyal && sinyal.aborted)) throw e;
+      const detik = Math.max(3, Math.min(90, Number(e.retryAfter) || 20));
+      if (onTunggu) onTunggu(detik);
+      await tidur(detik * 1000, sinyal);
+      if (sinyal && sinyal.aborted) throw e;
+    }
+  }
+}
+
+function PaketDawr({ toast, onSimpan }) {
+  const cfg = useCfg();
+  const [dawr, setDawr] = useState(() => NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
+  const [tingkat, setTingkat] = useState(() => (tingkatAktif(cfg)[0] || {}).nama || 'Aliyah');
+  const [mapel, setMapel] = useState('Fiqih');
+  const [kelas, setKelas] = useState('');
+  const [nama, setNama] = useState('');
+  const [juz, setJuz] = useState('');
+  const [halMulai, setHalMulai] = useState('');
+  const [periode, setPeriode] = useState('');
+  const [fokus, setFokus] = useState('');
+  const [teks, setTeks] = useState('');
+  const [foto, setFoto] = useState([]);              // [{id, nama, teks, hal, kualitas, ragu}] satu foto = satu halaman
+  const [fotoStatus, setFotoStatus] = useState('');
+  const [komposisi, setKomposisi] = useState({ L1: 30, L2: 50, L3: 20 });
+  const [lanjutan, setLanjutan] = useState(40);
+  const [jalan, setJalan] = useState(false);
+  const [status, setStatus] = useState('');
+  const [hasil, setHasil] = useState([]);            // [{uid, bagian, soal, segmenTeks, segmenHal, kutipanStatus, sikap, catatan}]
+  const [kurang, setKurang] = useState([]);          // butir yang gagal dibuat setelah diulang sekali
+  const [err, setErr] = useState(null);
+  const [simpanBusy, setSimpanBusy] = useState(false);
+  const ctlRef = useRef(null);
+  const fileRef = useRef(null); const galeriRef = useRef(null); const kameraRef = useRef(null);
+
+  const tingkatOpsi = [...new Set(tingkatAktif(cfg).map((t) => t.nama).concat(tingkat))];
+  const mapelOpsi = [...new Set([...mapelUntuk(cfg, tingkat), mapel])];
+  const kelasOpsi = [...new Set([...Uj.kelasUntuk(cfg, tingkat), kelas].filter(Boolean))];
+  const periodeOpsi = Uj.periodeUntuk(cfg, tingkat);
+  const kitabOpsi = kitabUntuk(cfg, tingkat, mapel, kelas, periode);
+  const kitabCfg = cfg.kitab.find((k) => k.nama.toLowerCase() === nama.trim().toLowerCase());
+  const cakupan = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
+
+  const sumber = useMemo(() => [{ teks, hal: halMulai.trim() }, ...foto.map((f) => ({ teks: f.teks, hal: f.hal }))], [teks, halMulai, foto]);
+  const rencana = useMemo(() => PK.rencanaPaket({ dawr, sumber, komposisi, lanjutan: lanjutan / 100 }), [dawr, sumber, komposisi, lanjutan]);
+  const jumlahKarakter = useMemo(() => sumber.reduce((n, p) => n + String(p.teks || '').trim().length, 0), [sumber]);
+
+  const tambahTeksBerkas = async (file) => {
+    if (!file) return;
+    setErr(null);
+    try {
+      let t = '';
+      if (/\.(docx|pdf)$/i.test(file.name) || file.type === 'application/pdf') {
+        const r = await bacaFile(file); t = r.teks;
+        if (!r.arab) { setErr({ code: 'FILE', message: 'Berkas tidak memuat teks Arab yang bisa dibaca (mungkin PDF hasil pindai). Untuk halaman pindaian, unggah sebagai foto.' }); return; }
+      } else {
+        if (file.size > 2_000_000) { setErr({ code: 'FILE', message: 'Berkas teks terlalu besar (maksimal 2 MB).' }); return; }
+        t = await file.text();
+        if (/\.html?$/i.test(file.name)) t = new DOMParser().parseFromString(t, 'text/html').body.textContent || '';
+      }
+      t = cleanArabic(t);
+      if (!t) { setErr({ code: 'FILE', message: 'Berkas kosong.' }); return; }
+      setTeks((x) => (x.trim() ? x.trimEnd() + '\n\n' + t : t));
+      toast(`Teks dari ${file.name} ditambahkan.`);
+    } catch (e) { setErr(apiErr(e)); }
+  };
+
+  const tambahFoto = async (files) => {
+    const daftar = [...(files || [])].filter(Boolean);
+    if (!daftar.length) return;
+    setErr(null); setJalan(true);
+    const ctl = new AbortController(); ctlRef.current = ctl;
+    try {
+      let n = foto.length;
+      for (let i = 0; i < daftar.length; i++) {
+        if (ctl.signal.aborted) break;
+        setFotoStatus(`Membaca foto ${i + 1} dari ${daftar.length}...`);
+        const gambar = await siapkanFoto(daftar[i], 2000);
+        const d = await panggilSabar('/api/assist', { aksi: 'fotokitab', gambar, penuh: true }, ctl.signal, { onTunggu: (s) => setFotoStatus(`Menunggu batas permintaan (${s} detik)...`) });
+        const h = d.hasil; n++;
+        const nomor = /^\d+$/.test(halMulai.trim()) ? String(Number(halMulai.trim()) + n - 1) : '';
+        setFoto((f) => [...f, { id: Date.now() + '-' + i, nama: daftar[i].name || `Foto ${n}`, teks: h.teks, hal: nomor, kualitas: h.kualitas, ragu: h.ragu || [] }]);
+      }
+    } catch (e) { const x = apiErr(e); if (x) setErr(x); } finally { setJalan(false); setFotoStatus(''); ctlRef.current = null; }
+  };
+
+  const batal = () => { if (ctlRef.current) ctlRef.current.abort(); };
+
+  const buat = async () => {
+    if (rencana.masalah || !rencana.panggilan) { setErr({ code: 'BAD_REQUEST', message: rencana.masalah || 'Belum ada materi.' }); return; }
+    const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
+    if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
+    if (hasil.length && !window.confirm('Hasil paket sebelumnya akan diganti. Lanjutkan?')) return;
+    if (!window.confirm(`Membuat paket ${NK.PRESET_DAWR[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
+    setErr(null); setHasil([]); setKurang([]); setJalan(true);
+    const ctl = new AbortController(); ctlRef.current = ctl;
+    const kumpul = []; const sisa = [];
+    const jalankan = async (tugas, label) => {
+      const seg = rencana.segmen[tugas.segmen];
+      setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
+      const d = await panggilSabar('/api/assist', {
+        aksi: 'paket', teks: seg.teks, hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
+        spek: tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level })),
+      }, ctl.signal, { onTunggu: (s) => setStatus(`Menunggu batas permintaan AI (${s} detik)...`) });
+      const h = d.hasil;
+      for (const b of h.butir) {
+        const kode = tugas.spek[b.indeks].bagian;
+        kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model });
+      }
+      for (const g of h.gagal) sisa.push({ segmen: tugas.segmen, spek: tugas.spek[g.indeks] });
+      setHasil([...kumpul]);
+    };
+    try {
+      let k = 0;
+      const luar = [];
+      for (const t of rencana.tugas) {
+        if (ctl.signal.aborted) break; k++;
+        try { await jalankan(t, `Panggilan ${k} dari ${rencana.panggilan}`); } catch (e) {
+          // Segmen seluruhnya di luar cakupan (atau tak memuat materi): lewati, butirnya dihitung kurang. Kuota harian habis dan galat lain tetap menghentikan.
+          if (e && e.code === 'TEKS_TIDAK_MEMADAI') { luar.push(t.segmen + 1); t.spek.forEach((s) => sisa.push({ segmen: -1, spek: s })); } else throw e;
+        }
+      }
+      if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati: di luar cakupan atau tak memuat materi.`);
+      // Butir yang gagal diulang sekali, dikelompokkan per segmen.
+      if (!ctl.signal.aborted && sisa.length) {
+        const per = new Map();
+        const gagalAkhir = [];
+        for (const s of sisa) { if (s.segmen < 0) { gagalAkhir.push(s.spek); continue; } if (!per.has(s.segmen)) per.set(s.segmen, []); per.get(s.segmen).push(s.spek); }
+        for (const [segmen, spek] of per) {
+          for (let off = 0; off < spek.length; off += PK.MAKS_BUTIR_PANGGILAN) {
+            if (ctl.signal.aborted) break;
+            const potong = spek.slice(off, off + PK.MAKS_BUTIR_PANGGILAN);
+            const n0 = kumpul.length;
+            try { await jalankan({ id: `u${segmen}-${off}`, segmen, spek: potong }, 'Mengulang butir yang gagal'); } catch (e) { if (e && e.code === 'RATE_LIMIT_DAILY') throw e; }
+            if (kumpul.length - n0 < potong.length) gagalAkhir.push(...potong.slice(kumpul.length - n0));
+          }
+        }
+        setKurang(gagalAkhir);
+      }
+      if (ctl.signal.aborted) toast('Dibatalkan. Butir yang sudah jadi tetap ditampilkan.');
+    } catch (e) {
+      const x = apiErr(e); if (x) setErr(x.code === 'RATE_LIMIT_DAILY' ? { ...x, message: x.message + ' Butir yang sudah jadi tetap ada di bawah; simpan dulu, lanjutkan besok.' } : x);
+    } finally { setJalan(false); setStatus(''); ctlRef.current = null; }
+  };
+
+  const hapus = (uid) => setHasil((h) => h.filter((x) => x.uid !== uid));
+  const urut = useMemo(() => PK.urutkanSoal(hasil.map((x) => ({ ...x.soal, _uid: x.uid }))), [hasil]);
+  const naskah = useMemo(() => NK.susunNaskah(urut, dawr), [urut, dawr]);
+  const lookup = useMemo(() => new Map(hasil.map((x) => [x.uid, x])), [hasil]);
+
+  const simpan = async () => {
+    if (!hasil.length || simpanBusy) return;
+    if (!window.confirm(`Simpan ${hasil.length} butir sebagai Draft? Setelah itu tinjau di tab Bank Soal lalu kirim ke editor.`)) return;
+    setSimpanBusy(true);
+    try { const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz }); toast(`${n} butir tersimpan sebagai Draft. Cari di tab Bank Soal.`); setHasil([]); setKurang([]); }
+    catch (e) { toast((e && e.message) || 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); } finally { setSimpanBusy(false); }
+  };
+
+  const ubahKomp = (k, v) => setKomposisi((x) => ({ ...x, [k]: Math.max(0, Math.min(100, Number(v) || 0)) }));
+  const bobot = Math.max(1, komposisi.L1 + komposisi.L2 + komposisi.L3);
+  const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAWR[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
+
+  return (
+    <div className="space-y-4">
+      <Section title="Paket Dawr (naskah IMDA utuh)" icon={Layers}>
+        <p className="text-xs leading-relaxed text-mute">Tempel teks, unggah berkas, atau foto banyak halaman kitab. Materi boleh jauh lebih dari 6.000 karakter: aplikasi membaginya per segmen lalu menyusun semua soal satu Dawr sekaligus, tanpa narasi, tiga opsi, dan teks kitab rujukan tercatat untuk naskah kunci.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div><Label htmlFor="pk-dawr">Dawr</Label>
+            <Select id="pk-dawr" value={String(dawr)} onChange={(v) => setDawr(NK.dawrSah(v))} disabled={jalan}>{NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({NK.ringkasDawr(d.dawr)})</option>)}</Select></div>
+          <div><Label htmlFor="pk-tingkat">Tingkat</Label>
+            <Select id="pk-tingkat" value={tingkat} onChange={(v) => { setTingkat(v); setKelas(''); }} disabled={jalan}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select></div>
+          <div><Label htmlFor="pk-mapel">Mata pelajaran</Label>
+            <Select id="pk-mapel" value={mapel} onChange={setMapel} disabled={jalan}>{mapelOpsi.map((m) => <option key={m} value={m}>{m}</option>)}</Select></div>
+          <div><Label htmlFor="pk-kelas" hint="(opsional)">Kelas</Label>
+            <Select id="pk-kelas" value={kelas} onChange={setKelas} disabled={jalan}><option value="">— Belum dipilih —</option>{kelasOpsi.map((k) => <option key={k} value={k}>Kelas {k}</option>)}</Select></div>
+          <div><Label htmlFor="pk-periode" hint="(untuk cakupan)">Ujian</Label>
+            <Select id="pk-periode" value={periode} onChange={setPeriode} disabled={jalan}><option value="">— Belum dipilih —</option>{periodeOpsi.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+          <div><Label htmlFor="pk-nama">Nama kitab</Label>
+            <input id="pk-nama" className="field" list="pk-kitab-list" value={nama} maxLength={120} onChange={(e) => setNama(e.target.value)} disabled={jalan} placeholder="Pilih dari Konfigurasi atau ketik" />
+            <datalist id="pk-kitab-list">{kitabOpsi.map((k) => <option key={k.nama} value={k.nama} />)}</datalist></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label htmlFor="pk-juz" hint="(opsional)">Juz</Label><input id="pk-juz" className="field" value={juz} maxLength={20} onChange={(e) => setJuz(e.target.value)} disabled={jalan} /></div>
+            <div><Label htmlFor="pk-hal" hint="halaman awal">Hal.</Label><input id="pk-hal" className="field" inputMode="numeric" value={halMulai} maxLength={20} onChange={(e) => setHalMulai(e.target.value)} disabled={jalan} /></div>
+          </div>
+        </div>
+        {cakupan
+          ? <p className="mt-3 rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-soft-ink">Cakupan dari Konfigurasi: <b>{cakupan}</b>. AI hanya boleh membuat soal dari bagian teks yang masuk cakupan ini; segmen yang seluruhnya di luar cakupan dilewati.</p>
+          : <p className="mt-3 text-xs leading-relaxed text-mute">{kitabCfg && kelas && periode ? 'Kitab ini belum punya cakupan untuk kelas dan ujian tersebut di Konfigurasi, jadi semua teks yang Anda berikan dianggap bahan ujian.' : 'Pilih kelas, ujian, dan kitab dari Konfigurasi agar batas materi (mis. Thaharah sampai Puasa) ikut dikirim ke AI. Tanpa itu, semua teks yang Anda berikan dianggap bahan ujian.'}</p>}
+      </Section>
+
+      <Section title="Materi" icon={BookOpen}>
+        <textarea dir="rtl" lang="ar" className="field min-h-[160px] font-ar leading-loose" placeholder="Tempel teks kitab (Arab) di sini. Tidak dibatasi 6.000 karakter." value={teks} onChange={(e) => setTeks(e.target.value)} disabled={jalan} />
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input ref={fileRef} type="file" accept=".txt,.htm,.html,.docx,.pdf" className="hidden" aria-label="Unggah berkas teks kitab" onChange={(e) => { tambahTeksBerkas(e.target.files[0]); e.target.value = ''; }} />
+          <input ref={galeriRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" aria-label="Pilih banyak foto halaman kitab" onChange={(e) => { tambahFoto(e.target.files); e.target.value = ''; }} />
+          <input ref={kameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Ambil foto halaman kitab" onChange={(e) => { tambahFoto(e.target.files); e.target.value = ''; }} />
+          <Btn onClick={() => fileRef.current.click()} disabled={jalan}><Upload size={15} />Berkas (.txt .docx .pdf)</Btn>
+          <Btn onClick={() => galeriRef.current.click()} disabled={jalan}><Camera size={15} />Foto (banyak)</Btn>
+          <Btn onClick={() => kameraRef.current.click()} disabled={jalan}><Camera size={15} />Kamera</Btn>
+          {jalan && fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}
+        </div>
+        {fotoStatus && <div className="mt-2"><Spin>{fotoStatus}</Spin></div>}
+        {foto.length > 0 && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-semibold text-ink">Halaman dari foto ({foto.length}). Hasil baca AI wajib diperiksa: harakat dan huruf bisa salah.</p>
+            {foto.map((f) => (
+              <details key={f.id} className="rounded-xl border border-line bg-bg p-3">
+                <summary className="cursor-pointer text-xs font-semibold">{f.nama}{f.hal ? ` · hal. ${f.hal}` : ''} · {f.teks.length.toLocaleString('id-ID')} karakter · kualitas {f.kualitas}{f.ragu.length ? ` · ${f.ragu.length} kata ragu` : ''}{f.kualitas === 'buruk' ? ' ⚠' : ''}</summary>
+                <div className="mt-2 space-y-2">
+                  {f.ragu.length > 0 && <p className="text-xs text-warn">Kata ragu: {f.ragu.map((r) => r.kata).join('، ')}</p>}
+                  <textarea dir="rtl" lang="ar" className="field min-h-[120px] font-ar leading-loose" value={f.teks} onChange={(e) => setFoto((l) => l.map((x) => (x.id === f.id ? { ...x, teks: e.target.value } : x)))} disabled={jalan} />
+                  <div className="flex items-center gap-2"><label className="text-xs text-mute" htmlFor={'pkh-' + f.id}>Hal.</label><input id={'pkh-' + f.id} className="field !w-24 !py-1.5" value={f.hal} maxLength={20} onChange={(e) => setFoto((l) => l.map((x) => (x.id === f.id ? { ...x, hal: e.target.value } : x)))} disabled={jalan} />
+                    <Btn kind="danger" className="!px-3 !py-1.5 !text-xs" onClick={() => setFoto((l) => l.filter((x) => x.id !== f.id))} disabled={jalan}><Trash2 size={13} />Hapus</Btn></div>
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+        <p className={`mt-2 text-xs ${rencana.masalah && jumlahKarakter ? 'font-semibold text-bad' : 'text-mute'}`}>
+          {jumlahKarakter.toLocaleString('id-ID')} karakter · {rencana.segmen.length} segmen{rencana.masalah && jumlahKarakter ? `. ${rencana.masalah}` : ''}
+        </p>
+      </Section>
+
+      <Section title="Sebaran kesukaran" icon={ListChecks}>
+        <div className="grid grid-cols-3 gap-3">
+          {['L1', 'L2', 'L3'].map((k) => (
+            <div key={k}><Label htmlFor={'pk-' + k}>{k === 'L1' ? 'L1 Ingatan' : k === 'L2' ? 'L2 Aplikasi' : 'L3 HOTS'}</Label>
+              <input id={'pk-' + k} type="number" min="0" max="100" inputMode="numeric" className="field" value={komposisi[k]} onChange={(e) => ubahKomp(k, e.target.value)} disabled={jalan} /></div>
+          ))}
+        </div>
+        <div className="mt-3 max-w-[200px]"><Label htmlFor="pk-lanj" hint="% di bagian أ">Soal melanjutkan</Label>
+          <input id="pk-lanj" type="number" min="0" max="100" inputMode="numeric" className="field" value={lanjutan} onChange={(e) => setLanjutan(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} disabled={jalan} /></div>
+        <p className="mt-2 text-xs leading-relaxed text-mute">Angka adalah perbandingan (bobot), bukan harus 100. Bawaan 30:50:20 hanya titik awal; sesuaikan kebijakan madrasah. Jumlah per bagian (L1/L2/L3): {sebaranTeks}.</p>
+        <div className="mt-3"><Label htmlFor="pk-fokus" hint="(opsional)">Fokus soal</Label><input id="pk-fokus" className="field" value={fokus} maxLength={300} onChange={(e) => setFokus(e.target.value)} disabled={jalan} /></div>
+      </Section>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAWR[dawr].label}</Btn>
+        {jalan && !fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}
+        <span className="text-xs text-mute">{rencana.panggilan ? `${rencana.total} butir · ±${rencana.panggilan} panggilan AI (kuota harian dipakai)` : ''}</span>
+      </div>
+      {status && <Spin>{status}</Spin>}
+      {err && <ErrorBox e={err} />}
+
+      {(hasil.length > 0 || kurang.length > 0) && (
+        <Section title={`Hasil (${hasil.length} dari ${rencana.total} butir)`} icon={ClipboardCheck}
+          action={<Btn kind="primary" onClick={simpan} disabled={jalan || simpanBusy || !hasil.length}>{simpanBusy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}Simpan semua sebagai Draft</Btn>}>
+          {naskah.peringatan.length > 0 && <ul className="mb-3 space-y-1">{naskah.peringatan.filter((p) => !/halaman kitab/.test(p)).map((p, i) => <li key={i} className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{p}</li>)}</ul>}
+          {kurang.length > 0 && <p className="mb-3 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{kurang.length} butir tidak jadi (sudah diulang, atau segmennya di luar cakupan). Jalankan paket lagi untuk menambah, atau tulis manual di tab Penyusunan Soal.</p>}
+          {naskah.bagian.map((bg) => (
+            <div key={bg.kode} className="mb-4">
+              <h3 className="mb-2 text-xs font-bold text-ink">{LABEL_BAGIAN[bg.kode]} · {bg.terisi} dari {bg.n} nomor</h3>
+              <ol className="space-y-2">
+                {bg.butir.filter((x) => x.q).map(({ no, q }) => {
+                  const r = lookup.get(q._uid); const b = Bt.bentukDari(q);
+                  return (
+                    <li key={q._uid} className="rounded-xl border border-line bg-bg p-3 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="leading-relaxed"><span className="mr-1 font-bold">{no}.</span>{q.pertanyaan}</p>
+                        <button type="button" onClick={() => hapus(q._uid)} aria-label={`Hapus nomor ${no}`} className="shrink-0 rounded-lg p-1.5 text-mute hover:bg-bad-bg hover:text-bad"><Trash2 size={14} /></button>
+                      </div>
+                      {Bt.punyaOpsi(b) && <p className="mt-1 text-xs text-mute">{['A', 'B', 'C'].map((k) => `${k}${q.kunci === k ? '✓' : ''}. ${q.opsi[k]}`).join('   ')}</p>}
+                      {!Bt.punyaOpsi(b) && <p className="mt-1 text-xs text-mute">Jawaban: {q.jawaban}</p>}
+                      <p className="mt-1 text-xs text-mute">{q.level}{r && r.segmenHal ? ` · hal. ${r.segmenHal}` : ''}</p>
+                      {NK.kutipanKunci(q) && <p dir="rtl" lang="ar" className="mt-1 font-ar text-base leading-loose text-soft-ink">{NK.kutipanKunci(q)}</p>}
+                      {r && r.kutipanStatus !== 'cocok' && <p className="mt-1 text-xs text-warn">{LABEL_KUTIPAN_STATUS[r.kutipanStatus]}</p>}
+                      {r && r.sikap && r.sikap.status !== 'aman' && <p className="mt-1 text-xs text-warn">Periksa nada soal: {r.sikap.temuan.map((t) => t.kata).join(', ')}</p>}
+                      {r && r.catatan.filter((c) => !/Kutipan|Kunci jatuh/.test(c)).map((c, i) => <p key={i} className="mt-1 text-xs text-warn">{c}</p>)}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ))}
+        </Section>
+      )}
+    </div>
+  );
+}
+
 function App({ user, profile }) {
   const db = firebase.firestore();
   const col = db.collection('soal');
@@ -3363,6 +3663,31 @@ function App({ user, profile }) {
     } catch (e) { toast(failMsg(e)); return false; } // gagal: isian dan drafnya tetap ada
   };
   const saveDraft = async () => { if (await commit('draft')) toast('Draft tersimpan (status Draft). Cari di tab Bank Soal.'); };
+  // Simpan massal hasil Paket Dawr sebagai Draft. Status ai.verifikasi dihitung ulang terhadap segmen sumbernya (kutipan ada di pembahasan).
+  const simpanPaket = async (butir, meta) => {
+    const K = window.Kutipan; let n = 0;
+    for (let i = 0; i < butir.length; i += 400) { // batch Firestore maksimal 500 operasi
+      const batch = db.batch();
+      for (const x of butir.slice(i, i + 400)) {
+        const q = x.soal; const bt = Bt.bentukDari(q.bentuk);
+        let v = ''; try { v = K ? K.periksaKutipan(K.bidangDariSoal(q), x.segmenTeks).status : ''; } catch (e) { v = ''; }
+        const c = {
+          tingkat: meta.tingkat, mapel: meta.mapel, level: q.level, nama: String(meta.nama || '').slice(0, 120), juz: String(meta.juz || '').slice(0, 20),
+          hal: String(x.segmenHal || '').slice(0, 20), teks: x.segmenTeks, stimulus: '', pertanyaan: q.pertanyaan, indikator: q.indikator, sumberUrl: '',
+          opsi: q.opsi, kunci: q.kunci || '', pembahasan: q.pembahasan.slice(0, 4000), bentuk: bt, jawaban: q.jawaban || '', rubrik: '',
+          ai: { dibuat: true, model: String(x.model || '').slice(0, 60), verifikasi: ['lolos', 'periksa', 'gagal', 'tanpa_teks'].includes(v) ? v : '', buta: '' },
+        };
+        if (meta.kelas) c.kelas = meta.kelas;
+        if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
+        if (!c.jawaban) delete c.jawaban;
+        delete c.rubrik;
+        batch.set(col.doc(), { ...c, status: 'draft', catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
+        n++;
+      }
+      try { await batch.commit(); } catch (e) { throw new Error(n > i ? `Sebagian tersimpan (${i} butir) lalu gagal. ${failMsg(e)}` : failMsg(e)); }
+    }
+    return n;
+  };
   const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
   const review = async (id, status, note, okMsg) => {
     try {
@@ -3402,6 +3727,7 @@ function App({ user, profile }) {
   const approvedN = qs.filter((q) => q.status === 'approved').length;
   const TABS = [
     { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
+    { id: 'paket', label: 'Paket Dawr', icon: Layers },
     { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
@@ -3478,6 +3804,7 @@ function App({ user, profile }) {
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
+        {tab === 'paket' && <PaketDawr toast={toast} onSimpan={simpanPaket} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">

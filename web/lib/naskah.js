@@ -8,6 +8,7 @@
 //   Dawr I dan III : أ 5 x 5, ب 5 x 7, ج 5 x 8      Dawr II dan IV : أ 7 x 4, ب 6 x 5, ج 7 x 6
 // Warna merah pada contoh dibaca sebagai penanda kunci: huruf opsi yang benar dan "ص" (rujukan halaman kitab, diambil dari kolom Halaman soal).
 import { bentukDari, opsiTerpakai, kunciTeks } from './bentuk.js';
+import { ekstrakKutipan } from './kutipan.js';
 
 export const MAKS_NILAI = 100;
 export const HURUF_OPSI = { A: 'أ', B: 'ب', C: 'ج', D: 'د', E: 'هـ' };
@@ -129,6 +130,20 @@ export function jawabanKunci(q) {
   const b = bentukDari(q);
   if (b === 'pilgan' || b === 'lanjutan') return { huruf: HURUF_OPSI[q.kunci] || '', teks: String((q.opsi || {})[q.kunci] || '').trim() };
   return { huruf: '', teks: kunciTeks(q) };
+}
+
+/**
+ * Teks kitab (Arab) yang menjadi dasar kunci, untuk dicetak di naskah kunci. Sumber, berurutan:
+ *   1. baris "Kutipan kitab: ..." di awal pembahasan (format paket Dawr; sudah dicocokkan dengan teks oleh server),
+ *   2. kutipan Arab pertama (>= 3 kata) di pembahasan soal buatan biasa.
+ * Kosong bila pembahasan tidak memuat teks Arab. Tidak pernah mengarang.
+ */
+export function kutipanKunci(q) {
+  const p = String((q && q.pembahasan) || '');
+  const m = /^\s*Kutipan kitab:\s*(.+)$/m.exec(p);
+  if (m && m[1].trim()) return m[1].replace(/\s+/g, ' ').trim();
+  const a = ekstrakKutipan(p)[0];
+  return a ? a.mentah.replace(/\s+/g, ' ').trim() : '';
 }
 
 /** Isian dan uraian: kalimat tanya diberi tanda tanya bila belum diakhiri tanda baca. */

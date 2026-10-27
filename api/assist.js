@@ -8,6 +8,7 @@ import { cekButa } from '../src/cekButa.js';
 import { sarankanBab, validateBab } from '../src/babService.js';
 import { perkuatPegon, fotoPegon, validatePegon, validateFoto } from '../src/pegonService.js';
 import { fotoKitab } from '../src/fotoKitab.js';
+import { generatePaket, validatePaket } from '../src/paketService.js';
 import { periksaKutipan, bidangDariAI, bidangDariSoal } from '../src/kutipan.js';
 import { periksaSikap } from '../src/sikap.js';
 
@@ -19,6 +20,7 @@ const ASSIST = {
   pegon: perkuatPegon,
   pegonfoto: fotoPegon,
   fotokitab: fotoKitab, // OCR teks Arab dari foto halaman kitab fisik
+  paket: generatePaket, // satu segmen teks -> beberapa butir naskah IMDA (tanpa narasi, 3 opsi, kutipan kitab terverifikasi)
   bab: sarankanBab, // saran bab penting untuk diujikan (haluan Aswaja); daftar isi opsional, bukan teks Arab wajib
 };
 
@@ -26,11 +28,12 @@ export default route(async (req) => {
   const u = await authenticateAuthor(req);
   const aksi = req.body && req.body.aksi;
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
-  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, bab, pegon, pegonfoto, atau fotokitab.');
+  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, paket, bab, pegon, pegonfoto, atau fotokitab.');
   await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
   let teks;
   if (aksi === 'pegon') validatePegon(req.body); // teks Latin, bukan Arab: jangan lewat validateTeks
   else if (aksi === 'pegonfoto' || aksi === 'fotokitab') validateFoto(req.body);
+  else if (aksi === 'paket') validatePaket(req.body); // segmen <= 6.000 karakter, bentuk dan level tiap butir; tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'bab') validateBab(req.body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota

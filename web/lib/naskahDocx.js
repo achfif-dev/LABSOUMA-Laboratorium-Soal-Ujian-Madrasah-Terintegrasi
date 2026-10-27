@@ -4,8 +4,9 @@
 //   kunci:true  -> naskah pengoreksi: huruf opsi benar, jawaban tertulis, dan "ص <halaman kitab>" berwarna merah, seperti contoh template.
 //   pegon:fn    -> fungsi alih aksara Latin ke Pegon (mis. t => window.Pegon.convertText(t).pegon). Dipakai untuk kalimat soal, opsi, dan
 //                  jawaban kunci; tanpa fungsi ini teks dicetak apa adanya. Kop sudah berbahasa Arab dan tidak diubah (lihat kopAsli.js).
+//   kutipan:true (bawaan, hanya di naskah kunci) -> teks kitab Arab yang menjadi dasar kunci dicetak merah di bawah tiap nomor.
 //   narasi:true -> narasi/stimulus ikut dicetak di depan kalimat soal. Bawaan false: template hanya satu kalimat soal per nomor.
-import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal } from './naskah.js';
+import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal, kutipanKunci } from './naskah.js';
 import { bentukDari, opsiTerpakai } from './bentuk.js';
 import { runGrup, LOGO_H, LOGO_V, GRUP } from './kopAsli.js';
 
@@ -17,7 +18,7 @@ const POSISI_TAB = 11055;          // tab rata kanan dengan garis pengisi, sama 
 const adaArab = (s) => /[\u0600-\u06FF\u0750-\u077F]/.test(String(s));
 const bersih = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/\s*\n\s*/g, ' ').trim();
 
-export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null, pegon = null, narasi = false } = {}) {
+export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = null, pegon = null, narasi = false, kutipan = true } = {}) {
   const { Document, Paragraph, TextRun, BorderStyle, ImageRun, Footer, AlignmentType, TabStopType, LeaderType, LineRuleType, Tab, ImportedXmlComponent, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom, TextWrappingType } = D;
   const meta = { ...META_AWAL, ...(metaMasuk || {}) };
 
@@ -101,6 +102,9 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
       if (bg.kode === 'a') body.push(pilihan(no, q));
       else if (bg.kode === 'b') body.push(isian(no, q, LeaderType.DOT, false));
       else body.push(isian(no, q, LeaderType.UNDERSCORE, true));
+      // Naskah kunci: dasar jawaban dari kitab (Arab apa adanya, tidak lewat mesin Pegon), satu paragraf kecil merah di bawah nomor.
+      const dasar = kunci && kutipan && q ? kutipanKunci(q) : '';
+      if (dasar) body.push(P([N('نص الكتاب: ', { color: MERAH, size: 24 }), N(dasar, { color: MERAH, size: 24 })], { indent: { right: 360 } }));
     }
   });
 
