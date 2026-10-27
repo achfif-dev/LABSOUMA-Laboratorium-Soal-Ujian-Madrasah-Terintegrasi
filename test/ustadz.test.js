@@ -142,7 +142,7 @@ test('firestore.rules: isUstadz hanya dipakai membaca kamusPegon; blok soal dan 
   assert.match(kamus, /allow create, update: if isReviewer\(\)/);
 });
 
-test('Paket Dawr: aksi paket ditolak 403 untuk ustadz sebelum kuota terpakai; penyusun/editor/admin tidak ditolak oleh peran', async () => {
+test('Paket Dauri: aksi paket ditolak 403 untuk ustadz sebelum kuota terpakai; penyusun/editor/admin tidak ditolak oleh peran', async () => {
   const spek = [{ bentuk: 'pilgan', level: 'L1' }];
   let dipanggil = 0;
   await jalan(async (fb) => {

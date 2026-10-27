@@ -1,11 +1,11 @@
-// Naskah ujian format IMDA (Dawr I-IV): tiga bagian dengan nilai per nomor, total 100. Fungsi murni, sumber tunggal untuk browser dan tes.
+// Naskah ujian format IMDA (Dauri I-IV): tiga bagian dengan nilai per nomor, total 100. Fungsi murni, sumber tunggal untuk browser dan tes.
 //
 // Dibuat dari empat berkas contoh FORMAT_SOAL_IMDA_I..IV.docx:
 //   bagian أ  "إختر إحدى الأجوبة الصحيحة مما بين القوسين"  -> soal pilihan (pilgan dan lanjutan)
 //   bagian ب  "إملاء الفراغ الآتية بأجوبة صحيحة"            -> isian
 //   bagian ج  "أجب أسئلة التالية إجابة صحيحة"               -> uraian (jawab singkat)
-// Jumlah nomor dan nilai per nomor tiap Dawr (nilai 100):
-//   Dawr I dan III : أ 5 x 5, ب 5 x 7, ج 5 x 8      Dawr II dan IV : أ 7 x 4, ب 6 x 5, ج 7 x 6
+// Jumlah nomor dan nilai per nomor tiap Dauri (nilai 100):
+//   Dauri I dan III : أ 5 x 5, ب 5 x 7, ج 5 x 8      Dauri II dan IV : أ 7 x 4, ب 6 x 5, ج 7 x 6
 // Warna merah pada contoh dibaca sebagai penanda kunci: huruf opsi yang benar dan "ص" (rujukan halaman kitab, diambil dari kolom Halaman soal).
 import { bentukDari, opsiTerpakai, kunciTeks } from './bentuk.js';
 import { ekstrakKutipan } from './kutipan.js';
@@ -22,14 +22,14 @@ export const BAGIAN = {
 export const URUTAN_BAGIAN = ['a', 'b', 'c'];
 
 const tiga = (n, nilai) => URUTAN_BAGIAN.map((k, i) => ({ kode: k, n: n[i], nilai: nilai[i] }));
-export const PRESET_DAWR = {
-  1: { dawr: 1, nama: 'الأول', label: 'Dawr I', bagian: tiga([5, 5, 5], [5, 7, 8]) },
-  2: { dawr: 2, nama: 'الثاني', label: 'Dawr II', bagian: tiga([7, 6, 7], [4, 5, 6]) },
-  3: { dawr: 3, nama: 'الثالث', label: 'Dawr III', bagian: tiga([5, 5, 5], [5, 7, 8]) },
-  4: { dawr: 4, nama: 'الرابع', label: 'Dawr IV', bagian: tiga([7, 6, 7], [4, 5, 6]) },
+export const PRESET_DAURI = {
+  1: { dawr: 1, nama: 'الأول', label: 'Dauri I', bagian: tiga([5, 5, 5], [5, 7, 8]) },
+  2: { dawr: 2, nama: 'الثاني', label: 'Dauri II', bagian: tiga([7, 6, 7], [4, 5, 6]) },
+  3: { dawr: 3, nama: 'الثالث', label: 'Dauri III', bagian: tiga([5, 5, 5], [5, 7, 8]) },
+  4: { dawr: 4, nama: 'الرابع', label: 'Dauri IV', bagian: tiga([7, 6, 7], [4, 5, 6]) },
 };
-export const DAFTAR_DAWR = Object.values(PRESET_DAWR);
-export const dawrSah = (v) => (Object.hasOwn(PRESET_DAWR, String(v)) ? Number(v) : 1);
+export const DAFTAR_DAURI = Object.values(PRESET_DAURI);
+export const dauriSah = (v) => (Object.hasOwn(PRESET_DAURI, String(v)) ? Number(v) : 1);
 
 /** Nilai per nomor ditulis dengan kata seperti pada template ("لكل رقم خمسة نتائج"); di atas sepuluh dipakai angka. */
 const KATA_NILAI = ['', 'واحد', 'اثنان', 'ثلاثة', 'اربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة'];
@@ -39,7 +39,7 @@ export const judulBagian = (kode, nilai) => {
   const b = BAGIAN[kode];
   return `${b.huruf} ${b.sambung} ${b.judul} ( لكل رقم ${kataNilai(nilai)} نتائج )`;
 };
-export const judulDawr = (dawr) => `الامتحان في الدور ${PRESET_DAWR[dawrSah(dawr)].nama}`;
+export const judulDauri = (dawr) => `الامتحان في الدور ${PRESET_DAURI[dauriSah(dawr)].nama}`;
 
 /** Nilai awal kop naskah; semuanya bisa diubah pengguna sebelum diunduh. */
 export const META_AWAL = Object.freeze({
@@ -93,7 +93,7 @@ export function kataRagu(naskah, ubah, { narasi = false } = {}) {
  * atau yang bagiannya sudah penuh, masuk `tidakDipakai` beserta alasannya. Nomor yang tidak terisi tetap ada (q: null) sebagai baris kosong.
  */
 export function susunNaskah(soal, dawr = 1) {
-  const preset = PRESET_DAWR[dawrSah(dawr)];
+  const preset = PRESET_DAURI[dauriSah(dawr)];
   const bagian = preset.bagian.map((p) => ({ ...p, huruf: BAGIAN[p.kode].huruf, judul: judulBagian(p.kode, p.nilai), butir: [], terisi: 0, kurang: 0 }));
   const tidakDipakai = []; const peringatan = [];
   for (const q of Array.isArray(soal) ? soal : []) {
@@ -134,7 +134,7 @@ export function jawabanKunci(q) {
 
 /**
  * Teks kitab (Arab) yang menjadi dasar kunci, untuk dicetak di naskah kunci. Sumber, berurutan:
- *   1. baris "Kutipan kitab: ..." di awal pembahasan (format paket Dawr; sudah dicocokkan dengan teks oleh server),
+ *   1. baris "Kutipan kitab: ..." di awal pembahasan (format paket Dauri; sudah dicocokkan dengan teks oleh server),
  *   2. kutipan Arab pertama (>= 3 kata) di pembahasan soal buatan biasa.
  * Kosong bila pembahasan tidak memuat teks Arab. Tidak pernah mengarang.
  */
@@ -149,13 +149,13 @@ export function kutipanKunci(q) {
 /** Isian dan uraian: kalimat tanya diberi tanda tanya bila belum diakhiri tanda baca. */
 export const akhiriTanya = (s) => { const t = String(s || '').trim(); return !t || /[?؟!.:…]$/.test(t) ? t : t + ' ؟'; };
 
-/** Nama berkas unduhan, mis. "naskah-ujian-dawr-2-fiqh.docx"; teks Arab/Latin dibersihkan agar aman di semua sistem berkas.
+/** Nama berkas unduhan, mis. "naskah-ujian-dauri-2-fiqh.docx"; teks Arab/Latin dibersihkan agar aman di semua sistem berkas.
  *  Mapel Arab tidak masuk nama berkas, jadi nama Latin dari Konfigurasi (`mapelLatin`) dipakai bila ada agar naskah berbagai mapel tidak bertabrakan. */
 export function namaBerkasNaskah(meta, kunci) {
   const m = { ...META_AWAL, ...(meta || {}) };
   const mapel = String(m.mapelLatin || m.mapel || '').normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 30);
   const latin = /^[a-z0-9-]+$/i.test(mapel) ? mapel.toLowerCase() : '';
-  return `naskah-ujian-dawr-${dawrSah(m.dawr)}${latin ? '-' + latin : ''}${kunci ? '-kunci' : ''}.docx`;
+  return `naskah-ujian-dauri-${dauriSah(m.dawr)}${latin ? '-' + latin : ''}${kunci ? '-kunci' : ''}.docx`;
 }
 
 /* ---------- Mode "Ikuti template" pada form penyusunan soal ----------
@@ -165,15 +165,15 @@ export function namaBerkasNaskah(meta, kunci) {
 /** Bentuk soal yang punya tempat di template (Benar–Salah tidak ada). */
 export const BENTUK_TEMPLATE = URUTAN_BAGIAN.flatMap((k) => BAGIAN[k].bentuk);
 
-/** Bagian template untuk satu Dawr: huruf, judul, jumlah nomor, dan nilai per nomor. */
+/** Bagian template untuk satu Dauri: huruf, judul, jumlah nomor, dan nilai per nomor. */
 export function ringkasBagian(dawr, kode) {
-  const p = PRESET_DAWR[dawrSah(dawr)].bagian.find((x) => x.kode === kode);
+  const p = PRESET_DAURI[dauriSah(dawr)].bagian.find((x) => x.kode === kode);
   if (!p) return null;
   return { kode, huruf: BAGIAN[kode].huruf, label: BAGIAN[kode].label, n: p.n, nilai: p.nilai, judul: judulBagian(kode, p.nilai) };
 }
 
 /** Ringkasan satu baris, mis. "أ 5×5 + ب 5×7 + ج 5×8 = 100". */
-export function ringkasDawr(dawr) {
+export function ringkasDauri(dawr) {
   const bg = URUTAN_BAGIAN.map((k) => ringkasBagian(dawr, k));
   return `${bg.map((b) => `${b.huruf} ${b.n}×${b.nilai}`).join(' + ')} = ${bg.reduce((n, b) => n + b.n * b.nilai, 0)}`;
 }

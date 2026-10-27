@@ -1,6 +1,6 @@
 # Audit ulang aplikasi (27 Oktober 2026, siang)
 
-Cakupan: seluruh `api/*`, `src/*`, `firestore.rules`, `firestore.indexes.json`, `vercel.json`, CI, dan perubahan Paket Dawr hari ini (cakupan Konfigurasi, tanpa rujukan kitab, pengelompokan paket, sunting dan kirim ke editor, Review berkelompok). Dibaca langsung dari kode; temuan diuji dengan skrip bila memungkinkan.
+Cakupan: seluruh `api/*`, `src/*`, `firestore.rules`, `firestore.indexes.json`, `vercel.json`, CI, dan perubahan Paket Dauri hari ini (cakupan Konfigurasi, tanpa rujukan kitab, pengelompokan paket, sunting dan kirim ke editor, Review berkelompok). Dibaca langsung dari kode; temuan diuji dengan skrip bila memungkinkan.
 
 ## Ringkasan
 
@@ -12,12 +12,12 @@ Cakupan: seluruh `api/*`, `src/*`, `firestore.rules`, `firestore.indexes.json`, 
 
 | # | Tingkat | Temuan | Status |
 |---|---|---|---|
-| N1 | Sedang (biaya) | Hasil AI tab Paket Dawr hanya di memori halaman. Muat ulang, tab tertutup, atau ponsel membuang tab membuang butir yang sudah memakai kuota AI harian (bawaan 60), beserta materi yang ditempel. | **Diperbaiki:** isian, materi, foto hasil baca, dan butir hasil AI disimpan sebagai draf perangkat (kunci `paketDawr`, per akun, 30 hari, dihapus saat Keluar atau bila kosong). Teks segmen disimpan sekali dan dirujuk lewat indeks. Data rusak dibangun ulang dari bidang yang dikenal; diuji dengan lima bentuk data rusak. |
-| N2 | Rendah | Tab Paket Dawr tidak ada di daftar hash yang dikenal: memuat ulang halaman di `#paket` jatuh ke Penyusunan Soal. | **Diperbaiki.** |
+| N1 | Sedang (biaya) | Hasil AI tab Paket Dauri hanya di memori halaman. Muat ulang, tab tertutup, atau ponsel membuang tab membuang butir yang sudah memakai kuota AI harian (bawaan 60), beserta materi yang ditempel. | **Diperbaiki:** isian, materi, foto hasil baca, dan butir hasil AI disimpan sebagai draf perangkat (kunci `paketDauri`, per akun, 30 hari, dihapus saat Keluar atau bila kosong). Teks segmen disimpan sekali dan dirujuk lewat indeks. Data rusak dibangun ulang dari bidang yang dikenal; diuji dengan lima bentuk data rusak. |
+| N2 | Rendah | Tab Paket Dauri tidak ada di daftar hash yang dikenal: memuat ulang halaman di `#paket` jatuh ke Penyusunan Soal. | **Diperbaiki.** |
 | N3 | Rendah | Penyusun menulis sendiri `paket`, `dawr`, `urut`. Penyusun yang sengaja atau tidak sengaja memakai id paket orang lain mencampur butirnya ke kelompok itu di Bank/Review. Hanya staf yang bisa; dampaknya tampilan, bukan data atau hak akses. | Belum diubah. Aturan Firestore tidak bisa memeriksa kepemilikan id paket tanpa dokumen induk. Id dibuat acak dan tidak ditampilkan. |
 | N4 | Rendah | Penyusun tidak bisa menarik kembali butir yang sudah Pending (aturan: hapus/ubah hanya saat draft atau revisi). Salah kirim hanya bisa diselesaikan editor (minta revisi). | Belum diubah; sesuai desain aturan yang ada. |
 | N5 | Info | Kelengkapan paket ("kurang N dari 15 nomor") dihitung dari soal yang **sudah dimuat** (Bank 100 terbaru, Review 300 pending, draf sendiri 200). Paket lama yang sebagian butirnya belum dimuat bisa tampak kurang. | Belum diubah. Tombol "Muat lagi" di Bank menuntaskan; pertimbangkan kueri per id paket bila paket sering lama. |
-| N6 | Info | Segmen di luar cakupan tetap memakai satu panggilan AI (AI yang menolak; kuota tidak dikembalikan karena panggilan terjadi). | Dicatat di AUDIT-PAKET-DAWR.md. |
+| N6 | Info | Segmen di luar cakupan tetap memakai satu panggilan AI (AI yang menolak; kuota tidak dikembalikan karena panggilan terjadi). | Dicatat di AUDIT-PAKET-DAURI.md. |
 
 ## 2. Diperiksa dan baik
 
@@ -26,7 +26,7 @@ Cakupan: seluruh `api/*`, `src/*`, `firestore.rules`, `firestore.indexes.json`, 
 - Kueri Firestore: semua kueri di klien tercakup indeks bawaan atau gabungan indeks satu bidang (`tingkat` + `updatedAt` ada di `firestore.indexes.json`).
 - Ekspor CSV melindungi sel berawalan `= + - @` (injeksi rumus). `dangerouslySetInnerHTML` hanya dipakai untuk keluaran Pegon yang sudah di-escape.
 - Tidak ada rahasia di repositori (yang cocok pola hanya kunci palsu di tes).
-- Paket Dawr: keempat bentuk butir (pilihan ganda, melanjutkan, isian, uraian) dari keluaran AI lolos `periksaSoal`; kutipan yang tidak cocok dengan teks tidak pernah masuk kunci; rujukan "menurut kitab/teks" ditolak atau dibuang di server dan klien.
+- Paket Dauri: keempat bentuk butir (pilihan ganda, melanjutkan, isian, uraian) dari keluaran AI lolos `periksaSoal`; kutipan yang tidak cocok dengan teks tidak pernah masuk kunci; rujukan "menurut kitab/teks" ditolak atau dibuang di server dan klien.
 
 ## 3. Temuan lama: status sekarang
 
@@ -42,10 +42,10 @@ Cakupan: seluruh `api/*`, `src/*`, `firestore.rules`, `firestore.indexes.json`, 
 
 ## 4. Belum diuji (jujur)
 
-`vite build`, `npm audit`, dan `excelConfig.test.js` (registry npm diblokir). Tampilan dan klik di browser sungguhan; Firestore dan aturan di emulator (aturan hanya dicocokkan lewat teks); panggilan AI nyata; Safari/iOS. Pemulihan draf Paket Dawr diuji lewat render server dengan data tiruan, bukan di browser.
+`vite build`, `npm audit`, dan `excelConfig.test.js` (registry npm diblokir). Tampilan dan klik di browser sungguhan; Firestore dan aturan di emulator (aturan hanya dicocokkan lewat teks); panggilan AI nyata; Safari/iOS. Pemulihan draf Paket Dauri diuji lewat render server dengan data tiruan, bukan di browser.
 
 ## 5. Saran urutan kerja
 
 1. Deploy (urutan: Publish `firestore.rules`, lalu aplikasi) dan jalankan `npm run build` serta `npm audit` di CI.
-2. Coba satu Dawr kecil sampai terkirim ke editor; muat ulang halaman di tengah proses untuk memastikan hasil pulih.
+2. Coba satu Dauri kecil sampai terkirim ke editor; muat ulang halaman di tengah proses untuk memastikan hasil pulih.
 3. Isi `ALLOWED_EMAIL_DOMAIN` bila memungkinkan (H4).

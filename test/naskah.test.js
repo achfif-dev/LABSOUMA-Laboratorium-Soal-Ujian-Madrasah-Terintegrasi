@@ -1,10 +1,10 @@
-// Naskah ujian format IMDA (Dawr I-IV): web/lib/naskah.js dan web/lib/naskahDocx.js, mengikuti FORMAT_SOAL_IMDA_I..IV.docx.
+// Naskah ujian format IMDA (Dauri I-IV): web/lib/naskah.js dan web/lib/naskahDocx.js, mengikuti FORMAT_SOAL_IMDA_I..IV.docx.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as D from 'docx';
 import JSZip from 'jszip';
-import { BENTUK_TEMPLATE, ringkasBagian, ringkasDawr, catatanTemplate, PRESET_DAWR, DAFTAR_DAWR, MAKS_NILAI, susunNaskah, judulBagian, judulDawr, kataNilai, dawrSah, bagianDari, namaBerkasNaskah, rujukanHalaman, jawabanKunci, akhiriTanya, META_AWAL } from '../web/lib/naskah.js';
+import { BENTUK_TEMPLATE, ringkasBagian, ringkasDauri, catatanTemplate, PRESET_DAURI, DAFTAR_DAURI, MAKS_NILAI, susunNaskah, judulBagian, judulDauri, kataNilai, dauriSah, bagianDari, namaBerkasNaskah, rujukanHalaman, jawabanKunci, akhiriTanya, META_AWAL } from '../web/lib/naskah.js';
 import { buatNaskah } from '../web/lib/naskahDocx.js';
 import { teksSoal, kataRagu, BATAS_SOAL } from '../web/lib/naskah.js';
 import { convertText, convertTextEjaan, ubahEjaan, ejaanSah, EJAAN } from '../web/lib/pegon.js';
@@ -13,17 +13,17 @@ const pg = (pertanyaan, o = ['x', 'y', 'z'], kunci = 'A', hal = '') => ({ bentuk
 const isi = (pertanyaan, hal = '') => ({ bentuk: 'isian', pertanyaan, jawaban: 'jawab ' + pertanyaan, opsi: {}, hal });
 const ura = (pertanyaan, hal = '') => ({ bentuk: 'uraian', pertanyaan, jawaban: 'uraian ' + pertanyaan, opsi: {}, hal });
 const penuh = (dawr) => {
-  const [a, b, c] = PRESET_DAWR[dawr].bagian.map((x) => x.n);
+  const [a, b, c] = PRESET_DAURI[dawr].bagian.map((x) => x.n);
   return [...Array.from({ length: a }, (_, i) => pg('P' + i, ['1', '2', '3'], 'B', String(i + 1))), ...Array.from({ length: b }, (_, i) => isi('I' + i, String(i + 1))), ...Array.from({ length: c }, (_, i) => ura('U' + i, String(i + 1)))];
 };
 
 test('preset mengikuti keempat template: jumlah nomor dan nilai per nomor, total selalu 100', () => {
-  const ringkas = (d) => PRESET_DAWR[d].bagian.map((b) => `${b.kode}:${b.n}x${b.nilai}`).join(' ');
+  const ringkas = (d) => PRESET_DAURI[d].bagian.map((b) => `${b.kode}:${b.n}x${b.nilai}`).join(' ');
   assert.equal(ringkas(1), 'a:5x5 b:5x7 c:5x8');
   assert.equal(ringkas(2), 'a:7x4 b:6x5 c:7x6');
   assert.equal(ringkas(3), 'a:5x5 b:5x7 c:5x8');
   assert.equal(ringkas(4), 'a:7x4 b:6x5 c:7x6');
-  for (const p of DAFTAR_DAWR) assert.equal(p.bagian.reduce((n, b) => n + b.n * b.nilai, 0), MAKS_NILAI, p.label);
+  for (const p of DAFTAR_DAURI) assert.equal(p.bagian.reduce((n, b) => n + b.n * b.nilai, 0), MAKS_NILAI, p.label);
 });
 
 test('judul sama dengan teks template (ejaan "اربعة" tanpa hamza dan pemisah bagian ج tidak diubah)', () => {
@@ -33,13 +33,13 @@ test('judul sama dengan teks template (ejaan "اربعة" tanpa hamza dan pemisa
   assert.equal(judulBagian('b', 5), 'ب – إملاء الفراغ الآتية بأجوبة صحيحة ( لكل رقم خمسة نتائج )');
   assert.equal(judulBagian('c', 8), 'ج - أجب أسئلة التالية إجابة صحيحة ( لكل رقم ثمانية نتائج )');
   assert.equal(judulBagian('c', 6), 'ج - أجب أسئلة التالية إجابة صحيحة ( لكل رقم ستة نتائج )');
-  assert.deepEqual([1, 2, 3, 4].map(judulDawr), ['الامتحان في الدور الأول', 'الامتحان في الدور الثاني', 'الامتحان في الدور الثالث', 'الامتحان في الدور الرابع']);
+  assert.deepEqual([1, 2, 3, 4].map(judulDauri), ['الامتحان في الدور الأول', 'الامتحان في الدور الثاني', 'الامتحان في الدور الثالث', 'الامتحان في الدور الرابع']);
   assert.equal(kataNilai(11), '11'); assert.equal(kataNilai(0), '0');
 });
 
-test('dawrSah: nilai tidak dikenal kembali ke Dawr I', () => {
-  assert.equal(dawrSah('3'), 3); assert.equal(dawrSah(4), 4);
-  for (const v of [0, 5, 'x', null, undefined, '__proto__']) assert.equal(dawrSah(v), 1, String(v));
+test('dauriSah: nilai tidak dikenal kembali ke Dauri I', () => {
+  assert.equal(dauriSah('3'), 3); assert.equal(dauriSah(4), 4);
+  for (const v of [0, 5, 'x', null, undefined, '__proto__']) assert.equal(dauriSah(v), 1, String(v));
 });
 
 test('bentuk soal dipetakan ke bagian; Benar-Salah tidak punya bagian', () => {
@@ -49,11 +49,11 @@ test('bentuk soal dipetakan ke bagian; Benar-Salah tidak punya bagian', () => {
   assert.equal(bagianDari({}), 'a'); // tanpa bentuk dianggap pilihan ganda
 });
 
-test('susunNaskah: naskah penuh bernilai 100 tanpa peringatan di semua Dawr', () => {
+test('susunNaskah: naskah penuh bernilai 100 tanpa peringatan di semua Dauri', () => {
   for (const d of [1, 2, 3, 4]) {
     const n = susunNaskah(penuh(d), d);
     assert.equal(n.total, 100, 'dawr ' + d); assert.deepEqual(n.peringatan, [], 'dawr ' + d); assert.equal(n.tidakDipakai.length, 0);
-    assert.deepEqual(n.bagian.map((b) => b.butir.length), PRESET_DAWR[d].bagian.map((b) => b.n));
+    assert.deepEqual(n.bagian.map((b) => b.butir.length), PRESET_DAURI[d].bagian.map((b) => b.n));
     assert.ok(n.bagian.every((b) => b.butir.every((x, i) => x.no === i + 1 && x.q)));
   }
 });
@@ -88,11 +88,11 @@ test('rujukanHalaman, jawabanKunci, akhiriTanya, namaBerkasNaskah', () => {
   assert.deepEqual(jawabanKunci(pg('a', ['س', 'ص', 'ع'], 'B')), { huruf: 'ب', teks: 'ص' });
   assert.equal(jawabanKunci(isi('a')).teks, 'jawab a');
   assert.equal(akhiriTanya('ما هو'), 'ما هو ؟'); assert.equal(akhiriTanya('ما هو؟'), 'ما هو؟'); assert.equal(akhiriTanya(''), '');
-  assert.equal(namaBerkasNaskah({ dawr: 2, mapel: 'Fiqh' }, false), 'naskah-ujian-dawr-2-fiqh.docx');
-  assert.equal(namaBerkasNaskah({ dawr: 3, mapel: 'Fiqh' }, true), 'naskah-ujian-dawr-3-fiqh-kunci.docx');
-  assert.equal(namaBerkasNaskah({ dawr: 4, mapel: 'فقه' }, false), 'naskah-ujian-dawr-4.docx'); // Arab tidak dipakai di nama berkas
-  assert.equal(namaBerkasNaskah({ dawr: 9, mapel: '../../etc' }, false), 'naskah-ujian-dawr-1-etc.docx');
-  assert.equal(namaBerkasNaskah(null, false), 'naskah-ujian-dawr-1.docx');
+  assert.equal(namaBerkasNaskah({ dawr: 2, mapel: 'Fiqh' }, false), 'naskah-ujian-dauri-2-fiqh.docx');
+  assert.equal(namaBerkasNaskah({ dawr: 3, mapel: 'Fiqh' }, true), 'naskah-ujian-dauri-3-fiqh-kunci.docx');
+  assert.equal(namaBerkasNaskah({ dawr: 4, mapel: 'فقه' }, false), 'naskah-ujian-dauri-4.docx'); // Arab tidak dipakai di nama berkas
+  assert.equal(namaBerkasNaskah({ dawr: 9, mapel: '../../etc' }, false), 'naskah-ujian-dauri-1-etc.docx');
+  assert.equal(namaBerkasNaskah(null, false), 'naskah-ujian-dauri-1.docx');
 });
 
 /* ------------------------------------------------------------ DOCX */
@@ -194,11 +194,11 @@ test('penjaga: format Naskah ada di tab Export dan logo tersedia di public/', ()
   assert.ok(LOGO.length > 1000 && LOGO.subarray(1, 4).toString() === 'PNG');
 });
 
-test('mode template di form: bentuk yang tersedia, ringkasan Dawr, dan nilai per bagian mengikuti preset', () => {
+test('mode template di form: bentuk yang tersedia, ringkasan Dauri, dan nilai per bagian mengikuti preset', () => {
   assert.deepEqual([...BENTUK_TEMPLATE].sort(), ['isian', 'lanjutan', 'pilgan', 'uraian']); // Benar–Salah tidak ada di template
-  assert.equal(ringkasDawr(1), 'أ 5×5 + ب 5×7 + ج 5×8 = 100');
-  assert.equal(ringkasDawr(2), 'أ 7×4 + ب 6×5 + ج 7×6 = 100');
-  assert.equal(ringkasDawr('x'), ringkasDawr(1)); // Dawr tidak sah jatuh ke Dawr I, sama seperti ekspor
+  assert.equal(ringkasDauri(1), 'أ 5×5 + ب 5×7 + ج 5×8 = 100');
+  assert.equal(ringkasDauri(2), 'أ 7×4 + ب 6×5 + ج 7×6 = 100');
+  assert.equal(ringkasDauri('x'), ringkasDauri(1)); // Dauri tidak sah jatuh ke Dauri I, sama seperti ekspor
   const b = ringkasBagian(4, 'b');
   assert.deepEqual([b.huruf, b.n, b.nilai], ['ب', 6, 5]);
   assert.equal(b.judul, judulBagian('b', 5));

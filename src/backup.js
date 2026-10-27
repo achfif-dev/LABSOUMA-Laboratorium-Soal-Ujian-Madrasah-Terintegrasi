@@ -76,11 +76,11 @@ export function bersihkanSoal(raw) {
   if (kelas) data.kelas = kelas;
   if (periode) data.periode = periode;
   if (bab) data.bab = bab;
-  // Penanda Paket Dawr (opsional): paket, dawr, cakupan, urut. Hanya ditulis bila ada, supaya soal biasa tetap sama persis.
+  // Penanda Paket Dauri (opsional): paket, dawr, cakupan, urut. Hanya ditulis bila ada, supaya soal biasa tetap sama persis.
   const paket = teks(raw.paket, 40, 'Id paket');
   if (paket) {
     const dawr = String(raw.dawr ?? '');
-    if (!['1', '2', '3', '4'].includes(dawr)) throw bad('Dawr pada paket tidak valid.');
+    if (!['1', '2', '3', '4'].includes(dawr)) throw bad('Dauri pada paket tidak valid.');
     const urut = raw.urut === undefined || raw.urut === null || raw.urut === '' ? 1 : Number(raw.urut);
     if (!Number.isInteger(urut) || urut < 1 || urut > 200) throw bad('Urutan butir paket tidak valid.');
     data.paket = paket; data.dawr = dawr; data.urut = urut;

@@ -1,10 +1,10 @@
-// Paket soal Dawr: web/lib/paket.js (perencana), src/paketService.js (satu panggilan AI), kutipan di naskah kunci.
+// Paket soal Dauri: web/lib/paket.js (perencana), src/paketService.js (satu panggilan AI), kutipan di naskah kunci.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as D from 'docx';
 import JSZip from 'jszip';
 import { bagiProporsional, bagiLevel, bagiTeks, rencanaPaket, urutkanSoal, komposisiSah, labelHalaman, MAKS_SEGMEN, MAKS_MATERI, MAKS_BUTIR_PANGGILAN, KOMPOSISI_BAWAAN } from '../web/lib/paket.js';
-import { PRESET_DAWR, susunNaskah, kutipanKunci } from '../web/lib/naskah.js';
+import { PRESET_DAURI, susunNaskah, kutipanKunci } from '../web/lib/naskah.js';
 import { buatNaskah } from '../web/lib/naskahDocx.js';
 import { generatePaket, validatePaket, normalisasiButir, targetKunci, LABEL_KUTIPAN } from '../src/paketService.js';
 
@@ -21,7 +21,7 @@ test('bagiProporsional: jumlah selalu pas dan mengikuti bobot', () => {
   for (let n = 1; n <= 20; n++) for (const w of [[1], [1, 2, 3], [5, 5, 5, 1], [0, 4, 0]]) assert.equal(jumlah(bagiProporsional(n, w)), n);
 });
 
-test('bagiLevel: jumlah pas untuk setiap ukuran bagian Dawr dan komposisi', () => {
+test('bagiLevel: jumlah pas untuk setiap ukuran bagian Dauri dan komposisi', () => {
   for (const n of [5, 6, 7]) for (const k of [KOMPOSISI_BAWAAN, { L1: 1, L2: 1, L3: 1 }, { L1: 0, L2: 0, L3: 1 }, { L1: 100, L2: 0, L3: 0 }]) {
     const c = bagiLevel(n, k); assert.equal(c.L1 + c.L2 + c.L3, n);
   }
@@ -59,11 +59,11 @@ test('bagiTeks: daftar halaman (foto) menghasilkan label halaman per segmen', ()
   assert.equal(labelHalaman(['5', '5']), '5'); assert.equal(labelHalaman(['3', '4', '5']), '3–5'); assert.equal(labelHalaman(['', '']), ''); assert.equal(labelHalaman(['mukaddimah', 'bab 1']), 'mukaddimah, bab 1');
 });
 
-test('rencanaPaket: setiap Dawr menghasilkan tepat 15 atau 20 butir dengan jumlah per bagian sesuai template', () => {
+test('rencanaPaket: setiap Dauri menghasilkan tepat 15 atau 20 butir dengan jumlah per bagian sesuai template', () => {
   for (const dawr of [1, 2, 3, 4]) for (const panjang of [2500, 9000, 25000]) {
     const r = rencanaPaket({ dawr, sumber: teksArab(panjang) });
     assert.equal(r.masalah, '');
-    const preset = PRESET_DAWR[dawr];
+    const preset = PRESET_DAURI[dawr];
     assert.equal(r.total, jumlah(preset.bagian.map((b) => b.n)));
     const semuaButir = r.tugas.flatMap((t) => t.spek);
     for (const b of preset.bagian) assert.equal(semuaButir.filter((x) => x.bagian === b.kode).length, b.n, `dawr ${dawr} bagian ${b.kode}`);
@@ -283,13 +283,13 @@ test('tanpa rujukan "menurut kitab/teks" di soal: klausa di awal/akhir dibuang, 
 });
 
 test('paket sebagai satu kesatuan: penanda butir, pengelompokan di Bank, kelengkapan dihitung dari seluruh soal (bukan hasil filter)', async () => {
-  const { idPaket, penandaPaket, kelompokPaket, jumlahDawr } = await import('../web/lib/paket.js');
+  const { idPaket, penandaPaket, kelompokPaket, jumlahDauri } = await import('../web/lib/paket.js');
   const a = idPaket(1_800_000_000_000, () => 0.5); const b = idPaket(1_800_000_000_001, () => 0.9);
   assert.ok(a.length <= 40 && /^pk[0-9a-z]+$/.test(a)); assert.notEqual(a, b);
   assert.deepEqual(penandaPaket({ id: 'pkx', dawr: 2, cakupan: '  Thaharah   – Puasa ', urut: 3 }), { paket: 'pkx', dawr: '2', urut: 3, cakupan: 'Thaharah – Puasa' });
-  assert.deepEqual(penandaPaket({ id: 'pkx', dawr: 9, urut: 0 }), { paket: 'pkx', dawr: '1', urut: 1 }); // Dawr/urut tak sah -> aman; cakupan kosong tidak ditulis
+  assert.deepEqual(penandaPaket({ id: 'pkx', dawr: 9, urut: 0 }), { paket: 'pkx', dawr: '1', urut: 1 }); // Dauri/urut tak sah -> aman; cakupan kosong tidak ditulis
   assert.equal(penandaPaket({ id: 'p', dawr: 1, cakupan: 'x'.repeat(300), urut: 1 }).cakupan.length, 120);
-  assert.equal(jumlahDawr(1), 15); assert.equal(jumlahDawr(2), 20);
+  assert.equal(jumlahDauri(1), 15); assert.equal(jumlahDauri(2), 20);
   const q = (id, paket, urut, status, extra = {}) => ({ id, paket, urut, status, dawr: '1', nama: 'Safinatun Naja', mapel: 'Fiqih', tingkat: 'MA', kelas: '1', periode: 'u1', cakupan: 'Thaharah – Puasa', createdAt: { seconds: 100 }, ...extra });
   const semua = [q('c', 'P1', 3, 'approved'), q('a', 'P1', 1, 'draft'), q('b', 'P1', 2, 'approved'), q('x', 'P2', 1, 'approved', { createdAt: { seconds: 200 } }), { id: 'lepas', status: 'approved' }];
   const tampil = semua.filter((x) => x.status === 'approved');

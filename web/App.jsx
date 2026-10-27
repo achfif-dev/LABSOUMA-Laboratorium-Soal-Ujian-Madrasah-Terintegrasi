@@ -215,7 +215,7 @@ const buildCsvForms = (qs, catatan = '') =>
   qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildCsvRdm = (qs, catatan = '') =>
-  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', 'Paket', 'Dawr', 'Batas materi', 'No. paket', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
+  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', 'Paket', 'Dauri', 'Batas materi', 'No. paket', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
   qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, q.paket, q.dawr, q.cakupan, q.urut, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
@@ -357,7 +357,7 @@ const FORMATS = [
   { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
   { id: 'pegonlatin', label: 'Soal Pegon + Latin (DOCX)', sub: 'Pegon dengan baris Latin asli di bawahnya, untuk diperiksa', icon: Languages, ext: 'docx' },
   { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
-  { id: 'naskah', label: 'Naskah Ujian IMDA (DOCX)', sub: 'Template Dawr I–IV: tiga bagian, total nilai 100', icon: FileText, ext: 'docx' },
+  { id: 'naskah', label: 'Naskah Ujian IMDA (DOCX)', sub: 'Template Dauri I–IV: tiga bagian, total nilai 100', icon: FileText, ext: 'docx' },
   { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
   { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
   { id: 'mxml',  label: 'Moodle XML',         sub: 'Disimpan sebagai .txt, ganti ke .xml', icon: FileCode, ext: 'txt', build: buildMoodleXml },
@@ -786,13 +786,13 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   const [ex, setEx] = useState(() => {
     const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
     return { kUrl: typeof o.kUrl === 'string' ? o.kUrl : (form.sumberUrl || ''), kHal: typeof o.kHal === 'string' ? o.kHal : '1', kAppend: o.kAppend === true, fokus: typeof o.fokus === 'string' ? o.fokus : '', kManual: o.kManual === true, kFoto: o.kFoto === true,
-      tpl: o.tpl === true, dawr: NK.dawrSah(typeof o.dawr === 'number' ? o.dawr : bacaPref('naskahMeta', { dawr: 1 }).dawr) }; // tpl: mode "ikuti template IMDA"; dawr awal mengikuti pengaturan di tab Export
+      tpl: o.tpl === true, dawr: NK.dauriSah(typeof o.dawr === 'number' ? o.dawr : bacaPref('naskahMeta', { dawr: 1 }).dawr) }; // tpl: mode "ikuti template IMDA"; dawr awal mengikuti pengaturan di tab Export
   });
   const patchEx = (p) => setEx((x) => ({ ...x, ...p }));
   const { kUrl, kHal, kAppend, fokus, kManual, tpl, dawr } = ex; // kManual true: nama kitab diketik manual (di luar katalog)
   const setKUrl = (v) => patchEx({ kUrl: v }); const setKHal = (v) => patchEx({ kHal: v }); const setKAppend = (v) => patchEx({ kAppend: v });
   const setFokus = (v) => patchEx({ fokus: v }); const setKManual = (v) => patchEx({ kManual: v });
-  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto && !ex.tpl && ex.dawr === NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
+  useDraftSync('composeEx', ex, ex.kUrl === (form.sumberUrl || '') && ex.kHal === '1' && !ex.kAppend && !ex.fokus && !ex.kManual && !ex.kFoto && !ex.tpl && ex.dawr === NK.dauriSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
   const namaDiKatalog = kitabOpsi.some((k) => k.nama === form.nama);
   const pilihKitab = (v) => { if (v === KITAB_LAIN) { setKManual(true); return; } setKManual(false); set('nama', v); };
   // Soal baru: bila isian bawaan (mis. Aliyah/Fiqih) sudah dinonaktifkan admin, mulai dari pilihan yang aktif.
@@ -1012,15 +1012,15 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${tpl === v ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-ink hover:border-brand'}`}>{t}</button>
               ))}
             </div>
-            {!tpl && <p className="mt-1 text-xs leading-relaxed text-mute">Form seperti biasa: semua bentuk soal, narasi, dan lima opsi. Nyalakan <b>Ikuti template IMDA</b> bila soal ini akan dicetak ke naskah Dawr I–IV.</p>}
+            {!tpl && <p className="mt-1 text-xs leading-relaxed text-mute">Form seperti biasa: semua bentuk soal, narasi, dan lima opsi. Nyalakan <b>Ikuti template IMDA</b> bila soal ini akan dicetak ke naskah Dauri I–IV.</p>}
             {tpl && (
               <div className="mt-2 space-y-2">
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                  <div><Label htmlFor="tpl-dawr">Dawr</Label>
-                    <Select id="tpl-dawr" value={String(dawr)} onChange={(v) => patchEx({ dawr: NK.dawrSah(v) })}>
-                      {NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label}</option>)}
+                  <div><Label htmlFor="tpl-dauri">Dauri</Label>
+                    <Select id="tpl-dauri" value={String(dawr)} onChange={(v) => patchEx({ dawr: NK.dauriSah(v) })}>
+                      {NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label}</option>)}
                     </Select></div>
-                  <div className="text-xs leading-relaxed text-mute sm:pt-6 lg:pt-0 xl:pt-6">{NK.ringkasDawr(dawr)} <span className="whitespace-nowrap">(nomor × nilai)</span></div>
+                  <div className="text-xs leading-relaxed text-mute sm:pt-6 lg:pt-0 xl:pt-6">{NK.ringkasDauri(dawr)} <span className="whitespace-nowrap">(nomor × nilai)</span></div>
                 </div>
                 {(() => {
                   const kode = NK.bagianDari(form); const bg = kode ? NK.ringkasBagian(dawr, kode) : null;
@@ -1418,8 +1418,8 @@ function Review({ list, all = [], onApprove, onRevise, me }) {
 }
 
 /* ---------- Filters ---------- */
-// Nama ringkas satu paket Dawr untuk pilihan filter dan judul kelompok.
-const labelPaket = (cfg, g) => [NK.PRESET_DAWR[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
+// Nama ringkas satu paket Dauri untuk pilihan filter dan judul kelompok.
+const labelPaket = (cfg, g) => [NK.PRESET_DAURI[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
 
 function Filters({ f, setF, withStatus, count, qs = [] }) {
   const cfg = useCfg();
@@ -1450,7 +1450,7 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-bentuk' + (withStatus ? 'b' : 'e')}>Bentuk Soal</Label>
         <Select id={'f-bentuk' + (withStatus ? 'b' : 'e')} value={f.bentuk || ''} onChange={(v) => setF({ ...f, bentuk: v })}><option value="">Semua</option>{Bt.BENTUK_IDS.map((id) => <option key={id} value={id}>{Bt.BENTUK[id].label}</option>)}</Select></div>
       {paketOpsi.length > 0 && (
-        <div className="min-w-[200px] flex-1"><Label htmlFor={'f-paket' + (withStatus ? 'b' : 'e')}>Paket Dawr</Label>
+        <div className="min-w-[200px] flex-1"><Label htmlFor={'f-paket' + (withStatus ? 'b' : 'e')}>Paket Dauri</Label>
           <Select id={'f-paket' + (withStatus ? 'b' : 'e')} value={f.paket || ''} onChange={(v) => { const g = paketOpsi.find((x) => x.id === v); setF(g ? { ...f, paket: v, tingkat: g.tingkat, mapel: g.mapel, kelas: g.kelas, periode: g.periode } : { ...f, paket: '' }); }}>
             <option value="">Semua (paket dan soal lepas)</option>{paketOpsi.map((g) => <option key={g.id} value={g.id}>{labelPaket(cfg, g)}</option>)}</Select></div>
       )}
@@ -1589,7 +1589,7 @@ function Export({ all, toast }) {
   // Satu paket dipilih: butirnya urut menurut nomor naskah, sehingga naskah yang diunduh sama dengan paket yang disimpan.
   const list = useMemo(() => { const l = applyFilter(approved, f); return f.paket ? [...l].sort((a, b) => (a.urut || 999) - (b.urut || 999)) : l; }, [approved, f]);
   const paketDipilih = useMemo(() => (f.paket ? PK.kelompokPaket(all.filter((q) => q.paket === f.paket)).paket[0] || null : null), [all, f.paket]);
-  // Memilih paket otomatis memakai Dawr paket itu pada pengaturan naskah.
+  // Memilih paket otomatis memakai Dauri paket itu pada pengaturan naskah.
   useEffect(() => { if (paketDipilih) setNm((x) => (x.dawr === paketDipilih.dawr ? x : { ...x, dawr: paketDipilih.dawr })); }, [paketDipilih && paketDipilih.id]);
   // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
   const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
@@ -1702,9 +1702,9 @@ function Export({ all, toast }) {
           {isNaskah && (
             <Section title="Pengaturan Naskah Ujian" icon={FileText}>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><Label htmlFor="nk-dawr">Dawr (putaran ujian)</Label>
-                  <Select id="nk-dawr" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dawrSah(v))}>
-                    {NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({d.bagian.map((b) => `${b.n}×${b.nilai}`).join(' + ')})</option>)}
+                <div><Label htmlFor="nk-dauri">Dauri (putaran ujian)</Label>
+                  <Select id="nk-dauri" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dauriSah(v))}>
+                    {NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({d.bagian.map((b) => `${b.n}×${b.nilai}`).join(' + ')})</option>)}
                   </Select></div>
                 <div><Label htmlFor="nk-tingkat-pilih">Tingkat</Label>
                   <Select id="nk-tingkat-pilih" className="sel-ar" value={nm.tingkatKey} onChange={(v) => setNm((x) => NM.pilihTingkat(cfg, x, v))}>
@@ -1743,7 +1743,7 @@ function Export({ all, toast }) {
             {!chosen.length ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> :
               isNaskah ? (
                 <div className="space-y-3 text-sm">
-                  <p className="font-semibold" dir="rtl" lang="ar">{NK.judulDawr(nm.dawr)}</p>
+                  <p className="font-semibold" dir="rtl" lang="ar">{NK.judulDauri(nm.dawr)}</p>
                   <ul className="divide-y divide-line rounded-xl border border-line">
                     {naskah.bagian.map((bg) => (
                       <li key={bg.kode} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
@@ -3217,7 +3217,7 @@ function PegonTab({ toast }) {
   );
 }
 
-/* ---------- Paket Dawr: satu naskah IMDA utuh dari materi panjang (teks, berkas, atau banyak foto) ----------
+/* ---------- Paket Dauri: satu naskah IMDA utuh dari materi panjang (teks, berkas, atau banyak foto) ----------
  * Perencana ada di lib/paket.js (murni, bertes). Materi dibagi per segmen <= 6.000 karakter; tiap panggilan AI menyusun <= 6 butir dari satu segmen.
  * Hasil tidak langsung masuk bank: ditinjau dulu, lalu disimpan massal sebagai Draft (bukan Pending) agar penyusun sempat memeriksa kutipan dan kunci. */
 const LABEL_BAGIAN = { a: 'أ  Pilihan', b: 'ب  Isian', c: 'ج  Uraian' };
@@ -3280,14 +3280,14 @@ function EditButirPaket({ r, onSimpan, onBatal }) {
   );
 }
 
-// Pulihkan isian dan hasil AI Paket Dawr yang belum disimpan (muat ulang, tab tertutup, ponsel menutup tab). Hasil AI memakai kuota harian,
+// Pulihkan isian dan hasil AI Paket Dauri yang belum disimpan (muat ulang, tab tertutup, ponsel menutup tab). Hasil AI memakai kuota harian,
 // jadi tidak boleh hilang diam-diam. Setiap nilai dibangun ulang dari bidang yang dikenal dan bertipe benar; data rusak = dianggap tidak ada.
 function pulihPaket() {
-  const d = Draft.read('paketDawr'); if (!d || typeof d !== 'object') return {};
+  const d = Draft.read('paketDauri'); if (!d || typeof d !== 'object') return {};
   const S = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
   const N = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : undefined);
   const o = { tingkat: S(d.tingkat, 40), mapel: S(d.mapel, 60), kelas: S(d.kelas, 20), periode: S(d.periode, 20), nama: S(d.nama, 120), juz: S(d.juz, 20), halMulai: S(d.halMulai, 20), fokus: S(d.fokus, 300), teks: S(d.teks, 600000), lanjutan: N(d.lanjutan) };
-  if (Number.isInteger(d.dawr)) o.dawr = NK.dawrSah(d.dawr);
+  if (Number.isInteger(d.dawr)) o.dawr = NK.dauriSah(d.dawr);
   if (d.komposisi && typeof d.komposisi === 'object' && ['L1', 'L2', 'L3'].every((k) => N(d.komposisi[k]) !== undefined)) o.komposisi = { L1: N(d.komposisi.L1), L2: N(d.komposisi.L2), L3: N(d.komposisi.L3) };
   if (Array.isArray(d.foto)) o.foto = d.foto.filter((f) => f && typeof f.id === 'string' && typeof f.teks === 'string').slice(0, 60)
     .map((f) => ({ id: f.id.slice(0, 60), nama: S(f.nama, 120) || '', teks: f.teks.slice(0, 60000), hal: S(f.hal, 20) || '', kualitas: S(f.kualitas, 20) || '', ragu: Array.isArray(f.ragu) ? f.ragu.filter((r) => r && typeof r.kata === 'string').slice(0, 50) : [] }));
@@ -3297,11 +3297,11 @@ function pulihPaket() {
   return o;
 }
 
-function PaketDawr({ toast, onSimpan }) {
+function PaketDauri({ toast, onSimpan }) {
   const cfg = useCfg();
   const awal = useRef(null); if (awal.current === null) awal.current = pulihPaket();
   const A0 = awal.current;
-  const [dawr, setDawr] = useState(() => (A0.dawr !== undefined ? A0.dawr : NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr)));
+  const [dawr, setDauri] = useState(() => (A0.dawr !== undefined ? A0.dawr : NK.dauriSah(bacaPref('naskahMeta', { dawr: 1 }).dawr)));
   const [tingkat, setTingkat] = useState(() => A0.tingkat || (tingkatAktif(cfg)[0] || {}).nama || 'Aliyah');
   const [mapel, setMapel] = useState(A0.mapel || 'Fiqih');
   const [kelas, setKelas] = useState(A0.kelas || '');
@@ -3330,7 +3330,7 @@ function PaketDawr({ toast, onSimpan }) {
     const hs = hasil.map(({ segmenTeks, ...sisa }) => { let si = idx.get(segmenTeks); if (si === undefined) { si = segs.length; segs.push(segmenTeks || ''); idx.set(segmenTeks, si); } return { ...sisa, si }; });
     return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, segs, hasil: hs };
   }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, hasil]);
-  useDraftSync('paketDawr', rekam, !teks.trim() && !foto.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
+  useDraftSync('paketDauri', rekam, !teks.trim() && !foto.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
 
   const tingkatOpsi = [...new Set(tingkatAktif(cfg).map((t) => t.nama).concat(tingkat))];
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, tingkat), mapel])];
@@ -3390,7 +3390,7 @@ function PaketDawr({ toast, onSimpan }) {
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
     if (hasil.length && !window.confirm('Hasil paket sebelumnya akan diganti. Lanjutkan?')) return;
-    if (!window.confirm(`Membuat paket ${NK.PRESET_DAWR[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
+    if (!window.confirm(`Membuat paket ${NK.PRESET_DAURI[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
     setErr(null); setHasil([]); setKurang([]); setJalan(true);
     const ctl = new AbortController(); ctlRef.current = ctl;
     const kumpul = []; const sisa = []; const segmenAda = new Set();
@@ -3487,16 +3487,16 @@ function PaketDawr({ toast, onSimpan }) {
 
   const ubahKomp = (k, v) => setKomposisi((x) => ({ ...x, [k]: Math.max(0, Math.min(100, Number(v) || 0)) }));
   const bobot = Math.max(1, komposisi.L1 + komposisi.L2 + komposisi.L3);
-  const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAWR[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
+  const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAURI[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
 
   return (
     <div className="space-y-4">
-      <Section title="Paket Dawr (naskah IMDA utuh)" icon={Layers}>
-        <p className="text-xs leading-relaxed text-mute">Tempel teks, unggah berkas, atau foto banyak halaman kitab. Materi boleh jauh lebih dari 6.000 karakter: aplikasi membaginya per segmen lalu menyusun semua soal satu Dawr sekaligus, tanpa narasi, tiga opsi, dan teks kitab rujukan tercatat untuk naskah kunci.</p>
-        <DraftNote names={['paketDawr']} className="mt-2" />
+      <Section title="Paket Dauri (naskah IMDA utuh)" icon={Layers}>
+        <p className="text-xs leading-relaxed text-mute">Tempel teks, unggah berkas, atau foto banyak halaman kitab. Materi boleh jauh lebih dari 6.000 karakter: aplikasi membaginya per segmen lalu menyusun semua soal satu Dauri sekaligus, tanpa narasi, tiga opsi, dan teks kitab rujukan tercatat untuk naskah kunci.</p>
+        <DraftNote names={['paketDauri']} className="mt-2" />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div><Label htmlFor="pk-dawr">Dawr</Label>
-            <Select id="pk-dawr" value={String(dawr)} onChange={(v) => setDawr(NK.dawrSah(v))} disabled={jalan}>{NK.DAFTAR_DAWR.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({NK.ringkasDawr(d.dawr)})</option>)}</Select></div>
+          <div><Label htmlFor="pk-dauri">Dauri</Label>
+            <Select id="pk-dauri" value={String(dawr)} onChange={(v) => setDauri(NK.dauriSah(v))} disabled={jalan}>{NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({NK.ringkasDauri(d.dawr)})</option>)}</Select></div>
           <div><Label htmlFor="pk-tingkat">Tingkat</Label>
             <Select id="pk-tingkat" value={tingkat} onChange={(v) => { setTingkat(v); setKelas(''); }} disabled={jalan}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select></div>
           <div><Label htmlFor="pk-mapel">Mata pelajaran</Label>
@@ -3565,7 +3565,7 @@ function PaketDawr({ toast, onSimpan }) {
       </Section>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAWR[dawr].label}</Btn>
+        <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAURI[dawr].label}</Btn>
         {jalan && !fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}
         <span className="text-xs text-mute">{rencana.panggilan ? `${rencana.total} butir · ±${rencana.panggilan} panggilan AI (kuota harian dipakai)` : ''}</span>
       </div>
@@ -3838,7 +3838,7 @@ function App({ user, profile }) {
     } catch (e) { toast(failMsg(e)); return false; } // gagal: isian dan drafnya tetap ada
   };
   const saveDraft = async () => { if (await commit('draft')) toast('Draft tersimpan (status Draft). Cari di tab Bank Soal.'); };
-  // Simpan massal hasil Paket Dawr sebagai Draft. Status ai.verifikasi dihitung ulang terhadap segmen sumbernya (kutipan ada di pembahasan).
+  // Simpan massal hasil Paket Dauri sebagai Draft. Status ai.verifikasi dihitung ulang terhadap segmen sumbernya (kutipan ada di pembahasan).
   const simpanPaket = async (butir, meta) => {
     const K = window.Kutipan; let n = 0;
     for (let i = 0; i < butir.length; i += 400) { // batch Firestore maksimal 500 operasi
@@ -3916,7 +3916,7 @@ function App({ user, profile }) {
   const approvedN = qs.filter((q) => q.status === 'approved').length;
   const TABS = [
     { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
-    { id: 'paket', label: 'Paket Dawr', icon: Layers },
+    { id: 'paket', label: 'Paket Dauri', icon: Layers },
     { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
@@ -3993,7 +3993,7 @@ function App({ user, profile }) {
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
-        {tab === 'paket' && <PaketDawr toast={toast} onSimpan={simpanPaket} />}
+        {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">

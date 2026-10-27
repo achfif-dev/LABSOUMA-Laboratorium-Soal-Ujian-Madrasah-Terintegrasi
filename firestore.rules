@@ -40,7 +40,7 @@ service cloud.firestore {
           && (!('kelas' in d()) || (d().kelas is string && d().kelas.size() <= 20))
           && (!('periode' in d()) || (d().periode is string && d().periode.size() <= 20))
           && (!('bab' in d()) || (d().bab is string && d().bab.size() <= 120))
-          // Paket Dawr: penanda kelompok (id paket, nomor Dawr, batas materi dari Konfigurasi, urutan di naskah). Opsional.
+          // Paket Dauri: penanda kelompok (id paket, nomor Dauri, batas materi dari Konfigurasi, urutan di naskah). Opsional.
           && (!('paket' in d()) || (d().paket is string && d().paket.size() >= 1 && d().paket.size() <= 40))
           && (!('dawr' in d()) || d().dawr in ['1', '2', '3', '4'])
           && (!('cakupan' in d()) || (d().cakupan is string && d().cakupan.size() <= 120))
@@ -102,7 +102,7 @@ service cloud.firestore {
         return ['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                 'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai', 'updatedAt'];
       }
-      // Penanda Paket Dawr (paket, dawr, cakupan, urut), kelas, kode periode ujian, bab kitab (untuk kisi-kisi), serta bentuk soal dan jawaban bertulis (isian/uraian):
+      // Penanda Paket Dauri (paket, dawr, cakupan, urut), kelas, kode periode ujian, bab kitab (untuk kisi-kisi), serta bentuk soal dan jawaban bertulis (isian/uraian):
       // OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap). Tanpa `bentuk` = pilihan ganda.
       function opsiKeys() { return ['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik']; }
       function reviewKeys() {

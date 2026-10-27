@@ -95,10 +95,10 @@ test('selaraskanDenganFilter: filter terisi diteruskan, "Semua" membiarkan pilih
 test('nama berkas naskah memakai nama Latin mapel dari Konfigurasi, sehingga mapel Arab tidak lagi bertabrakan', () => {
   const a = pilihMapel(cfg, { ...META_AWAL, dawr: 2 }, 'Fiqih');
   const b = pilihMapel(cfg, { ...META_AWAL, dawr: 2 }, 'Akidah');
-  assert.equal(namaBerkasNaskah(a, false), 'naskah-ujian-dawr-2-fiqih.docx');
-  assert.equal(namaBerkasNaskah(b, true), 'naskah-ujian-dawr-2-akidah-kunci.docx');
-  assert.equal(namaBerkasNaskah(pilihMapel(cfg, { ...META_AWAL }, "Qur'an Hadits"), false), 'naskah-ujian-dawr-1-qur-an-hadits.docx');
-  assert.equal(namaBerkasNaskah({ dawr: 4, mapel: 'فقه' }, false), 'naskah-ujian-dawr-4.docx'); // tanpa kunci Latin: perilaku lama
+  assert.equal(namaBerkasNaskah(a, false), 'naskah-ujian-dauri-2-fiqih.docx');
+  assert.equal(namaBerkasNaskah(b, true), 'naskah-ujian-dauri-2-akidah-kunci.docx');
+  assert.equal(namaBerkasNaskah(pilihMapel(cfg, { ...META_AWAL }, "Qur'an Hadits"), false), 'naskah-ujian-dauri-1-qur-an-hadits.docx');
+  assert.equal(namaBerkasNaskah({ dawr: 4, mapel: 'فقه' }, false), 'naskah-ujian-dauri-4.docx'); // tanpa kunci Latin: perilaku lama
 });
 
 test('nama Arab mapel bawaan di Konfigurasi sama dengan cadangan di naskahMeta (tidak boleh bergeser)', () => {

@@ -471,7 +471,7 @@ Temuan dari tes, sudah diperbaiki: titik isian di akhir kalimat ("هو ....") me
 | B2 | Rendah | Kop baris ketiga terpecah ke dua baris pada hasil render (di template satu baris). | **Diperbaiki:** font baris itu 10 pt dan lebar kolom kop disesuaikan. |
 | B3 | Info | Logo template berupa WMF (tidak bisa ditanam oleh pustaka DOCX). | Dikonversi menjadi `public/logo-madrasah.png` (200×245). |
 
-Dicek: jumlah nomor, nilai per nomor, dan total 100 untuk keempat Dawr; teks judul bagian sama dengan template; naskah peserta tanpa warna merah dan tanpa jawaban; naskah kunci bermerah; render LibreOffice satu halaman F4. Tes baru: `test/naskah.test.js` (14 tes). Total 329 tes lulus.
+Dicek: jumlah nomor, nilai per nomor, dan total 100 untuk keempat Dauri; teks judul bagian sama dengan template; naskah peserta tanpa warna merah dan tanpa jawaban; naskah kunci bermerah; render LibreOffice satu halaman F4. Tes baru: `test/naskah.test.js` (14 tes). Total 329 tes lulus.
 
 **Asumsi yang belum dikonfirmasi:** "ص" pada template dibaca sebagai halaman kitab. Perbedaan antar template yang tidak dibawa otomatis: mata pelajaran (I: حديث, II: فقه) diisi manual di pengaturan naskah. Belum diuji: tampilan tab Export di browser dan membuka berkas hasil di Microsoft Word (yang diuji LibreOffice).
 

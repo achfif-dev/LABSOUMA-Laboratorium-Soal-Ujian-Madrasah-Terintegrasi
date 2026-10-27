@@ -1,13 +1,13 @@
-// Perencana paket soal satu Dawr format IMDA. Fungsi murni, dipakai browser dan server (src/paketService.js) serta tes.
+// Perencana paket soal satu Dauri format IMDA. Fungsi murni, dipakai browser dan server (src/paketService.js) serta tes.
 //
 // Masalah yang dipecahkan:
 //   1. Materi bisa jauh lebih panjang dari 6.000 karakter (batas satu panggilan AI). Materi dibagi menjadi segmen <= 6.000 karakter
 //      di batas paragraf/kalimat, lalu setiap segmen diberi jatah soal sebanding panjangnya.
-//   2. Satu Dawr butuh 15 atau 20 soal. Satu panggilan AI menyusun sampai 6 butir dari SATU segmen, boleh campuran bagian أ / ب / ج
-//      (bentuk tiap butir sudah menentukan bagiannya). Jadi satu Dawr cukup 3-4 panggilan untuk materi satu segmen, dan sekitar
+//   2. Satu Dauri butuh 15 atau 20 soal. Satu panggilan AI menyusun sampai 6 butir dari SATU segmen, boleh campuran bagian أ / ب / ج
+//      (bentuk tiap butir sudah menentukan bagiannya). Jadi satu Dauri cukup 3-4 panggilan untuk materi satu segmen, dan sekitar
 //      satu panggilan per segmen untuk materi panjang, bukan 15-20 panggilan satu soal per satu. Kuota AI harian terbatas (bawaan 60).
 //   3. Sebaran tingkat kesukaran (L1/L2/L3) dibagi per bagian dengan pembulatan sisa terbesar, jadi jumlahnya selalu pas.
-import { PRESET_DAWR, dawrSah, URUTAN_BAGIAN } from './naskah.js';
+import { PRESET_DAURI, dauriSah, URUTAN_BAGIAN } from './naskah.js';
 
 /* ---------------------------------------------------------------------------------- Paket sebagai satu kesatuan */
 
@@ -16,14 +16,14 @@ export const idPaket = (now = Date.now(), rand = Math.random) => 'pk' + Math.flo
 
 /** Kolom penanda paket untuk satu butir. `cakupan` hanya ditulis bila terisi; semua kolom opsional di Firestore. */
 export function penandaPaket({ id, dawr, cakupan, urut }) {
-  const p = { paket: String(id), dawr: String(dawrSah(dawr)), urut: Number.isInteger(urut) && urut >= 1 && urut <= 200 ? urut : 1 };
+  const p = { paket: String(id), dawr: String(dauriSah(dawr)), urut: Number.isInteger(urut) && urut >= 1 && urut <= 200 ? urut : 1 };
   const c = String(cakupan || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (c) p.cakupan = c;
   return p;
 }
 
-/** Jumlah butir satu Dawr menurut template. */
-export const jumlahDawr = (dawr) => PRESET_DAWR[dawrSah(dawr)].bagian.reduce((n, b) => n + b.n, 0);
+/** Jumlah butir satu Dauri menurut template. */
+export const jumlahDauri = (dawr) => PRESET_DAURI[dauriSah(dawr)].bagian.reduce((n, b) => n + b.n, 0);
 
 const milis = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : (t && typeof t.seconds === 'number' ? t.seconds * 1000 : (Date.parse(t) || 0)));
 
@@ -43,10 +43,10 @@ export function kelompokPaket(tampil, semua = tampil) {
       const isi = total.get(q.paket) || [q];
       const status = { draft: 0, pending: 0, revision: 0, approved: 0 };
       for (const x of isi) if (x.status in status) status[x.status]++;
-      const dawr = dawrSah(q.dawr);
+      const dawr = dauriSah(q.dawr);
       peta.set(q.paket, {
         id: q.paket, dawr, nama: q.nama || '', mapel: q.mapel || '', tingkat: q.tingkat || '', kelas: q.kelas || '', periode: q.periode || '', cakupan: q.cakupan || '',
-        soal: [], jumlah: isi.length, target: jumlahDawr(dawr), status, waktu: Math.max(0, ...isi.map((x) => milis(x.createdAt))),
+        soal: [], jumlah: isi.length, target: jumlahDauri(dawr), status, waktu: Math.max(0, ...isi.map((x) => milis(x.createdAt))),
       });
     }
     peta.get(q.paket).soal.push(q);
@@ -103,7 +103,7 @@ export const MAKS_MATERI = 60000;       // batas total materi satu paket (±10 s
 export const MAKS_BUTIR_PANGGILAN = 6;  // butir soal per panggilan AI (keluaran ±250 token per butir: aman dalam anggaran 45 detik fungsi Vercel)
 export const MIN_SEGMEN = 200;          // segmen lebih pendek digabung ke tetangganya
 
-/** Perbandingan awal L1 : L2 : L3. Ini titik awal yang masuk akal untuk ujian dawr, bukan standar baku; ubah sesuai kebijakan madrasah. */
+/** Perbandingan awal L1 : L2 : L3. Ini titik awal yang masuk akal untuk ujian dauri, bukan standar baku; ubah sesuai kebijakan madrasah. */
 export const KOMPOSISI_BAWAAN = Object.freeze({ L1: 30, L2: 50, L3: 20 });
 export const LANJUTAN_BAWAAN = 0.4;     // porsi soal "melanjutkan" di bagian أ (sisanya pilihan ganda biasa)
 export const URUT_LEVEL = ['L1', 'L2', 'L3'];
@@ -227,7 +227,7 @@ const sebar = (n, k) => Array.from({ length: n }, (_, i) => (n === 1 ? 0 : Math.
  *   tugas[i] = { id, segmen:number, spek:[{bentuk, level, bagian:'a'|'b'|'c'}] } -> satu panggilan AI (satu segmen, boleh campuran bagian)
  */
 export function rencanaPaket({ dawr = 1, sumber, komposisi, lanjutan = LANJUTAN_BAWAAN, maksSegmen = MAKS_SEGMEN, maksMateri = MAKS_MATERI } = {}) {
-  const preset = PRESET_DAWR[dawrSah(dawr)];
+  const preset = PRESET_DAURI[dauriSah(dawr)];
   const kosong = (masalah) => ({ dawr: preset.dawr, segmen: [], tugas: [], panggilan: 0, total: 0, masalah });
   const segmen = bagiTeks(sumber, maksSegmen);
   if (!segmen.length) return kosong('Materi kosong. Tempel teks atau unggah foto kitab dulu.');
@@ -279,7 +279,7 @@ export const urutkanSoal = (daftar) => daftar
 
 /**
  * Butir yang segmennya ditolak (di luar cakupan Konfigurasi) dialihkan ke segmen yang terbukti memuat materi cakupan,
- * bergantian, supaya naskah Dawr tidak kurang nomor hanya karena sebagian materi berada di luar cakupan.
+ * bergantian, supaya naskah Dauri tidak kurang nomor hanya karena sebagian materi berada di luar cakupan.
  * @param {{spek:object}[]} butir   butir yang perlu tempat baru
  * @param {number[]} segmenAda      indeks segmen yang sudah menghasilkan butir (di dalam cakupan)
  * @returns {{per: Map<number, object[]>, tanpaTempat: object[]}} `tanpaTempat` terisi bila tidak ada segmen yang masuk cakupan

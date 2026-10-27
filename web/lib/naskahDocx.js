@@ -6,7 +6,7 @@
 //                  jawaban kunci; tanpa fungsi ini teks dicetak apa adanya. Kop sudah berbahasa Arab dan tidak diubah (lihat kopAsli.js).
 //   kutipan:true (bawaan, hanya di naskah kunci) -> teks kitab Arab yang menjadi dasar kunci dicetak merah di bawah tiap nomor.
 //   narasi:true -> narasi/stimulus ikut dicetak di depan kalimat soal. Bawaan false: template hanya satu kalimat soal per nomor.
-import { HURUF_OPSI, META_AWAL, judulDawr, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal, kutipanKunci } from './naskah.js';
+import { HURUF_OPSI, META_AWAL, judulDauri, rujukanHalaman, jawabanKunci, akhiriTanya, teksSoal, kutipanKunci } from './naskah.js';
 import { bentukDari, opsiTerpakai } from './bentuk.js';
 import { runGrup, LOGO_H, LOGO_V, GRUP } from './kopAsli.js';
 
@@ -62,7 +62,7 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   const J = (text, size, { rtl = true } = {}) => new TextRun({ text, font: { ascii: 'Arial', hAnsi: 'Arial', cs: 'Arial' }, bold: true, boldComplexScript: true, color: '000000', size, rightToLeft: rtl });
   const kop = [
     // Baris 1: jangkar grup, logo, run spasi 22 pt (menentukan tinggi baris) lalu judul 16 pt; rata kanan, bukan paragraf dua arah.
-    barisKop([xml(runGrup(meta)), ...logoRun, J('  ', 44), J('  ', 44, { rtl: false }), J(' '.repeat(17), 44), J(judulDawr(naskah.dawr), 32)], { alignment: AlignmentType.RIGHT }),
+    barisKop([xml(runGrup(meta)), ...logoRun, J('  ', 44), J('  ', 44, { rtl: false }), J(' '.repeat(17), 44), J(judulDauri(naskah.dawr), 32)], { alignment: AlignmentType.RIGHT }),
     barisKop([J(' '.repeat(17), 32), J(` ${meta.baris1}`, 32), J('   ', 32)], { alignment: AlignmentType.RIGHT }),
     // Baris 3 dua arah supaya tanda kutip dan angka tidak terbalik; angka tahun 12 pt, selebihnya 10 pt.
     barisKop([J(' '.repeat(15) + `" ${meta.baris2}  السنة الدراسة `, 20), J(meta.tahun, 24), J(' هـــ "', 24)], { bidirectional: true, indent: { right: 57 } }),
@@ -113,7 +113,7 @@ export function buatNaskah(D, naskah, metaMasuk = {}, { kunci = false, logo = nu
   if (kunci) kaki.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NASKAH KUNCI (untuk pengoreksi, jangan dibagikan): merah = jawaban; ص = halaman kitab.', font: LATIN, size: 16, color: '555555' })] }));
 
   return new Document({
-    creator: 'LABSOUMA', title: `Naskah ${judulDawr(naskah.dawr)}${kunci ? ' (kunci)' : ''}`,
+    creator: 'LABSOUMA', title: `Naskah ${judulDauri(naskah.dawr)}${kunci ? ' (kunci)' : ''}`,
     styles: { default: { document: { run: { font: AR, size: 32 } } } },
     sections: [{
       properties: { page: { size: { width: 12240, height: 18720 }, margin: { top: 737, right: 476, bottom: 567, left: 567, header: 709, footer: 709 } } },
