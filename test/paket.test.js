@@ -321,3 +321,25 @@ test('paket: aturan Firestore dan validasi pemulihan mengenal penanda paket (ops
   assert.throws(() => bersihkanSoal({ id: 's3', ...dasar, paket: 'pk1', dawr: '9' }));
   assert.throws(() => bersihkanSoal({ id: 's4', ...dasar, paket: 'pk1', dawr: '1', urut: 500 }));
 });
+
+test('sunting butir paket: pembahasan dipecah dan digabung tanpa kehilangan kutipan; kutipan diperiksa ulang terhadap teks segmen', async () => {
+  const { pecahPembahasan, gabungPembahasan, statusKutipan } = await import('../web/lib/paket.js');
+  const { periksaKutipan } = await import('../src/kutipan.js');
+  const ar = KALIMAT[0];
+  const tersimpan = gabungPembahasan(ar, 'Karena air mutlak suci dan menyucikan.');
+  assert.ok(tersimpan.startsWith('Kutipan kitab: ')); // sama dengan format yang ditulis server (LABEL_KUTIPAN)
+  const p = pecahPembahasan(tersimpan);
+  assert.equal(p.kutipan, ar); assert.equal(p.isi, 'Karena air mutlak suci dan menyucikan.');
+  assert.deepEqual(pecahPembahasan('Hanya penjelasan.'), { kutipan: '', isi: 'Hanya penjelasan.' });
+  assert.equal(gabungPembahasan('', 'x'), 'x'); // tanpa kutipan: tidak ada baris kosong
+  assert.equal(pecahPembahasan(gabungPembahasan(ar, 'a\nb')).isi, 'a\nb');
+  const teks = KALIMAT.join(' ');
+  assert.equal(statusKutipan(periksaKutipan, ar, teks).status, 'cocok');
+  assert.equal(statusKutipan(periksaKutipan, ar, teks).kutipan, ar);
+  const palsu = 'هذا كلام غير موجود في النص إطلاقا أبدا';
+  assert.deepEqual(statusKutipan(periksaKutipan, palsu, teks), { status: 'tidak_cocok', kutipan: '' }); // kutipan karangan tidak ikut disimpan
+  assert.deepEqual(statusKutipan(periksaKutipan, '   ', teks), { status: 'kosong', kutipan: '' });
+  // Round-trip dengan keluaran server: normalisasiButir menulis format yang bisa dipecah kembali.
+  const r = normalisasiButir({ ...pil(1), kutipan_kitab: ar }, { bentuk: 'pilgan', level: 'L1' }, teks);
+  assert.equal(pecahPembahasan(r.soal.pembahasan).kutipan, ar);
+});
