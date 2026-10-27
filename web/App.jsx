@@ -1394,10 +1394,27 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     </article>
   );
 }
-function Review({ list, onApprove, onRevise, me }) {
+function Review({ list, all = [], onApprove, onRevise, me }) {
+  const cfg = useCfg();
+  const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
   if (me.role !== 'editor' && me.role !== 'admin') return <Empty icon={ShieldCheck} title="Tab ini untuk editor" text="Hanya editor dan admin yang dapat meninjau soal. Pantau status soal Anda di tab Bank Soal dengan filter status." />;
   if (!list.length) return <Empty icon={ClipboardCheck} title="Tidak ada soal yang menunggu review" text="Soal yang dikirim dari tab Penyusunan Soal akan muncul di sini." />;
-  return <div className="fade-in space-y-5">{list.map((q) => <ReviewCard key={q.id} q={q} me={me} onApprove={onApprove} onRevise={onRevise} />)}</div>;
+  return (
+    <div className="fade-in space-y-5">
+      {kel.paket.map((g) => (
+        <section key={g.id} aria-label={labelPaket(cfg, g)} className="space-y-4 rounded-2xl border-2 border-brand/40 bg-soft/40 p-3 sm:p-4">
+          <header className="px-1">
+            <h3 className="text-sm font-bold">Paket {labelPaket(cfg, g)}</h3>
+            {g.cakupan && <p className="text-xs text-soft-ink">Batas materi: {g.cakupan}</p>}
+            <p className="text-xs text-mute">{g.soal.length} butir menunggu review · Approved {g.status.approved} · Revisi {g.status.revision} · Draft (belum dikirim) {g.status.draft}. Review tetap per butir; butir yang dikembalikan tetap berada dalam paket ini.</p>
+          </header>
+          {g.soal.map((q) => <ReviewCard key={q.id} q={q} me={me} onApprove={onApprove} onRevise={onRevise} />)}
+        </section>
+      ))}
+      {kel.paket.length > 0 && kel.lepas.length > 0 && <h3 className="px-1 text-sm font-bold text-soft-ink">Soal lepas (bukan bagian paket)</h3>}
+      {kel.lepas.map((q) => <ReviewCard key={q.id} q={q} me={me} onApprove={onApprove} onRevise={onRevise} />)}
+    </div>
+  );
 }
 
 /* ---------- Filters ---------- */
@@ -1449,11 +1466,12 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
 const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
 
 /* ---------- Tab 3: Bank ---------- */
-function Bank({ all, onEdit, onDelete, canEdit }) {
+function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
   const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
+  const [kirimBusy, setKirimBusy] = useState('');
   const cfg = useCfg();
   const list = applyFilter(all, f);
   const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
@@ -1488,6 +1506,10 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
   return (
     <div className="fade-in space-y-4">
       <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      {f.status === 'approved' && uid && all.some((q) => q.paket && q.authorUid === uid && (q.status === 'draft' || q.status === 'revision')) && (
+        <p className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn" role="status">Anda punya butir paket yang belum selesai (Draft atau diminta revisi). Filter status saat ini hanya menampilkan yang Approved.
+          <Btn kind="ghost" onClick={() => setF({ ...f, status: '' })}>Tampilkan semua status</Btn></p>
+      )}
       {!list.length ? <Empty icon={Library} title="Tidak ada soal yang cocok" text="Ubah filter, atau setujui soal dari tab Review/Validasi." /> : (
         <>
           {kel.paket.map((g) => (
@@ -1497,6 +1519,20 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
                   {g.cakupan && <p className="text-xs text-soft-ink">Batas materi: {g.cakupan}</p>}</div>
                 <p className="text-xs text-mute">Draft {g.status.draft} · Pending {g.status.pending} · Revisi {g.status.revision} · Approved {g.status.approved}{!g.lengkap ? ` · kurang ${g.target - g.jumlah} dari ${g.target} nomor` : ''}</p>
               </header>
+              {(() => {
+                const milik = all.filter((q) => q.paket === g.id && q.authorUid === uid && (q.status === 'draft' || q.status === 'revision'));
+                if (!milik.length || !onKirim) return null;
+                const rev = milik.filter((q) => q.status === 'revision').length;
+                return (
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl bg-surface px-3 py-2">
+                    <Btn kind="primary" disabled={kirimBusy === g.id} onClick={async () => {
+                      if (!window.confirm(`Kirim ${milik.length} butir milik Anda dalam paket ini ke editor${rev ? ` (${rev} di antaranya hasil revisi)` : ''}? Butir yang sudah Approved atau masih menunggu review tidak ikut.`)) return;
+                      setKirimBusy(g.id); try { await onKirim(milik.map((q) => q.id)); } finally { setKirimBusy(''); }
+                    }}>{kirimBusy === g.id ? <Loader2 size={15} className="spin" /> : <Send size={15} />}Kirim ke editor ({milik.length} butir)</Btn>
+                    <p className="text-xs text-mute">{rev ? `${rev} butir diminta revisi editor: perbaiki lewat tombol Perbaiki, lalu kirim ulang. ` : ''}Hanya butir yang belum dikirim atau dikembalikan yang ikut.</p>
+                  </div>
+                );
+              })()}
               {g.soal.length < g.jumlah && <p className="px-1 text-xs text-mute">Menampilkan {g.soal.length} dari {g.jumlah} butir (sesuai filter).</p>}
               {g.soal.map((q) => kartu(q))}
             </section>
@@ -3210,6 +3246,40 @@ async function panggilSabar(path, body, sinyal, { onTunggu } = {}) {
   }
 }
 
+// Sunting satu butir hasil AI sebelum disimpan. Kutipan diperiksa ulang terhadap teks segmen; kutipan yang tidak ada di teks tidak ikut tersimpan.
+function EditButirPaket({ r, onSimpan, onBatal }) {
+  const q = r.soal; const adaOpsi = Bt.punyaOpsi(Bt.bentukDari(q)); const pc = PK.pecahPembahasan(q.pembahasan);
+  const [d, setD] = useState({ pertanyaan: q.pertanyaan, A: q.opsi.A || '', B: q.opsi.B || '', C: q.opsi.C || '', kunci: q.kunci || 'A', jawaban: q.jawaban || '', kutipan: pc.kutipan, pembahasan: pc.isi, indikator: q.indikator || '' });
+  const set = (k, v) => setD((x) => ({ ...x, [k]: v }));
+  const K = window.Kutipan;
+  const sk = useMemo(() => (K ? PK.statusKutipan(K.periksaKutipan, d.kutipan, r.segmenTeks) : { status: '', kutipan: d.kutipan }), [K, d.kutipan, r.segmenTeks]);
+  const galat = Bt.periksaSoal({ ...q, pertanyaan: d.pertanyaan, opsi: { ...q.opsi, A: d.A, B: d.B, C: d.C }, kunci: adaOpsi ? d.kunci : '', jawaban: d.jawaban, pembahasan: d.pembahasan || (sk.kutipan ? '-' : ''), rubrik: 'x' });
+  const rujukan = [d.pertanyaan, ...(adaOpsi ? [d.A, d.B, d.C] : [d.jawaban])].some(PK.adaRujukanTeks);
+  const id = 'eb-' + r.uid;
+  const F = ({ k, label, rows, area }) => (<div><Label htmlFor={id + k}>{label}</Label>{area
+    ? <textarea id={id + k} rows={rows || 2} className="field" value={d[k]} onChange={(e) => set(k, e.target.value)} />
+    : <input id={id + k} className="field" value={d[k]} onChange={(e) => set(k, e.target.value)} />}</div>);
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-brand/40 bg-surface p-3">
+      <F k="pertanyaan" label="Kalimat soal" area />
+      {adaOpsi ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3"><F k="A" label="Opsi A" /><F k="B" label="Opsi B" /><F k="C" label="Opsi C" /></div>
+          <div className="max-w-[160px]"><Label htmlFor={id + 'kunci'}>Kunci</Label><Select id={id + 'kunci'} value={d.kunci} onChange={(v) => set('kunci', v)}>{['A', 'B', 'C'].map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
+        </>
+      ) : <F k="jawaban" label={Bt.bentukDari(q) === 'uraian' ? 'Jawaban model' : 'Jawaban isian'} area />}
+      <div><Label htmlFor={id + 'kutipan'} hint="(salin persis dari teks)">Kutipan kitab untuk kunci</Label>
+        <textarea id={id + 'kutipan'} dir="rtl" lang="ar" rows={2} className="field font-ar leading-loose" value={d.kutipan} onChange={(e) => set('kutipan', e.target.value)} />
+        {sk.status && sk.status !== 'cocok' && <p className="mt-1 text-xs text-warn">{LABEL_KUTIPAN_STATUS[sk.status]}{sk.status === 'tidak_cocok' ? '. Kutipan ini tidak akan disimpan.' : ''}</p>}</div>
+      <F k="pembahasan" label="Pembahasan" area />
+      <F k="indikator" label="Indikator" />
+      {rujukan && <p className="text-xs text-warn">Soal atau opsi memuat rujukan seperti “menurut kitab/teks”. Tulis sebagai pertanyaan langsung.</p>}
+      {galat.length > 0 && <ul className="space-y-0.5 text-xs text-bad">{galat.map((g, i) => <li key={i}>{g}</li>)}</ul>}
+      <div className="flex gap-2"><Btn kind="primary" disabled={galat.length > 0} onClick={() => onSimpan(d)}><Check size={15} />Terapkan</Btn><Btn kind="ghost" onClick={onBatal}>Batal</Btn></div>
+    </div>
+  );
+}
+
 function PaketDawr({ toast, onSimpan }) {
   const cfg = useCfg();
   const [dawr, setDawr] = useState(() => NK.dawrSah(bacaPref('naskahMeta', { dawr: 1 }).dawr));
@@ -3232,6 +3302,7 @@ function PaketDawr({ toast, onSimpan }) {
   const [kurang, setKurang] = useState([]);          // butir yang gagal dibuat setelah diulang sekali
   const [err, setErr] = useState(null);
   const [simpanBusy, setSimpanBusy] = useState(false);
+  const [sunting, setSunting] = useState(null);      // uid butir yang sedang disunting
   const ctlRef = useRef(null);
   const fileRef = useRef(null); const galeriRef = useRef(null); const kameraRef = useRef(null);
 
@@ -3352,21 +3423,38 @@ function PaketDawr({ toast, onSimpan }) {
   };
 
   const hapus = (uid) => setHasil((h) => h.filter((x) => x.uid !== uid));
+  const ubahButir = (uid, d) => { setHasil((h) => h.map((x) => {
+    if (x.uid !== uid) return x;
+    const K = window.Kutipan; const adaOpsi = Bt.punyaOpsi(Bt.bentukDari(x.soal));
+    const sk = K ? PK.statusKutipan(K.periksaKutipan, d.kutipan, x.segmenTeks) : { status: x.kutipanStatus, kutipan: String(d.kutipan || '').trim() };
+    const soal = { ...x.soal, pertanyaan: d.pertanyaan.trim(), opsi: adaOpsi ? { ...x.soal.opsi, A: d.A.trim(), B: d.B.trim(), C: d.C.trim() } : x.soal.opsi, kunci: adaOpsi ? d.kunci : '', jawaban: adaOpsi ? '' : d.jawaban.trim(), indikator: d.indikator.trim(), pembahasan: PK.gabungPembahasan(sk.kutipan, d.pembahasan) };
+    return { ...x, soal, kutipanStatus: sk.status, diedit: true };
+  })); setSunting(null); };
   const urut = useMemo(() => PK.urutkanSoal(hasil.map((x) => ({ ...x.soal, _uid: x.uid }))), [hasil]);
   const naskah = useMemo(() => NK.susunNaskah(urut, dawr), [urut, dawr]);
   const lookup = useMemo(() => new Map(hasil.map((x) => [x.uid, x])), [hasil]);
 
-  const simpan = async () => {
+  const simpan = async (kirim) => {
     if (!hasil.length || simpanBusy) return;
-    if (!window.confirm(`Simpan ${hasil.length} butir sebagai Draft? Setelah itu tinjau di tab Bank Soal lalu kirim ke editor.`)) return;
-    setSimpanBusy(true);
+    // Setiap butir harus lengkap dan bebas rujukan "menurut kitab" sebelum disimpan (butir yang disunting ikut diperiksa).
+    for (const x of urut.map((q) => lookup.get(q._uid)).filter(Boolean)) {
+      const q = x.soal; const adaOpsi = Bt.punyaOpsi(Bt.bentukDari(q));
+      const g = Bt.periksaSoal({ ...q, rubrik: 'x' });
+      const rj = [q.pertanyaan, ...(adaOpsi ? ['A', 'B', 'C'].map((k) => q.opsi[k]) : [q.jawaban])].some(PK.adaRujukanTeks);
+      if (g.length || rj) { setErr({ code: 'BAD_REQUEST', message: `Ada butir yang belum layak disimpan (“${String(q.pertanyaan).slice(0, 50)}”): ${g[0] || 'memuat rujukan seperti “menurut kitab/teks”'}. Sunting atau hapus butir itu dulu.` }); setSunting(x.uid); return; }
+    }
+    const pesan = kirim
+      ? `Kirim ${hasil.length} butir paket ke editor? Butir tidak bisa disunting lagi sampai editor menyetujui atau mengembalikannya untuk direvisi.`
+      : `Simpan ${hasil.length} butir sebagai satu paket Draft? Anda masih bisa menyunting lalu mengirimnya ke editor dari tab Bank Soal.`;
+    if (!window.confirm(pesan)) return;
+    setSimpanBusy(true); setErr(null);
     try {
       // Nomor urut = urutan di naskah (bagian أ, ب, ج); butir yang tak muat di template dilanjutkan di belakang.
-      const urut = new Map(); let no = 0;
-      for (const bg of naskah.bagian) for (const { q } of bg.butir) if (q) urut.set(q._uid, ++no);
-      for (const x of hasil) if (!urut.has(x.uid)) urut.set(x.uid, Math.min(200, ++no));
-      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut, paketId: PK.idPaket() });
-      toast(`${n} butir tersimpan sebagai satu paket Draft. Cari di tab Bank Soal (filter Paket).`); setHasil([]); setKurang([]);
+      const nomor = new Map(); let no = 0;
+      for (const bg of naskah.bagian) for (const { q } of bg.butir) if (q) nomor.set(q._uid, ++no);
+      for (const x of hasil) if (!nomor.has(x.uid)) nomor.set(x.uid, Math.min(200, ++no));
+      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut: nomor, paketId: PK.idPaket(), status: kirim ? 'pending' : 'draft' });
+      toast(kirim ? `${n} butir paket dikirim ke editor.` : `${n} butir tersimpan sebagai satu paket Draft. Cari di tab Bank Soal (filter Paket).`); setHasil([]); setKurang([]); setSunting(null);
     }
     catch (e) { toast((e && e.message) || 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); } finally { setSimpanBusy(false); }
   };
@@ -3459,7 +3547,9 @@ function PaketDawr({ toast, onSimpan }) {
 
       {(hasil.length > 0 || kurang.length > 0) && (
         <Section title={`Hasil (${hasil.length} dari ${rencana.total} butir)`} icon={ClipboardCheck}
-          action={<Btn kind="primary" onClick={simpan} disabled={jalan || simpanBusy || !hasil.length}>{simpanBusy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}Simpan semua sebagai Draft</Btn>}>
+          action={<div className="flex flex-wrap gap-2">
+            <Btn kind="ghost" onClick={() => simpan(false)} disabled={jalan || simpanBusy || !hasil.length}>{simpanBusy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}Simpan sebagai Draft</Btn>
+            <Btn kind="primary" onClick={() => simpan(true)} disabled={jalan || simpanBusy || !hasil.length}><Send size={15} />Simpan dan kirim ke editor</Btn></div>}>
           {naskah.peringatan.length > 0 && <ul className="mb-3 space-y-1">{naskah.peringatan.filter((p) => !/halaman kitab/.test(p)).map((p, i) => <li key={i} className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{p}</li>)}</ul>}
           {kurang.length > 0 && <p className="mb-3 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{kurang.length} butir tidak jadi (sudah diulang, atau segmennya di luar cakupan). Jalankan paket lagi untuk menambah, atau tulis manual di tab Penyusunan Soal.</p>}
           {naskah.bagian.map((bg) => (
@@ -3472,8 +3562,13 @@ function PaketDawr({ toast, onSimpan }) {
                     <li key={q._uid} className="rounded-xl border border-line bg-bg p-3 text-sm">
                       <div className="flex items-start justify-between gap-2">
                         <p className="leading-relaxed"><span className="mr-1 font-bold">{no}.</span>{q.pertanyaan}</p>
-                        <button type="button" onClick={() => hapus(q._uid)} aria-label={`Hapus nomor ${no}`} className="shrink-0 rounded-lg p-1.5 text-mute hover:bg-bad-bg hover:text-bad"><Trash2 size={14} /></button>
+                        <div className="flex shrink-0 gap-1">
+                          <button type="button" onClick={() => setSunting(sunting === q._uid ? null : q._uid)} disabled={jalan} aria-label={`Sunting nomor ${no}`} className="rounded-lg p-1.5 text-mute hover:bg-soft hover:text-ink"><Pencil size={14} /></button>
+                          <button type="button" onClick={() => hapus(q._uid)} disabled={jalan} aria-label={`Hapus nomor ${no}`} className="rounded-lg p-1.5 text-mute hover:bg-bad-bg hover:text-bad"><Trash2 size={14} /></button>
+                        </div>
                       </div>
+                      {r && r.diedit && <p className="mt-1 text-xs text-soft-ink">Sudah Anda sunting.</p>}
+                      {sunting === q._uid && r && <EditButirPaket key={q._uid} r={r} onSimpan={(d) => ubahButir(q._uid, d)} onBatal={() => setSunting(null)} />}
                       {Bt.punyaOpsi(b) && <p className="mt-1 text-xs text-mute">{['A', 'B', 'C'].map((k) => `${k}${q.kunci === k ? '✓' : ''}. ${q.opsi[k]}`).join('   ')}</p>}
                       {!Bt.punyaOpsi(b) && <p className="mt-1 text-xs text-mute">Jawaban: {q.jawaban}</p>}
                       <p className="mt-1 text-xs text-mute">{q.level}{r && r.segmenHal ? ` · hal. ${r.segmenHal}` : ''}</p>
@@ -3737,12 +3832,23 @@ function App({ user, profile }) {
         if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
         if (!c.jawaban) delete c.jawaban;
         delete c.rubrik;
-        batch.set(col.doc(), { ...c, status: 'draft', catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
+        batch.set(col.doc(), { ...c, status: meta.status === 'pending' ? 'pending' : 'draft', catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
         n++;
       }
       try { await batch.commit(); } catch (e) { throw new Error(n > i ? `Sebagian tersimpan (${i} butir) lalu gagal. ${failMsg(e)}` : failMsg(e)); }
     }
     return n;
+  };
+  // Kirim sekaligus butir milik penyusun dalam satu paket (draft atau yang dikembalikan editor untuk revisi) ke editor.
+  const kirimPaket = async (ids) => {
+    try {
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = db.batch();
+        ids.slice(i, i + 400).forEach((id) => batch.update(col.doc(id), { status: 'pending', catatan: '', updatedAt: ts() }));
+        await batch.commit();
+      }
+      toast(`${ids.length} butir paket dikirim ke editor.`);
+    } catch (e) { toast(failMsg(e)); }
   };
   const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
   const review = async (id, status, note, okMsg) => {
@@ -3875,8 +3981,8 @@ function App({ user, profile }) {
             {tab !== 'bank' && masihAda && <span className="text-xs text-mute">Ekspor dan Fokus Ujian hanya memakai soal yang sudah dimuat.</span>}
           </div>
         )}
-        {loaded && tab === 'review' && <Review list={pending} me={me} onApprove={approve} onRevise={revise} />}
-        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} />}
+        {loaded && tab === 'review' && <Review list={pending} all={qs} me={me} onApprove={approve} onRevise={revise} />}
+        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
