@@ -9,6 +9,54 @@
 //   3. Sebaran tingkat kesukaran (L1/L2/L3) dibagi per bagian dengan pembulatan sisa terbesar, jadi jumlahnya selalu pas.
 import { PRESET_DAWR, dawrSah, URUTAN_BAGIAN } from './naskah.js';
 
+/* ---------------------------------------------------------------------------------- Paket sebagai satu kesatuan */
+
+/** Id paket pendek (<= 40 karakter) yang dibagikan semua butir hasil satu kali "Simpan paket". */
+export const idPaket = (now = Date.now(), rand = Math.random) => 'pk' + Math.floor(now).toString(36) + Math.floor(rand() * 46656).toString(36).padStart(3, '0');
+
+/** Kolom penanda paket untuk satu butir. `cakupan` hanya ditulis bila terisi; semua kolom opsional di Firestore. */
+export function penandaPaket({ id, dawr, cakupan, urut }) {
+  const p = { paket: String(id), dawr: String(dawrSah(dawr)), urut: Number.isInteger(urut) && urut >= 1 && urut <= 200 ? urut : 1 };
+  const c = String(cakupan || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (c) p.cakupan = c;
+  return p;
+}
+
+/** Jumlah butir satu Dawr menurut template. */
+export const jumlahDawr = (dawr) => PRESET_DAWR[dawrSah(dawr)].bagian.reduce((n, b) => n + b.n, 0);
+
+const milis = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : (t && typeof t.seconds === 'number' ? t.seconds * 1000 : (Date.parse(t) || 0)));
+
+/**
+ * Kelompokkan soal menurut paket. `tampil` = soal yang lolos filter; `semua` = seluruh soal (untuk menghitung kelengkapan paket,
+ * yang tidak boleh ikut berubah hanya karena filter status).
+ * @returns {{paket: object[], lepas: object[]}} paket: terbaru dulu; butir di dalam paket urut menurut nomor naskah; lepas = soal tanpa paket.
+ */
+export function kelompokPaket(tampil, semua = tampil) {
+  const total = new Map();
+  for (const q of semua || []) if (q && q.paket) { if (!total.has(q.paket)) total.set(q.paket, []); total.get(q.paket).push(q); }
+  const peta = new Map(); const lepas = [];
+  for (const q of tampil || []) {
+    if (!q) continue;
+    if (!q.paket) { lepas.push(q); continue; }
+    if (!peta.has(q.paket)) {
+      const isi = total.get(q.paket) || [q];
+      const status = { draft: 0, pending: 0, revision: 0, approved: 0 };
+      for (const x of isi) if (x.status in status) status[x.status]++;
+      const dawr = dawrSah(q.dawr);
+      peta.set(q.paket, {
+        id: q.paket, dawr, nama: q.nama || '', mapel: q.mapel || '', tingkat: q.tingkat || '', kelas: q.kelas || '', periode: q.periode || '', cakupan: q.cakupan || '',
+        soal: [], jumlah: isi.length, target: jumlahDawr(dawr), status, waktu: Math.max(0, ...isi.map((x) => milis(x.createdAt))),
+      });
+    }
+    peta.get(q.paket).soal.push(q);
+  }
+  const paket = [...peta.values()];
+  for (const g of paket) { g.soal.sort((a, b) => (a.urut || 999) - (b.urut || 999)); g.lengkap = g.jumlah >= g.target; g.semuaApproved = g.status.approved === g.jumlah; }
+  paket.sort((a, b) => b.waktu - a.waktu);
+  return { paket, lepas };
+}
+
 export const MAKS_SEGMEN = 6000;        // batas satu panggilan AI (sama dengan MAX_TEKS di server)
 export const MAKS_MATERI = 60000;       // batas total materi satu paket (±10 segmen)
 export const MAKS_BUTIR_PANGGILAN = 6;  // butir soal per panggilan AI (keluaran ±250 token per butir: aman dalam anggaran 45 detik fungsi Vercel)

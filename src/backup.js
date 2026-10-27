@@ -76,6 +76,16 @@ export function bersihkanSoal(raw) {
   if (kelas) data.kelas = kelas;
   if (periode) data.periode = periode;
   if (bab) data.bab = bab;
+  // Penanda Paket Dawr (opsional): paket, dawr, cakupan, urut. Hanya ditulis bila ada, supaya soal biasa tetap sama persis.
+  const paket = teks(raw.paket, 40, 'Id paket');
+  if (paket) {
+    const dawr = String(raw.dawr ?? '');
+    if (!['1', '2', '3', '4'].includes(dawr)) throw bad('Dawr pada paket tidak valid.');
+    const urut = raw.urut === undefined || raw.urut === null || raw.urut === '' ? 1 : Number(raw.urut);
+    if (!Number.isInteger(urut) || urut < 1 || urut > 200) throw bad('Urutan butir paket tidak valid.');
+    data.paket = paket; data.dawr = dawr; data.urut = urut;
+    const cakupan = teks(raw.cakupan, 120, 'Cakupan'); if (cakupan) data.cakupan = cakupan;
+  }
   // Bentuk soal (opsional; tanpa bentuk = pilihan ganda). Hanya ditulis bila bukan pilihan ganda, supaya soal lama tetap sama persis.
   const bentuk = raw.bentuk === undefined || raw.bentuk === null || raw.bentuk === '' ? 'pilgan' : raw.bentuk;
   if (!BENTUK_IDS.includes(bentuk)) throw bad('Bentuk soal tidak dikenal.');

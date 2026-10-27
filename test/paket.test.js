@@ -281,3 +281,43 @@ test('tanpa rujukan "menurut kitab/teks" di soal: klausa di awal/akhir dibuang, 
   await generatePaket(body([{ bentuk: 'pilgan', level: 'L1' }]), { client: c });
   assert.match(c.calls[0].system, /TANPA RUJUKAN KE TEKS/);
 });
+
+test('paket sebagai satu kesatuan: penanda butir, pengelompokan di Bank, kelengkapan dihitung dari seluruh soal (bukan hasil filter)', async () => {
+  const { idPaket, penandaPaket, kelompokPaket, jumlahDawr } = await import('../web/lib/paket.js');
+  const a = idPaket(1_800_000_000_000, () => 0.5); const b = idPaket(1_800_000_000_001, () => 0.9);
+  assert.ok(a.length <= 40 && /^pk[0-9a-z]+$/.test(a)); assert.notEqual(a, b);
+  assert.deepEqual(penandaPaket({ id: 'pkx', dawr: 2, cakupan: '  Thaharah   – Puasa ', urut: 3 }), { paket: 'pkx', dawr: '2', urut: 3, cakupan: 'Thaharah – Puasa' });
+  assert.deepEqual(penandaPaket({ id: 'pkx', dawr: 9, urut: 0 }), { paket: 'pkx', dawr: '1', urut: 1 }); // Dawr/urut tak sah -> aman; cakupan kosong tidak ditulis
+  assert.equal(penandaPaket({ id: 'p', dawr: 1, cakupan: 'x'.repeat(300), urut: 1 }).cakupan.length, 120);
+  assert.equal(jumlahDawr(1), 15); assert.equal(jumlahDawr(2), 20);
+  const q = (id, paket, urut, status, extra = {}) => ({ id, paket, urut, status, dawr: '1', nama: 'Safinatun Naja', mapel: 'Fiqih', tingkat: 'MA', kelas: '1', periode: 'u1', cakupan: 'Thaharah – Puasa', createdAt: { seconds: 100 }, ...extra });
+  const semua = [q('c', 'P1', 3, 'approved'), q('a', 'P1', 1, 'draft'), q('b', 'P1', 2, 'approved'), q('x', 'P2', 1, 'approved', { createdAt: { seconds: 200 } }), { id: 'lepas', status: 'approved' }];
+  const tampil = semua.filter((x) => x.status === 'approved');
+  const k = kelompokPaket(tampil, semua);
+  assert.deepEqual(k.paket.map((g) => g.id), ['P2', 'P1']);              // terbaru dulu
+  const g1 = k.paket[1];
+  assert.deepEqual(g1.soal.map((x) => x.id), ['b', 'c']);                // urut naskah, hanya yang lolos filter
+  assert.equal(g1.jumlah, 3); assert.equal(g1.status.draft, 1); assert.equal(g1.status.approved, 2);
+  assert.equal(g1.semuaApproved, false); assert.equal(g1.lengkap, false); assert.equal(g1.target, 15);
+  assert.deepEqual(k.lepas.map((x) => x.id), ['lepas']);
+  assert.deepEqual(kelompokPaket([], []), { paket: [], lepas: [] });
+});
+
+test('paket: aturan Firestore dan validasi pemulihan mengenal penanda paket (opsional, berbatas)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  assert.match(rules, /function opsiKeys\(\) \{ return \['paket', 'dawr', 'cakupan', 'urut',/);
+  assert.match(rules, /!\('paket' in d\(\)\) \|\| \(d\(\)\.paket is string && d\(\)\.paket\.size\(\) >= 1 && d\(\)\.paket\.size\(\) <= 40\)/);
+  assert.match(rules, /!\('dawr' in d\(\)\) \|\| d\(\)\.dawr in \['1', '2', '3', '4'\]/);
+  assert.match(rules, /!\('urut' in d\(\)\) \|\| \(d\(\)\.urut is int && d\(\)\.urut >= 1 && d\(\)\.urut <= 200\)/);
+  assert.match(rules, /'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas'/); // admin
+  // Kunci wajib tidak berubah: klien lama dan soal lama tetap sah.
+  assert.doesNotMatch(rules.match(/function createKeys\(\) \{[\s\S]*?\}/)[0], /paket|dawr|cakupan|urut/);
+  const { bersihkanSoal } = await import('../src/backup.js');
+  const dasar = { tingkat: 'MA', mapel: 'Fiqih', level: 'L1', nama: 'X', juz: '', hal: '', teks: 'ت', stimulus: '', pertanyaan: 'Apa?', indikator: '', pembahasan: 'p', sumberUrl: '', opsi: { A: 'a', B: 'b', C: 'c' }, kunci: 'A', ai: { dibuat: true, model: 'm', verifikasi: '', buta: '' }, status: 'draft', catatan: '', authorUid: 'u', authorName: 'U', createdAt: '2026-10-27T01:00:00.000Z', updatedAt: '2026-10-27T01:00:00.000Z' };
+  const ok = bersihkanSoal({ id: 's1', ...dasar, paket: 'pk1', dawr: '2', urut: 4, cakupan: 'Thaharah – Puasa' }).data;
+  assert.equal(ok.paket, 'pk1'); assert.equal(ok.dawr, '2'); assert.equal(ok.urut, 4); assert.equal(ok.cakupan, 'Thaharah – Puasa');
+  assert.ok(!('paket' in bersihkanSoal({ id: 's2', ...dasar }).data)); // soal biasa tetap sama persis
+  assert.throws(() => bersihkanSoal({ id: 's3', ...dasar, paket: 'pk1', dawr: '9' }));
+  assert.throws(() => bersihkanSoal({ id: 's4', ...dasar, paket: 'pk1', dawr: '1', urut: 500 }));
+});

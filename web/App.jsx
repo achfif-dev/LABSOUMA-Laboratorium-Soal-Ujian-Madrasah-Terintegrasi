@@ -215,8 +215,8 @@ const buildCsvForms = (qs, catatan = '') =>
   qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildCsvRdm = (qs, catatan = '') =>
-  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
-  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
+  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', 'Paket', 'Dawr', 'Batas materi', 'No. paket', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
+  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, q.paket, q.dawr, q.cakupan, q.urut, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
   const D = window.docx;
@@ -1401,6 +1401,9 @@ function Review({ list, onApprove, onRevise, me }) {
 }
 
 /* ---------- Filters ---------- */
+// Nama ringkas satu paket Dawr untuk pilihan filter dan judul kelompok.
+const labelPaket = (cfg, g) => [NK.PRESET_DAWR[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
+
 function Filters({ f, setF, withStatus, count, qs = [] }) {
   const cfg = useCfg();
   // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
@@ -1413,6 +1416,9 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
     qs.filter((q) => q.periode && (!f.tingkat || q.tingkat === f.tingkat)).forEach((q) => tambah({ kode: q.periode, label: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
     return [...m].map(([kode, label]) => ({ kode, label }));
   })();
+  const paketOpsi = useMemo(() => PK.kelompokPaket(qs).paket, [qs]);
+  // Pilihan paket yang tersimpan tetapi sudah tidak ada (paket dihapus atau belum Approved di Ekspor): kembali ke Semua.
+  useEffect(() => { if (f.paket && qs.length && !paketOpsi.some((g) => g.id === f.paket)) setF({ ...f, paket: '' }); }, [f.paket, paketOpsi, qs.length]);
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
       <Filter size={16} className="mb-2.5 text-mute" />
@@ -1426,6 +1432,11 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
         <Select id={'f-periode' + (withStatus ? 'b' : 'e')} value={f.periode || ''} onChange={(v) => setF({ ...f, periode: v })}><option value="">Semua</option>{periodeOpsiFilter.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-bentuk' + (withStatus ? 'b' : 'e')}>Bentuk Soal</Label>
         <Select id={'f-bentuk' + (withStatus ? 'b' : 'e')} value={f.bentuk || ''} onChange={(v) => setF({ ...f, bentuk: v })}><option value="">Semua</option>{Bt.BENTUK_IDS.map((id) => <option key={id} value={id}>{Bt.BENTUK[id].label}</option>)}</Select></div>
+      {paketOpsi.length > 0 && (
+        <div className="min-w-[200px] flex-1"><Label htmlFor={'f-paket' + (withStatus ? 'b' : 'e')}>Paket Dawr</Label>
+          <Select id={'f-paket' + (withStatus ? 'b' : 'e')} value={f.paket || ''} onChange={(v) => { const g = paketOpsi.find((x) => x.id === v); setF(g ? { ...f, paket: v, tingkat: g.tingkat, mapel: g.mapel, kelas: g.kelas, periode: g.periode } : { ...f, paket: '' }); }}>
+            <option value="">Semua (paket dan soal lepas)</option>{paketOpsi.map((g) => <option key={g.id} value={g.id}>{labelPaket(cfg, g)}</option>)}</Select></div>
+      )}
       {withStatus && (
         <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
           <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
@@ -1435,7 +1446,7 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
     </div>
   );
 }
-const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
+const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
 
 /* ---------- Tab 3: Bank ---------- */
 function Bank({ all, onEdit, onDelete, canEdit }) {
@@ -1443,12 +1454,10 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
+  const cfg = useCfg();
   const list = applyFilter(all, f);
-  return (
-    <div className="fade-in space-y-4">
-      <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
-      {!list.length ? <Empty icon={Library} title="Tidak ada soal yang cocok" text="Ubah filter, atau setujui soal dari tab Review/Validasi." /> :
-        list.map((q) => (
+  const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
+  const kartu = (q) => (
           <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
@@ -1475,7 +1484,27 @@ function Bank({ all, onEdit, onDelete, canEdit }) {
               ) : <Btn kind="ghost" onClick={() => setConfirm(q.id)}><Trash2 size={15} />Hapus</Btn>}
             </div>}
           </article>
-        ))}
+  );
+  return (
+    <div className="fade-in space-y-4">
+      <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      {!list.length ? <Empty icon={Library} title="Tidak ada soal yang cocok" text="Ubah filter, atau setujui soal dari tab Review/Validasi." /> : (
+        <>
+          {kel.paket.map((g) => (
+            <section key={g.id} aria-label={labelPaket(cfg, g)} className="space-y-3 rounded-2xl border-2 border-brand/40 bg-soft/40 p-3 sm:p-4">
+              <header className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <div className="min-w-0"><h3 className="text-sm font-bold">Paket {labelPaket(cfg, g)}</h3>
+                  {g.cakupan && <p className="text-xs text-soft-ink">Batas materi: {g.cakupan}</p>}</div>
+                <p className="text-xs text-mute">Draft {g.status.draft} · Pending {g.status.pending} · Revisi {g.status.revision} · Approved {g.status.approved}{!g.lengkap ? ` · kurang ${g.target - g.jumlah} dari ${g.target} nomor` : ''}</p>
+              </header>
+              {g.soal.length < g.jumlah && <p className="px-1 text-xs text-mute">Menampilkan {g.soal.length} dari {g.jumlah} butir (sesuai filter).</p>}
+              {g.soal.map((q) => kartu(q))}
+            </section>
+          ))}
+          {kel.paket.length > 0 && kel.lepas.length > 0 && <h3 className="px-1 pt-2 text-sm font-bold text-soft-ink">Soal lepas (bukan bagian paket)</h3>}
+          {kel.lepas.map((q) => kartu(q))}
+        </>
+      )}
     </div>
   );
 }
@@ -1521,7 +1550,11 @@ function Export({ all, toast }) {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
 
-  const list = applyFilter(approved, f);
+  // Satu paket dipilih: butirnya urut menurut nomor naskah, sehingga naskah yang diunduh sama dengan paket yang disimpan.
+  const list = useMemo(() => { const l = applyFilter(approved, f); return f.paket ? [...l].sort((a, b) => (a.urut || 999) - (b.urut || 999)) : l; }, [approved, f]);
+  const paketDipilih = useMemo(() => (f.paket ? PK.kelompokPaket(all.filter((q) => q.paket === f.paket)).paket[0] || null : null), [all, f.paket]);
+  // Memilih paket otomatis memakai Dawr paket itu pada pengaturan naskah.
+  useEffect(() => { if (paketDipilih) setNm((x) => (x.dawr === paketDipilih.dawr ? x : { ...x, dawr: paketDipilih.dawr })); }, [paketDipilih && paketDipilih.id]);
   // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
   const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
   const format = FORMATS.find((x) => x.id === fmt);
@@ -1620,6 +1653,13 @@ function Export({ all, toast }) {
               {isNaskah && <Btn kind="ghost" onClick={() => unduhNaskah(true)} disabled={!chosen.length || busy}><Download size={16} />Unduh naskah kunci</Btn>}
               {isText && <Btn kind="ghost" onClick={copy} disabled={!chosen.length}><Copy size={16} />Salin teks</Btn>}
             </div>
+            {paketDipilih && (
+              <p className={`mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed ${paketDipilih.semuaApproved && paketDipilih.lengkap ? 'bg-soft text-soft-ink' : 'bg-warn-bg text-warn'}`}>
+                Paket {labelPaket(cfg, paketDipilih)}{paketDipilih.cakupan ? `. Batas materi: ${paketDipilih.cakupan}` : ''}. {list.length} dari {paketDipilih.jumlah} butir paket ikut diekspor (hanya yang Approved)
+                {paketDipilih.semuaApproved ? '' : `; ${paketDipilih.jumlah - paketDipilih.status.approved} butir belum Approved sehingga nomornya kosong di naskah`}
+                {paketDipilih.lengkap ? '' : `; paket hanya berisi ${paketDipilih.jumlah} dari ${paketDipilih.target} nomor`}.
+              </p>
+            )}
             {catatan && <p className="mt-3 text-xs leading-relaxed text-mute"><b>Catatan otomatis:</b> “{catatan}” dicantumkan pada semua berkas ekspor (di bawah judul dan kaki halaman untuk DOCX, komentar untuk GIFT dan Moodle XML, kolom Catatan untuk CSV).</p>}
           </Section>
 
@@ -3320,7 +3360,14 @@ function PaketDawr({ toast, onSimpan }) {
     if (!hasil.length || simpanBusy) return;
     if (!window.confirm(`Simpan ${hasil.length} butir sebagai Draft? Setelah itu tinjau di tab Bank Soal lalu kirim ke editor.`)) return;
     setSimpanBusy(true);
-    try { const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz }); toast(`${n} butir tersimpan sebagai Draft. Cari di tab Bank Soal.`); setHasil([]); setKurang([]); }
+    try {
+      // Nomor urut = urutan di naskah (bagian أ, ب, ج); butir yang tak muat di template dilanjutkan di belakang.
+      const urut = new Map(); let no = 0;
+      for (const bg of naskah.bagian) for (const { q } of bg.butir) if (q) urut.set(q._uid, ++no);
+      for (const x of hasil) if (!urut.has(x.uid)) urut.set(x.uid, Math.min(200, ++no));
+      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut, paketId: PK.idPaket() });
+      toast(`${n} butir tersimpan sebagai satu paket Draft. Cari di tab Bank Soal (filter Paket).`); setHasil([]); setKurang([]);
+    }
     catch (e) { toast((e && e.message) || 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); } finally { setSimpanBusy(false); }
   };
 
@@ -3684,6 +3731,9 @@ function App({ user, profile }) {
           ai: { dibuat: true, model: String(x.model || '').slice(0, 60), verifikasi: ['lolos', 'periksa', 'gagal', 'tanpa_teks'].includes(v) ? v : '', buta: '' },
         };
         if (meta.kelas) c.kelas = meta.kelas;
+        if (meta.periode) c.periode = meta.periode;
+        // Penanda kelompok: seluruh butir satu kali simpan menjadi satu paket (Bank Soal dan Ekspor menampilkannya sebagai satu kesatuan).
+        if (meta.paketId) Object.assign(c, PK.penandaPaket({ id: meta.paketId, dawr: meta.dawr, cakupan: meta.cakupan, urut: meta.urut && meta.urut.get(x.uid) }));
         if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
         if (!c.jawaban) delete c.jawaban;
         delete c.rubrik;

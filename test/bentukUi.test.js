@@ -49,8 +49,8 @@ test('CSV: kolom Kunci berisi huruf, Benar/Salah, atau jawaban; CSV lengkap memu
   const f = B.buildCsvForms(SOAL).split('\n');
   assert.match(f[1], /"B",/); assert.match(f[3], /"Benar"/); assert.match(f[4], /"tujuh \/ 7"/);
   const r = B.buildCsvRdm(SOAL);
-  assert.match(r.split('\n')[0], /"Bentuk","Jawaban","Rubrik"$/);
-  assert.match(r, /"Melanjutkan \(isian\)","tujuh \/ 7",""/);
+  assert.match(r.split('\n')[0], /"Bentuk","Jawaban","Rubrik","Paket","Dawr","Batas materi","No. paket"$/);
+  assert.match(r, /"Melanjutkan \(isian\)","tujuh \/ 7","","","","",""/);
   assert.match(r, /"Uraian","Jelaskan|"Uraian","Jarak dua marhalah/);
 });
 
