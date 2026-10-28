@@ -12,6 +12,7 @@ import * as PK from './lib/paket.js';
 import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
 import * as SH from './lib/serahTerima.js';
+import * as SK from './lib/saringKitab.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -1468,7 +1469,7 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
     </div>
   );
 }
-const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status));
+const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
 
 /* ---------- Tab 3: Bank ---------- */
 /* ---------- Riwayat versi soal (hanya baca; versi lama bisa dimuat kembali ke form, belum tersimpan sampai penyusun menyimpan) ---------- */
@@ -1520,7 +1521,7 @@ function RiwayatSoal({ id, form, setForm, toast }) {
 }
 
 function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab }) {
-  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved', paket: '' };
+  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved', paket: '', kitab: '', bab: '' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
@@ -1528,6 +1529,15 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab })
   const cfg = useCfg();
   const [kata, setKata] = useState(''); // pencarian teks: sengaja tidak disimpan sebagai preferensi
   const list = useMemo(() => CS.saring(applyFilter(all, f), kata), [all, f, kata]);
+  // Opsi Kitab/Bab menghitung soal yang lolos filter lain (mapel, tingkat, status, dst.), supaya jumlahnya sama dengan yang akan tampil.
+  const dasarKB = useMemo(() => applyFilter(all, { ...f, kitab: '', bab: '' }), [all, f]);
+  const opsiKitab = useMemo(() => SK.opsiKitab(dasarKB), [dasarKB]);
+  const opsiBab = useMemo(() => SK.opsiBab(dasarKB, f.kitab), [dasarKB, f.kitab]);
+  useEffect(() => { // pilihan yang sudah tidak ada (filter lain berubah, data dihapus) dilepas agar daftar tidak kosong tanpa sebab
+    if (!all.length) return;
+    if (f.kitab && !opsiKitab.some((o) => o.nilai === f.kitab)) setF({ ...f, kitab: '', bab: '' });
+    else if (f.bab && !opsiBab.some((o) => o.nilai === f.bab)) setF({ ...f, bab: '' });
+  }, [f, opsiKitab, opsiBab, all.length]);
   const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
   const kartu = (q) => (
           <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
@@ -1564,6 +1574,20 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab })
   return (
     <div className="fade-in space-y-4">
       <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      {(opsiKitab.length > 1 || f.kitab) && (
+        <div className="flex flex-wrap gap-3">
+          <div className="min-w-[200px] flex-1"><Label htmlFor="f-kitab">Kitab</Label>
+            <Select id="f-kitab" value={f.kitab || ''} onChange={(v) => setF({ ...f, kitab: v, bab: '' })}>
+              <option value="">Semua kitab</option>
+              {opsiKitab.map((o) => <option key={o.nilai} value={o.nilai}>{o.label} ({o.jumlah})</option>)}
+            </Select></div>
+          <div className="min-w-[200px] flex-1"><Label htmlFor="f-bab">Bab</Label>
+            <Select id="f-bab" value={f.bab || ''} onChange={(v) => setF({ ...f, bab: v })}>
+              <option value="">{f.kitab ? 'Semua bab kitab ini' : 'Semua bab'}</option>
+              {opsiBab.map((o) => <option key={o.nilai} value={o.nilai}>{o.label} ({o.jumlah})</option>)}
+            </Select></div>
+        </div>
+      )}
       <input type="search" aria-label="Cari di bank soal" className="field w-full" placeholder="Cari kata di pertanyaan, pilihan, pembahasan, teks kitab (Latin atau Arab)…" value={kata} onChange={(e) => setKata(e.target.value)} />
       {onKirimTab && list.some((q) => q.status === 'approved') && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-3 text-sm text-soft-ink">
