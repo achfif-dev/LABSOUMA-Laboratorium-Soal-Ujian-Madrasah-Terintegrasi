@@ -1,5 +1,9 @@
 // POST /api/assist: terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
-import { route, authenticateAuthor, enforceAi, withRefund, aiPool } from '../src/platform.js';
+import { route, authenticateAuthor, authenticateReviewer, enforceAi, enforceRate, withRefund, aiPool, firestoreAdmin, num } from '../src/platform.js';
+import { setujui, catatButa } from '../src/review.js';
+import { bentukSah } from '../src/bentuk.js';
+import { parseList } from '../src/access.js';
+import { DEFAULT_HOSTS } from '../src/kitabFetch.js';
 import { loadAiConfig } from '../src/aiConfig.js';
 import { muatTingkatKustom } from '../src/appConfig.js';
 import { ApiError, validateInput, getModel } from '../src/soalService.js';
@@ -25,6 +29,14 @@ const ASSIST = {
 };
 
 export default route(async (req) => {
+  // Persetujuan soal: bukan pemakaian AI (tanpa kuota AI), hanya editor/admin. Ada di sini agar jumlah fungsi Vercel tidak bertambah.
+  if (req.body && req.body.aksi === 'setujui') {
+    const r = await authenticateReviewer(req);
+    await enforceRate(`${r.uid}_review`, { perMinute: num('LIMIT_REVIEW_PER_MINUTE', 30), perDay: num('LIMIT_REVIEW_PER_DAY', 1000) });
+    const { db, FieldValue } = await firestoreAdmin();
+    return setujui(db, FieldValue, { id: req.body.id, uid: r.uid, nama: r.name || r.email, role: r.role, catatan: req.body.catatan,
+      hosts: parseList(process.env.KITAB_ALLOWED_HOSTS).length ? parseList(process.env.KITAB_ALLOWED_HOSTS) : DEFAULT_HOSTS, sumberWajib: process.env.SUMBER_WAJIB === '1' });
+  }
   const u = await authenticateAuthor(req);
   const aksi = req.body && req.body.aksi;
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
@@ -41,6 +53,11 @@ export default route(async (req) => {
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
   await enforceAi(u.uid, u.role);
   const hasil = await withRefund(u.uid, () => run(req.body), [aiPool(u.role).id]); // gagal di sisi server/AI: kuota dikembalikan
+  if (aksi === 'cekbuta') {
+    // Catatan server atas hasil uji buta untuk isi yang persis sama: dipakai gerbang persetujuan (src/review.js), bukan klaim di dokumen soal.
+    const { db, FieldValue } = await firestoreAdmin();
+    await catatButa(db, FieldValue, { teks: req.body.teks, bentuk: bentukSah(req.body.bentuk) || 'pilgan', soal: req.body.soal, status: hasil.status, uid: u.uid, model: getModel() });
+  }
   if (aksi === 'telaah') {
     // Gratis, tanpa AI: periksa kutipan pada naskah asli dan pada perbaikan dari AI.
     hasil.verifikasi_naskah = periksaKutipan(bidangDariSoal(req.body.soal), teks);

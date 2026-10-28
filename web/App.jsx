@@ -18,8 +18,11 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BarChart3, BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw,
+  BarChart3, BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings,
 } from 'lucide-react';
+import * as NV from './lib/navigasi.js';
+// Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).
+const IKON_GRUP = { susun: PenLine, bank: Library, ujian: ListChecks, kelola: Settings, lainnya: Menu };
 
 /* ---------- Data & constants ---------- */
 const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
@@ -3721,9 +3724,10 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'paket', 'review', 'bank', 'export', 'fokus', 'pegon'].includes(h) || (canReview && h === 'backup') || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'paket', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
   });
-  const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
+  const terakhirRef = useRef({}); // sub-tab terakhir dipakai per grup navigasi (sesi ini)
+  const setTab = (id) => { setTabRaw(id); { const g = NV.grupDariTab(id); if (g) terakhirRef.current[g.id] = id; } try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [saran, setSaran] = useState(null); // hasil saran bab terakhir (tidak dipulihkan setelah refresh: memakai kuota AI)
@@ -3995,7 +3999,15 @@ function App({ user, profile }) {
       toast(okMsg);
     } catch (e) { toast(failMsg(e)); }
   };
-  const approve = (id, note = '') => review(id, 'approved', note, 'Soal disetujui dan masuk Bank Soal.');
+  // Persetujuan lewat server: gerbang kutipan dan uji buta dihitung ulang di sana (klaim di dokumen soal tidak dipercaya).
+  const approve = async (id, note = '') => {
+    try {
+      const d = await callApi('/api/assist', { aksi: 'setujui', id, catatan: note });
+      Draft.remove('catatan:' + id);
+      const SUMBER_INFO = { tanpa_sumber: ' Teks kitab tidak dicocokkan ke sumber (tanpa tautan sumber).', tidak_terjangkau: ' Situs sumber tidak terjangkau, teks kitab tidak dicocokkan.', sebagian: ' Sebagian baris teks tidak ada di halaman sumber (wajar bila gabungan beberapa halaman).' };
+      toast('Soal disetujui dan masuk Bank Soal.' + (SUMBER_INFO[d && d.sumber] || ''));
+    } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : failMsg(e)); }
+  };
   const revise = (id, note) => review(id, 'revision', note, 'Permintaan revisi dikirim ke penyusun.');
   const edit = (q) => {
     // Memuat soal lain ke form menimpa isian di form; jangan diam-diam membuang isian yang belum disimpan.
@@ -4027,7 +4039,7 @@ function App({ user, profile }) {
   const TABS = [
     { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
     { id: 'paket', label: 'Paket Dauri', icon: Layers },
-    { id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: canReview ? pending.length : 0 },
+    ...(canReview ? [{ id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: pending.length }] : []), // penyusun memantau soalnya lewat Bank Soal
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
@@ -4038,6 +4050,9 @@ function App({ user, profile }) {
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export' || tab === 'fokus';
   const aktif = TABS.find((t) => t.id === tab);
+  const NAV = NV.bangunNav(TABS);
+  const grupAktif = NAV.find((g) => g.items.some((t) => t.id === tab)) || null;
+  const tampilGrup = (g) => (g.items.length === 1 ? { label: g.items[0].label, Ikon: g.items[0].icon } : { label: g.label, Ikon: IKON_GRUP[g.id] || Menu });
   const pendingBadge = canReview ? pending.length : 0;
   const kuotaGenting = !!(isAdmin && kuotaRingkas && kuotaRingkas.peringatan > 0);
 
@@ -4067,20 +4082,21 @@ function App({ user, profile }) {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0">{menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
               <span className="sr-only">Menu navigasi</span>
               <span className="flex min-w-0 items-center gap-2 rounded-md bg-white/10 px-2.5 py-1">
-                {aktif && <aktif.icon size={15} className="shrink-0" />}<span className="truncate">{aktif ? aktif.label : 'Menu'}</span>
+                {grupAktif ? (() => { const T = tampilGrup(grupAktif); return <><T.Ikon size={15} className="shrink-0" /><span className="truncate">{T.label}</span></>; })() : <span className="truncate">Menu</span>}
                 {pendingBadge > 0 && !menuOpen && <span aria-label={pendingBadge + ' soal menunggu review'} className="h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
                 {kuotaGenting && !menuOpen && <span aria-label="Kuota AI hampir atau sudah habis" className="h-2 w-2 shrink-0 rounded-full bg-red-400" />}
               </span>
             </button>
             {menuOpen && (
               <nav id="menu-tab" aria-label="Navigasi utama" className="fade-in absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink shadow-xl">
-                {TABS.map((t) => (
-                  <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${tab === t.id ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
-                    <t.icon size={17} className="shrink-0" /><span className="flex-1">{t.label}</span>
-                    {t.n > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{t.n}</span>}
+                {NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
+                  <button key={g.id} type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG ? 'page' : undefined}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+                    <T.Ikon size={17} className="shrink-0" />
+                    <span className="min-w-0 flex-1">{T.label}{g.items.length > 1 && <span className="block truncate text-xs font-normal text-mute">{g.items.map((t) => NV.SUB_LABEL[t.id] || t.label).join(' · ')}</span>}</span>
+                    {g.lencana > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{g.lencana}</span>}
                   </button>
-                ))}
+                ); })}
                 <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
                   <p className="truncate text-xs font-semibold">{displayName}</p>
                   <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
@@ -4095,6 +4111,17 @@ function App({ user, profile }) {
             <button type="button" id="tombol-keluar" aria-label="Keluar" title="Keluar" onClick={keluar} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold hover:bg-white/10"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg><span className="hidden sm:inline">Keluar</span></button>
           </div>
         </div>
+        {grupAktif && grupAktif.items.length > 1 && (
+          <nav aria-label={'Sub-tab ' + grupAktif.label} className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none]">
+            {grupAktif.items.map((t) => (
+              <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === t.id ? 'bg-white/25' : 'bg-white/10 hover:bg-white/15'}`}>
+                <t.icon size={14} className="shrink-0" />{NV.SUB_LABEL[t.id] || t.label}
+                {t.n > 0 && <span className="rounded-full bg-white/20 px-1.5 text-xs">{t.n}</span>}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
 
       <main id="konten" tabIndex={-1} className="mx-auto max-w-6xl py-6 outline-none sm:py-8">
