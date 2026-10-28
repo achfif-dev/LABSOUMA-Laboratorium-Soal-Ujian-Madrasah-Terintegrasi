@@ -208,7 +208,7 @@ Pemeriksaan otomatis membantu editor, tidak menggantikannya. Hasilnya disimpan d
 - **Kutipan Arab:** kutipan di soal dan pembahasan dicocokkan dengan teks kitab. Kata yang sama tetapi **harakatnya berbeda** ditandai "mirip" (bukan lolos). Pemeriksaan ini tidak menilai kebenaran kunci atau terjemahan.
 - **Uji jawab buta:** model menjawab soal tanpa melihat kunci dan pembahasan. Bila jawabannya berbeda (termasuk "tidak ada yang benar" atau "lebih dari satu benar"), soal ditandai. Berjalan otomatis setelah Generate dan bisa diulang dari tombol **Uji jawab buta** (penyusun dan editor). Biayanya satu panggilan AI tambahan. Isi `AI_VERIFY_MODEL` agar penguji memakai model berbeda dari pembuat soal.
 - **Nada soal:** kata yang menyalahkan atau mengkafirkan ditandai untuk diperiksa manusia (kata seperti "kafir" sah dalam bahasan fiqih, jadi ini peringatan, bukan penolakan).
-- **Gerbang persetujuan:** soal dengan kutipan "gagal" atau uji buta "beda" hanya bisa disetujui editor bila menulis catatan alasan (override), dan aturan Firestore menegakkannya. Catatan ini berdasarkan hasil yang dikirim aplikasi: ia jejak audit dan pengaman terhadap kelalaian, bukan pertahanan terhadap penyusun yang sengaja curang. Admin tetap bisa mengubah status langsung.
+- **Gerbang persetujuan:** persetujuan hanya lewat server (`POST /api/assist`, aksi `setujui`); aturan Firestore tidak lagi mengizinkan klien menaikkan soal ke Approved. Server menghitung ulang kutipan dari teks dan isi soal tersimpan, memakai catatan uji buta milik server (`cekbutaHasil`), dan mencocokkan teks dengan halaman `sumberUrl`. Soal dengan kutipan "gagal", uji buta "beda", atau teks yang hampir seluruhnya tidak ada di halaman sumber hanya bisa disetujui dengan catatan alasan. Rincian dan batasnya: `docs/PERUBAHAN-29-OKT-2026.md`.
 - **Terjemahan** ditandai sebagai draf mesin yang perlu ditinjau ustadz atau guru.
 - **Tautan sumber** diisi penyusun dan tidak otomatis terikat ke teks yang disimpan; aturan Firestore hanya mensyaratkan `https://`. Editor perlu mencocokkannya.
 - **Penolakan penyedia AI:** bila penyedia memblokir teks karena kebijakan keamanan, pengguna melihat pesan khusus (bukan galat generik). Penolakan ini tetap menghitung kuota.
@@ -218,9 +218,13 @@ Pemeriksaan otomatis membantu editor, tidak menggantikannya. Hasilnya disimpan d
 
 Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model diukur terpisah:
 
-1. Salin `eval/golden.example.json` menjadi `eval/golden.json`, lalu isi 20 sampai 30 kasus dari kitab yang Anda kuasai (campur L1/L2/L3, fiqih dan nahwu/sharaf, teks yang memuat khilaf, dan beberapa kasus `telaah` dengan soal yang sengaja dicacati). Isi contoh hanya ilustrasi: cocokkan dengan kitabnya.
-2. Jalankan dari tab **Actions > Evaluasi AI > Run workflow** (butuh secret `GEMINI_API_KEY` atau `ANTHROPIC_API_KEY`), atau `npm run eval` di komputer.
-3. Jalankan ulang tiap mengganti model atau prompt, lalu bandingkan angka lulusnya. Eval memakai kuota API sungguhan.
+`eval/golden.json` berisi 36 kasus awal (26 `generate` lintas MI/MTs/MA, L1-L3, kelima bentuk soal, kasus khilaf dan injeksi perintah; 8 `telaah` dengan soal yang sengaja dicacati plus satu kontrol soal baik; 2 `tolak`). **Ini draf**: teks Arabnya diketik dari ingatan tanpa harakat dan kuncinya harus ditetapkan ustadz, bukan AI. Untuk tiap kasus, ustadz mencocokkan teks dengan kitab, membetulkan `kunci_harus_memuat`, lalu mengisi `diverifikasi_oleh` dengan namanya. Tambahkan kasus dari kitab yang dipakai madrasah sampai kira-kira 50, terutama dari soal yang pernah ditolak editor.
+
+1. Jenis kasus: `generate` (susun soal, lalu uji jawab buta, cek kutipan, nada, dan kunci), `telaah` (soal cacat yang harus ditangkap telaah AI; perbaikannya ikut diuji), `tolak` (teks tanpa materi yang harus ditolak AI). Format dan kolom: lihat `catatan` di `golden.json`.
+2. Jalankan dari tab **Actions > Evaluasi AI > Run workflow** (butuh secret `GEMINI_API_KEY` atau `ANTHROPIC_API_KEY`), atau `npm run eval -- --ulang=3 --jeda=15000` di komputer. Pilihan: `--hanya=telaah,injeksi` (sebagian kasus), `--hanya-terverifikasi`, `--min=0.8`, `--bandingkan=hasil-lama.json`.
+3. Hasil tersimpan di `eval/hasil.json` (tidak masuk Git; simpan salinannya tiap kali memakai model atau prompt baru). Ia mencatat sidik `golden.json` dan sidik berkas prompt, sehingga perubahan angka bisa ditelusuri. Gunakan `--bandingkan` untuk melihat kasus yang memburuk.
+4. Galat penyedia (kuota, jaringan) dicatat sebagai `galat`, bukan `gagal`, dan tidak masuk penyebut laju lulus. Kunci atau model yang salah menghentikan eval (kode keluar 2).
+5. Eval memakai kuota API sungguhan: satu kasus = 2-3 panggilan, dikali `--ulang`. Kuota gratis Gemini ketat, jadi pakai `--jeda`.
 
 ## Fitur teks kitab dan bantuan AI
 
