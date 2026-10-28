@@ -13,6 +13,7 @@ Menindaklanjuti audit: penggantian nama, analisis butir, riwayat versi, pencaria
    - Paket Dauri: setelah paket disimpan, Bank Soal otomatis terbuka pada paket itu (semua status), siap ditelaah dan dikirim ke editor.
    - Analisis Butir: pilihan **Hubungkan dengan paket** mengisi kunci dari soal (urut seperti naskah), menampilkan soal di hasil, dan memberi tombol membuka soal bermasalah untuk diperbaiki.
    - Serah-terima lewat draf perangkat (`web/lib/serahTerima.js`, dijaga `test/serahTerima.test.js`); tidak ada perubahan aturan Firestore.
+7. **Filter Kitab dan Bab di Bank Soal** (`web/lib/saringKitab.js`). Ejaan berbeda ("Safinatun Naja", "safinatun  naja ") digabung; pilihan Bab hanya dari kitab terpilih, diurut angka alami (Bab 2 sebelum Bab 10); jumlah soal ditampilkan; soal tanpa kitab/bab punya pilihan sendiri. Filter ini ikut tersimpan per perangkat.
 
 ## Wajib dilakukan setelah deploy
 - **Terbitkan ulang `firestore.rules`** (Firebase Console > Firestore > Rules > tempel isi file > Publish). Tanpa ini, riwayat versi tidak tercatat, tetapi menyimpan soal tetap berhasil (ada cadangan otomatis di `commit`).
