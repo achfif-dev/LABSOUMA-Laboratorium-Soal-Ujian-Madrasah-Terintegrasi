@@ -1,6 +1,6 @@
 name: Evaluasi AI
-# Dijalankan MANUAL dari tab Actions (Run workflow). Memakai kuota API sungguhan: satu kasus = 2-3 panggilan model.
-# Butuh eval/golden.json (salin dari eval/golden.example.json) dan secret GEMINI_API_KEY atau ANTHROPIC_API_KEY.
+# Dijalankan MANUAL dari tab Actions (Run workflow). Memakai kuota API sungguhan: satu kasus = 2-3 panggilan model, dikali "ulang".
+# Butuh eval/golden.json (sudah ada; ustadz perlu memverifikasi isinya) dan secret GEMINI_API_KEY atau ANTHROPIC_API_KEY.
 on:
   workflow_dispatch:
     inputs:
@@ -8,21 +8,34 @@ on:
       model: { description: 'Nama model (kosongkan = bawaan)', default: '', required: false }
       verifier: { description: 'Model penguji jawab buta (kosongkan = sama dengan model)', default: '', required: false }
       min: { description: 'Laju lulus minimum (0-1)', default: '0.8', required: true }
-      ulang: { description: 'Ulangi tiap kasus N kali', default: '1', required: true }
+      ulang: { description: 'Ulangi tiap kasus N kali (3 disarankan: keluaran model tidak deterministik)', default: '1', required: true }
+      jeda: { description: 'Jeda antarkasus dalam milidetik (naikkan, mis. 15000, bila kuota gratis ketat)', default: '0', required: true }
+      hanya: { description: 'Jalankan sebagian saja: id, jenis (generate/telaah/tolak), atau tag, pisahkan koma (kosongkan = semua)', default: '', required: false }
+      terverifikasi: { description: 'Hanya kasus yang sudah diverifikasi ustadz (true/false)', default: 'false', required: true }
 permissions:
   contents: read
 jobs:
   evaluasi:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci --no-audit --no-fund
       - name: Evaluasi
-        run: node eval/run.mjs eval/golden.json --min=${{ inputs.min }} --ulang=${{ inputs.ulang }}
+        # Masukan dikirim lewat environment (bukan disisipkan langsung ke skrip) agar tidak bisa menyuntikkan perintah shell.
+        run: |
+          EXTRA=""
+          if [ -n "$EVAL_HANYA" ]; then EXTRA="$EXTRA --hanya=$EVAL_HANYA"; fi
+          if [ "$EVAL_TERVERIFIKASI" = "true" ]; then EXTRA="$EXTRA --hanya-terverifikasi"; fi
+          node eval/run.mjs eval/golden.json --min="$EVAL_MIN" --ulang="$EVAL_ULANG" --jeda="$EVAL_JEDA" $EXTRA
         env:
+          EVAL_MIN: ${{ inputs.min }}
+          EVAL_ULANG: ${{ inputs.ulang }}
+          EVAL_JEDA: ${{ inputs.jeda }}
+          EVAL_HANYA: ${{ inputs.hanya }}
+          EVAL_TERVERIFIKASI: ${{ inputs.terverifikasi }}
           AI_PROVIDER: ${{ inputs.provider }}
           AI_MODEL: ${{ inputs.model }}
           AI_VERIFY_MODEL: ${{ inputs.verifier }}
@@ -30,4 +43,4 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: hasil-evaluasi, path: eval/hasil.json }
+        with: { name: hasil-evaluasi, path: eval/hasil.json, if-no-files-found: ignore }
