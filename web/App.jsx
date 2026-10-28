@@ -11,6 +11,7 @@ import * as NM from './lib/naskahMeta.js';
 import * as PK from './lib/paket.js';
 import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
+import * as SH from './lib/serahTerima.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -1518,8 +1519,8 @@ function RiwayatSoal({ id, form, setForm, toast }) {
   );
 }
 
-function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
-  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved' };
+function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab }) {
+  const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved', paket: '' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
   const [confirm, setConfirm] = useState(null);
@@ -1545,6 +1546,10 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
                 {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
               </details>
             )}
+            {onKirimTab && q.status === 'approved' && <div className="mt-4 flex flex-wrap gap-2">
+              <Btn kind="soft" onClick={() => onKirimTab('export', [q.id])}><Download size={15} />Ke Export</Btn>
+              <Btn kind="soft" onClick={() => onKirimTab('fokus', [q.id])}><ListChecks size={15} />Ke Fokus Ujian</Btn>
+            </div>}
             {canEdit(q) && <div className="mt-4 flex flex-wrap gap-2">
               <Btn kind={q.status === 'revision' ? 'primary' : 'ghost'} onClick={() => onEdit(q)}><Pencil size={15} />{q.status === 'revision' ? 'Perbaiki' : 'Edit'}</Btn>
               {confirm === q.id ? (
@@ -1560,6 +1565,13 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim }) {
     <div className="fade-in space-y-4">
       <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
       <input type="search" aria-label="Cari di bank soal" className="field w-full" placeholder="Cari kata di pertanyaan, pilihan, pembahasan, teks kitab (Latin atau Arab)…" value={kata} onChange={(e) => setKata(e.target.value)} />
+      {onKirimTab && list.some((q) => q.status === 'approved') && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-3 text-sm text-soft-ink">
+          <span className="font-medium">{list.filter((q) => q.status === 'approved').length} soal Approved sesuai filter:</span>
+          <Btn kind="ghost" onClick={() => onKirimTab('export', list.filter((q) => q.status === 'approved').map((q) => q.id))}><Download size={15} />Kirim ke Export</Btn>
+          <Btn kind="ghost" onClick={() => onKirimTab('fokus', list.filter((q) => q.status === 'approved').map((q) => q.id))}><ListChecks size={15} />Kirim ke Fokus Ujian</Btn>
+        </div>
+      )}
       {f.status === 'approved' && uid && all.some((q) => q.paket && q.authorUid === uid && (q.status === 'draft' || q.status === 'revision')) && (
         <p className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn" role="status">Anda punya butir paket yang belum selesai (Draft atau diminta revisi). Filter status saat ini hanya menampilkan yang Approved.
           <Btn kind="ghost" onClick={() => setF({ ...f, status: '' })}>Tampilkan semua status</Btn></p>
@@ -3351,7 +3363,7 @@ function pulihPaket() {
   return o;
 }
 
-function PaketDauri({ toast, onSimpan }) {
+function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const cfg = useCfg();
   const awal = useRef(null); if (awal.current === null) awal.current = pulihPaket();
   const A0 = awal.current;
@@ -3533,8 +3545,10 @@ function PaketDauri({ toast, onSimpan }) {
       const nomor = new Map(); let no = 0;
       for (const bg of naskah.bagian) for (const { q } of bg.butir) if (q) nomor.set(q._uid, ++no);
       for (const x of hasil) if (!nomor.has(x.uid)) nomor.set(x.uid, Math.min(200, ++no));
-      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut: nomor, paketId: PK.idPaket(), status: kirim ? 'pending' : 'draft' });
+      const paketId = PK.idPaket();
+      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut: nomor, paketId, status: kirim ? 'pending' : 'draft' });
       toast(kirim ? `${n} butir paket dikirim ke editor.` : `${n} butir tersimpan sebagai satu paket Draft. Cari di tab Bank Soal (filter Paket).`); setHasil([]); setKurang([]); setSunting(null);
+      if (onBukaBank) onBukaBank(paketId);
     }
     catch (e) { toast((e && e.message) || 'Gagal menyimpan. Periksa koneksi lalu coba lagi.'); } finally { setSimpanBusy(false); }
   };
@@ -3938,6 +3952,17 @@ function App({ user, profile }) {
       toast(`${ids.length} butir paket dikirim ke editor.`);
     } catch (e) { toast(failMsg(e)); }
   };
+  // Serah-terima antartab lewat draf perangkat (dibaca tab tujuan saat dibuka): pilihan soal dan filter disiapkan, lalu pindah tab.
+  const terapkanRencana = (r) => { for (const x of r) Draft.saveNow(x.nama, x.nilai); };
+  const kirimKeTab = (tujuan, ids) => {
+    const r = SH.rencanaPilihSoal(tujuan, ids, Draft.read(tujuan === 'export' ? 'exportPrefs' : 'kisiPrefs'));
+    if (!r) { toast('Tidak ada soal Approved untuk dikirim.'); return; }
+    terapkanRencana(r);
+    toast(`${r[1].nilai.picked.length} soal dipilih di tab ${tujuan === 'export' ? 'Export/Download' : 'Fokus Ujian & Kisi-kisi'}.`);
+    pilihTab(tujuan);
+  };
+  // Setelah paket disimpan: buka Bank Soal langsung pada paket itu (semua status), agar bisa ditelaah dan dikirim ke editor.
+  const bukaPaketDiBank = (paketId) => { const r = SH.rencanaBukaPaket(paketId); if (r) { terapkanRencana(r); pilihTab('bank'); } };
   const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
   const review = async (id, status, note, okMsg) => {
     try {
@@ -4055,7 +4080,7 @@ function App({ user, profile }) {
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
-        {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} />}
+        {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} onBukaBank={bukaPaketDiBank} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">
@@ -4071,11 +4096,11 @@ function App({ user, profile }) {
           </div>
         )}
         {loaded && tab === 'review' && <Review list={pending} all={qs} me={me} onApprove={approve} onRevise={revise} />}
-        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} />}
+        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} onKirimTab={kirimKeTab} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
-        {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} />}
+        {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}

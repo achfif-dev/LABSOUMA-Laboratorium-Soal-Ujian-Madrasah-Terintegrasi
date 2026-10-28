@@ -7,10 +7,20 @@ import { bacaMatriks, analisis, hasilKeCsv, labelKr20 } from './lib/analisisButi
 const WARNA = { pertahankan: 'bg-ok-bg text-ok', revisi: 'bg-warn-bg text-warn', periksa: 'bg-bad-bg text-bad' };
 const NAMA = { pertahankan: 'Pertahankan', revisi: 'Revisi', periksa: 'Periksa kunci' };
 
-export default function AnalisisButir({ Btn, unduh }) {
+export default function AnalisisButir({ Btn, unduh, paketList = [], onEdit, canEdit }) {
   const [teks, setTeks] = useState('');
   const [kunci, setKunci] = useState('');
   const [hasil, setHasil] = useState(null);
+  const [paketId, setPaketId] = useState('');
+  // Soal sumber (urut seperti di naskah): memberi label, kunci, dan tombol Edit pada hasil. Hanya dipakai bila jumlahnya sama dengan jumlah kolom.
+  const sumber = useMemo(() => { const g = paketList.find((x) => x.id === paketId); return g ? [...g.soal].sort((a, b) => (a.urut || 999) - (b.urut || 999)) : []; }, [paketList, paketId]);
+  const pilihPaket = (id) => {
+    setPaketId(id); setHasil(null);
+    const g = paketList.find((x) => x.id === id);
+    if (!g) return;
+    const ks = [...g.soal].sort((a, b) => (a.urut || 999) - (b.urut || 999)).map((q) => (/^[A-E]$/.test(q.kunci || '') ? q.kunci : '-'));
+    setKunci(ks.join(' '));
+  };
 
   const mat = useMemo(() => bacaMatriks(teks), [teks]);
   const adaHuruf = mat.sel.some((r) => r.some((c) => /^[A-Ea-e]$/.test(c)));
@@ -29,6 +39,15 @@ export default function AnalisisButir({ Btn, unduh }) {
         (lalu isi kunci di bawah). Kolom nama dan baris judul dikenali otomatis. Data hanya diproses di perangkat ini dan tidak disimpan.
       </p>
       <textarea aria-label="Data hasil ujian" className="field mt-3 min-h-[140px] w-full font-mono text-xs" placeholder={'Nama\tNo1\tNo2\tNo3\nAli\t1\t0\t1\nBudi\tB\tA\tC'} value={teks} onChange={(e) => { setTeks(e.target.value); setHasil(null); }} />
+      {paketList.length > 0 && (
+        <label className="mt-3 block text-sm font-medium">Hubungkan dengan paket di Bank Soal (opsional)
+          <select className="field mt-1 w-full" value={paketId} onChange={(e) => pilihPaket(e.target.value)}>
+            <option value="">Tidak dihubungkan</option>
+            {paketList.map((g) => <option key={g.id} value={g.id}>{[g.nama || 'Paket', g.mapel, g.kelas && 'Kelas ' + g.kelas, g.periode, g.jumlah + ' soal'].filter(Boolean).join(' · ')}</option>)}
+          </select>
+          <span className="mt-1 block text-xs font-normal text-mute">Mengisi kunci dari soal (urut seperti naskah) dan menampilkan soal di hasil. Kolom data harus sama urutannya dengan naskah. Butir tanpa kunci huruf (isian, uraian) ditulis "-": pakai skor 0/1.</span>
+        </label>
+      )}
       {teks.trim() && <p className="mt-1 text-xs text-mute">Terbaca {mat.sel.length} siswa × {mat.sel.length ? Math.max(...mat.sel.map((r) => r.length)) : 0} soal{mat.judul ? ' · baris judul dilewati' : ''}{mat.kolomNama ? ' · kolom nama dilewati' : ''}.</p>}
       {adaHuruf && (
         <label className="mt-3 block text-sm font-medium">Kunci jawaban (urut, pisahkan spasi atau koma)
@@ -60,9 +79,16 @@ export default function AnalisisButir({ Btn, unduh }) {
                 <p className="mt-1 text-mute">Kesukaran {b.p.toFixed(2)} ({b.kesukaran}) · Daya beda {b.d.toFixed(2)} ({b.dayaBeda}) · r {b.r.toFixed(2)}</p>
                 {b.sebaran && <p className="mt-1 text-xs text-mute">Pilihan: {['A', 'B', 'C', 'D', 'E'].filter((o) => b.sebaran[o] > 0 || o === b.kunci).map((o) => `${o}${o === b.kunci ? '*' : ''}=${b.sebaran[o]}`).join(' ')}{b.sebaran.kosong ? ` kosong=${b.sebaran.kosong}` : ''}</p>}
                 {b.saran.map((s) => <p key={s} className="mt-1 text-xs">{s}</p>)}
+                {sumber.length === hasil.butir.length && sumber[b.no - 1] && (
+                  <div className="mt-2 border-t border-line pt-2 text-xs">
+                    <p className="line-clamp-2 text-mute">{sumber[b.no - 1].pertanyaan}</p>
+                    {b.status !== 'pertahankan' && onEdit && canEdit && canEdit(sumber[b.no - 1]) && <button type="button" className="mt-1 font-semibold text-brand" onClick={() => onEdit(sumber[b.no - 1])}>Buka soal ini untuk diperbaiki</button>}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
+          {paketId && sumber.length !== hasil.butir.length && <p className="mt-3 text-xs text-warn">Jumlah soal paket ({sumber.length}) berbeda dengan jumlah kolom data ({hasil.butir.length}), jadi soal tidak ditampilkan di hasil. Periksa urutan dan jumlah kolom.</p>}
           <p className="mt-3 text-xs text-mute">Patokan: kesukaran 0,30-0,70 sedang; daya beda ≥ 0,30 baik, &lt; 0,20 perlu revisi, negatif = periksa kunci. Ini petunjuk statistik, bukan pengganti telaah ustadz.</p>
         </div>
       )}

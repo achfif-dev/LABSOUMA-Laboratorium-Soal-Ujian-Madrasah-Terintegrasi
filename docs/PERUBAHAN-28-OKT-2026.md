@@ -8,6 +8,11 @@ Menindaklanjuti audit: penggantian nama, analisis butir, riwayat versi, pencaria
 3. **Riwayat versi soal.** Saat soal yang sudah ada disimpan ulang dan isinya berubah, versi lama disalin ke `soal/{id}/riwayat`. Dilihat dari form edit ("Lihat riwayat versi soal ini"); versi lama bisa dimuat ke form. Kode: `web/lib/riwayat.js`.
 4. **Pencarian teks di Bank Soal** (Latin tanpa peka huruf; Arab tanpa harakat dan variasi alif/ya/ta marbuthah). Kode: `web/lib/cariSoal.js`.
 5. **Cangkang aplikasi offline** lewat `public/sw.js` (hanya halaman dan berkas statis; `/api/*` dan Firebase tidak disentuh).
+6. **Integrasi antartab.**
+   - Bank Soal: tombol **Ke Export** dan **Ke Fokus Ujian** pada tiap soal Approved, serta **Kirim ke Export/Fokus Ujian** untuk semua soal Approved hasil filter. Tab tujuan terbuka dengan soal itu sudah terpilih.
+   - Paket Dauri: setelah paket disimpan, Bank Soal otomatis terbuka pada paket itu (semua status), siap ditelaah dan dikirim ke editor.
+   - Analisis Butir: pilihan **Hubungkan dengan paket** mengisi kunci dari soal (urut seperti naskah), menampilkan soal di hasil, dan memberi tombol membuka soal bermasalah untuk diperbaiki.
+   - Serah-terima lewat draf perangkat (`web/lib/serahTerima.js`, dijaga `test/serahTerima.test.js`); tidak ada perubahan aturan Firestore.
 
 ## Wajib dilakukan setelah deploy
 - **Terbitkan ulang `firestore.rules`** (Firebase Console > Firestore > Rules > tempel isi file > Publish). Tanpa ini, riwayat versi tidak tercatat, tetapi menyimpan soal tetap berhasil (ada cadangan otomatis di `commit`).
