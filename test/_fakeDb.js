@@ -34,7 +34,7 @@ export function fakeDb(data = {}) {
     batch: () => { const ops = []; return { set: (r, v) => ops.push({ t: 'set', path: r.path, v }), delete: (r) => ops.push({ t: 'del', path: r.path }), commit: async () => terapkan(ops) }; },
     runTransaction: async (fn) => {
       const ops = [];
-      const tx = { get: async (r) => r.get(), set: (r, v) => { ops.push({ t: 'set', path: r.path, v }); return tx; }, delete: (r) => { ops.push({ t: 'del', path: r.path }); return tx; }, update() {} };
+      const tx = { get: async (r) => r.get(), set: (r, v) => { ops.push({ t: 'set', path: r.path, v }); return tx; }, delete: (r) => { ops.push({ t: 'del', path: r.path }); return tx; }, update: (r, v) => { ops.push({ t: 'set', path: r.path, v: { ...(data[r.path] || {}), ...v } }); return tx; } };
       const hasil = await fn(tx);
       terapkan(ops); // hanya bila fn selesai tanpa galat
       return hasil;

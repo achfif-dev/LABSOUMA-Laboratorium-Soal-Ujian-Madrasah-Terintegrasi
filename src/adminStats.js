@@ -23,7 +23,7 @@ const ringkasHitung = (dipakai, batas) => ({
 });
 
 /** Id dokumen rate yang bukan milik satu pengguna untuk AI (plafon bersama, kitab, sesi). */
-const bukanAiPengguna = (id) => id === GLOBAL_AI_ID || id === GLOBAL_USTADZ_ID || id.endsWith('_kitab') || id.endsWith('_session');
+const bukanAiPengguna = (id) => id === GLOBAL_AI_ID || id === GLOBAL_USTADZ_ID || id.endsWith('_kitab') || id.endsWith('_session') || id.endsWith('_review');
 
 /**
  * @param {{rate: Record<string, object>, users: Record<string, {name?:string,email?:string,role?:string}>, now: number, semua?: boolean, ringkas?: boolean}} o

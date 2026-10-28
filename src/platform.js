@@ -103,7 +103,7 @@ export async function authenticateReviewer(req) {
   if (!snap.exists || !['editor', 'admin'].includes(snap.data().role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk editor dan admin.');
   }
-  return u;
+  return { ...u, role: snap.data().role };
 }
 
 /** Membuat/menyegarkan dokumen users/{uid}. Admin pertama berasal dari ADMIN_EMAILS. */

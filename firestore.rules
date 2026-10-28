@@ -64,6 +64,26 @@ service cloud.firestore {
           && d().catatan is string && d().catatan.size() <= 1000;
       }
 
+      // Isi salinan dibatasi seperti isi soal (tanpa ini, satu simpan bisa menulis dokumen riwayat mendekati 1 MB).
+      // Daftar kunci dijaga sama dengan BIDANG_RIWAYAT (web/lib/riwayat.js) oleh test/review.test.js.
+      function teksMax(s, k, n) { return !(k in s) || (s[k] is string && s[k].size() <= n); }
+      function snapshotOk(s) {
+        return s is map
+          && s.keys().hasOnly(['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator',
+                               'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut'])
+          && teksMax(s, 'tingkat', 40) && teksMax(s, 'mapel', 60) && teksMax(s, 'level', 3) && teksMax(s, 'kelas', 20) && teksMax(s, 'periode', 20)
+          && teksMax(s, 'nama', 120) && teksMax(s, 'juz', 20) && teksMax(s, 'hal', 20) && teksMax(s, 'bab', 120)
+          && teksMax(s, 'teks', 8000) && teksMax(s, 'stimulus', 3000) && teksMax(s, 'pertanyaan', 2000) && teksMax(s, 'indikator', 1000)
+          && teksMax(s, 'sumberUrl', 500) && teksMax(s, 'kunci', 1) && teksMax(s, 'pembahasan', 4000) && teksMax(s, 'bentuk', 20)
+          && teksMax(s, 'jawaban', 2000) && teksMax(s, 'rubrik', 2000) && teksMax(s, 'status', 20) && teksMax(s, 'catatan', 1000)
+          && teksMax(s, 'paket', 40) && teksMax(s, 'dawr', 1) && teksMax(s, 'cakupan', 120)
+          && (!('urut' in s) || s.urut is int)
+          && (!('opsi' in s) || (s.opsi is map && s.opsi.keys().hasOnly(['A', 'B', 'C', 'D', 'E'])
+                && teksMax(s.opsi, 'A', 1000) && teksMax(s.opsi, 'B', 1000) && teksMax(s.opsi, 'C', 1000) && teksMax(s.opsi, 'D', 1000) && teksMax(s.opsi, 'E', 1000)))
+          && (!('ai' in s) || (s.ai is map && s.ai.keys().hasOnly(['dibuat', 'model', 'verifikasi', 'buta']) && teksMax(s.ai, 'model', 60)
+                && teksMax(s.ai, 'verifikasi', 20) && teksMax(s.ai, 'buta', 20)));
+      }
+
       // Jejak audit AI: soal ini dibuat AI? model apa? hasil pemeriksaan kutipan dan uji jawab buta.
       // Dihitung klien (bukan jaminan keamanan terhadap penyusun yang curang); fungsinya jejak audit dan gerbang persetujuan.
       function validAi() {
@@ -76,11 +96,8 @@ service cloud.firestore {
           && d().ai.buta in ['', 'sepakat', 'beda'];
       }
 
-      // Soal dengan kutipan tidak cocok atau uji buta berbeda hanya bisa disetujui editor bila disertai catatan alasan (override).
-      function perluAlasan() {
-        return resource.data.get('ai', {}).get('verifikasi', '') == 'gagal'
-          || resource.data.get('ai', {}).get('buta', '') == 'beda';
-      }
+      // PERSETUJUAN (status approved) TIDAK lagi lewat aturan ini: hanya lewat /api/assist aksi "setujui" (Admin SDK), yang menghitung ulang
+      // kutipan dan uji buta di server. Dulu gerbang "perlu alasan" membaca ai.verifikasi/ai.buta yang ditulis penyusun sendiri, sehingga bisa dipalsukan.
 
       // Opsi: hanya kunci A-E, tiap nilai string <= 1000 karakter (mencegah dokumen membengkak).
       function validOpsi() {
@@ -116,7 +133,7 @@ service cloud.firestore {
         allow create: if isStaff()
           && request.resource.data.keys().hasOnly(['snapshot', 'oleh', 'namaOleh', 'at'])
           && request.resource.data.keys().hasAll(['snapshot', 'oleh', 'namaOleh', 'at'])
-          && request.resource.data.snapshot is map && request.resource.data.snapshot.size() <= 40
+          && snapshotOk(request.resource.data.snapshot)
           && request.resource.data.oleh == request.auth.uid
           && request.resource.data.namaOleh is string && request.resource.data.namaOleh.size() <= 120
           && request.resource.data.at == request.time
@@ -145,18 +162,16 @@ service cloud.firestore {
           && changed().hasOnly(authorKeys().concat(opsiKeys()))
           && validContent() )
         ||
-        // 2) Editor/admin menyetujui atau meminta revisi soal pending.
+        // 2) Editor/admin MEMINTA REVISI soal pending (menyetujui: lewat server, lihat catatan di atas).
         //    Editor tidak boleh meninjau soalnya sendiri.
         ( isReviewer()
           && resource.data.status == 'pending'
           && (resource.data.authorUid != request.auth.uid || isAdmin())
-          && d().status in ['approved', 'revision']
+          && d().status == 'revision'
           && changed().hasOnly(reviewKeys())
           && d().reviewerUid == request.auth.uid
           && d().reviewedAt == request.time
-          && d().catatan is string && d().catatan.size() <= 1000
-          && (d().status == 'approved' || d().catatan.size() > 0)
-          && (d().status == 'revision' || d().catatan.size() > 0 || !perluAlasan()) )
+          && d().catatan is string && d().catatan.size() > 0 && d().catatan.size() <= 1000 )
         ||
         // 3) Admin boleh mengubah isi dan status, tetapi tidak identitas penyusun.
         ( isAdmin()
@@ -167,6 +182,7 @@ service cloud.firestore {
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']
+          && (d().status != 'approved' || resource.data.status == 'approved') // naik ke approved hanya lewat server
           && validContent() )
       );
 
@@ -230,6 +246,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /configRiwayatAi/{doc} {
+      allow read, write: if false;
+    }
+
+    // Catatan hasil uji jawab buta per isi soal (src/review.js): dibaca dan ditulis hanya server. Dipakai gerbang persetujuan.
+    match /cekbutaHasil/{doc} {
       allow read, write: if false;
     }
 
