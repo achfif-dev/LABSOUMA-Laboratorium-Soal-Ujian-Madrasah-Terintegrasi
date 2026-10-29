@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ImporExcel from './ImporExcel.jsx';
 import AnalisisButir from './AnalisisButir.jsx';
+import KitabImpor from './KitabImpor.jsx';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
 import * as CD from './lib/cadanganDrive.js';
@@ -18,7 +19,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BarChart3, BookOpen, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings,
+  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings,
 } from 'lucide-react';
 import * as NV from './lib/navigasi.js';
 // Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).
@@ -3724,7 +3725,7 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'paket', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'paket', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'perpus', 'ai'].includes(h)) ? h : 'compose';
   });
   const terakhirRef = useRef({}); // sub-tab terakhir dipakai per grup navigasi (sesi ini)
   const setTab = (id) => { setTabRaw(id); { const g = NV.grupDariTab(id); if (g) terakhirRef.current[g.id] = id; } try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
@@ -4046,7 +4047,7 @@ function App({ user, profile }) {
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
     { id: 'analisis', label: 'Analisis Butir', icon: BarChart3 },
     ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
-    ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
+    ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'perpus', label: 'Perpustakaan Kitab', icon: LibraryBig }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export' || tab === 'fokus';
   const aktif = TABS.find((t) => t.id === tab);
@@ -4156,6 +4157,7 @@ function App({ user, profile }) {
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
         {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'perpus' && isAdmin && <KitabImpor Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </SaranCtx.Provider>
         </KamusCtx.Provider>

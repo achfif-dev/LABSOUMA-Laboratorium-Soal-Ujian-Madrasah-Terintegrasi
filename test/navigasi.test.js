@@ -7,12 +7,12 @@ import { NAV_GRUP, SUB_LABEL, grupDariTab, bangunNav, tujuanGrup } from '../web/
 const tab = (id, n) => ({ id, label: 'L-' + id, ...(n !== undefined ? { n } : {}) });
 const PENYUSUN = ['compose', 'paket', 'bank', 'export', 'fokus', 'pegon', 'analisis'].map((i) => tab(i));
 const EDITOR = [...['compose', 'paket'].map((i) => tab(i)), tab('review', 5), ...['bank', 'export', 'fokus', 'pegon', 'analisis', 'backup'].map((i) => tab(i))];
-const ADMIN = [...EDITOR, tab('dasbor', 2), tab('users'), tab('cfg'), tab('ai')];
+const ADMIN = [...EDITOR, tab('dasbor', 2), tab('users'), tab('cfg'), tab('perpus'), tab('ai')];
 
 test('setiap tab terdaftar tepat di satu grup dan punya label pendek', () => {
   const semua = NAV_GRUP.flatMap((g) => g.tabs);
   assert.equal(new Set(semua).size, semua.length, 'ada tab di dua grup');
-  assert.equal(semua.length, 13);
+  assert.equal(semua.length, 14);
   for (const id of semua) assert.ok(SUB_LABEL[id], `label pendek ${id} hilang`);
   assert.equal(grupDariTab('analisis').id, 'ujian');
   assert.equal(grupDariTab('tidak-ada'), null);
@@ -33,12 +33,12 @@ test('editor: 4 grup; Kelola hanya Backup Drive; lencana Bank Soal = soal menung
   assert.deepEqual(nav[1].items.map((t) => t.id), ['review', 'bank']);
 });
 
-test('admin: 13 tab menjadi 4 grup; lencana Kelola = peringatan kuota; urutan sub-tab mengikuti grup', () => {
+test('admin: 14 tab menjadi 4 grup; lencana Kelola = peringatan kuota; urutan sub-tab mengikuti grup', () => {
   const nav = bangunNav(ADMIN);
   assert.equal(nav.length, 4);
-  assert.equal(nav.reduce((n, g) => n + g.items.length, 0), 13);
+  assert.equal(nav.reduce((n, g) => n + g.items.length, 0), 14);
   assert.equal(nav[3].lencana, 2);
-  assert.deepEqual(nav[3].items.map((t) => t.id), ['backup', 'dasbor', 'users', 'cfg', 'ai']);
+  assert.deepEqual(nav[3].items.map((t) => t.id), ['backup', 'dasbor', 'users', 'cfg', 'perpus', 'ai']);
   assert.equal(nav[0].lencana, 0);
 });
 

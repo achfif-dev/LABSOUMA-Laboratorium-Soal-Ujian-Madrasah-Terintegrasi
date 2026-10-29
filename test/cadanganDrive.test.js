@@ -227,6 +227,6 @@ test('penjaga: Ustadz memakai /api/drive-client (bukan /api/backup); Dasbor hany
   assert.match(blok, /\/api\/drive-client/);
   assert.doesNotMatch(blok, /\/api\/backup|\/api\/admin-stats/);
   assert.match(html, /\{tab === 'dasbor' && isAdmin && <Dasbor /);
-  assert.match(html, /\(isAdmin && \['dasbor', 'users', 'cfg', 'ai'\]\.includes\(h\)\)/);
+  assert.match(html, /\(isAdmin && \['dasbor', 'users', 'cfg', 'perpus', 'ai'\]\.includes\(h\)\)/);
   assert.match(readFileSync(new URL('../api/backup.js', import.meta.url), 'utf8'), /aksi === 'info'\) \{ await authenticateReviewer/);
 });

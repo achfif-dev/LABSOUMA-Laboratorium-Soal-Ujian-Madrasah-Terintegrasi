@@ -254,6 +254,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Perpustakaan kitab (docs/SKEMA-KITAB.md, src/kitabImpor.js): dibaca semua staf, ditulis HANYA server (Admin SDK) lewat /api/kitab.
+    // Klien tidak boleh menulis sama sekali, termasuk admin.
+    match /kitab/{kid} {
+      allow read: if isStaff();
+      allow write: if false;
+      match /halaman/{hid} { allow read: if isStaff(); allow write: if false; }
+      match /daftar/{x} { allow read: if isStaff(); allow write: if false; }
+    }
+
     // rate/{uid} dan koleksi lain: hanya Cloud Functions (Admin SDK). Klien ditolak.
   }
 }
