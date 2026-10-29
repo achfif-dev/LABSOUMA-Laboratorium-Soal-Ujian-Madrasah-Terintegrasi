@@ -516,7 +516,7 @@ function Jam() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   return (
-    <div className="ml-auto shrink-0 text-right" role="timer" aria-live="off" aria-label="Jam dan tanggal WIB">
+    <div className="mt-1 shrink-0 rounded-full bg-white/10 px-4 py-1 text-center sm:ml-auto sm:mt-0 sm:rounded-none sm:bg-transparent sm:p-0 sm:text-right" role="timer" aria-live="off" aria-label="Jam dan tanggal WIB">
       <p className="text-xl font-bold tabular-nums leading-tight sm:text-3xl">{FMT_JAM.format(now).replace(/\./g, ':')}<span className="ml-1 text-xs font-semibold opacity-70">WIB</span></p>
       <p className="mt-0.5 hidden text-xs font-medium opacity-80 sm:block">{FMT_TGL.format(now)}</p>
     </div>
@@ -4059,13 +4059,13 @@ function App({ user, profile }) {
   return (
     <div className="font-sans">
       <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
-        <div className="mx-auto max-w-6xl pb-4 pt-6 sm:pb-5 sm:pt-8">
-          <div className="flex min-w-0 items-start gap-4">
+        <div className="mx-auto max-w-6xl pb-4 pt-5 sm:pb-5 sm:pt-8">
+          <div className="flex min-w-0 flex-col items-center gap-2 text-center sm:flex-row sm:items-start sm:gap-4 sm:text-left">
             <AppLogo size={56} className="shrink-0" />
             <div className="min-w-0">
               <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
-              <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
-              <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+              <p className="text-sm font-medium opacity-90 sm:text-base" style={{ textWrap: 'balance' }}>Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+              <p dir="rtl" lang="ar" className="ar mt-1 text-center text-lg opacity-80 sm:text-right" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
             </div>
             <Jam />
           </div>
@@ -4075,7 +4075,7 @@ function App({ user, profile }) {
       {/* Bilah beku: tetap di atas saat halaman digulir */}
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
-          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="shrink-0 rounded-lg"><AppLogo size={36} /></button>
+          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hidden shrink-0 rounded-lg sm:block"><AppLogo size={36} /></button>
           <div ref={menuRef} className="relative min-w-0 flex-1">
             <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
@@ -4112,7 +4112,7 @@ function App({ user, profile }) {
           </div>
         </div>
         {grupAktif && grupAktif.items.length > 1 && (
-          <nav aria-label={'Sub-tab ' + grupAktif.label} className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none]">
+          <nav aria-label={'Sub-tab ' + grupAktif.label} className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] max-sm:[&>*:first-child]:ml-auto max-sm:[&>*:last-child]:mr-auto">
             {grupAktif.items.map((t) => (
               <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
                 className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === t.id ? 'bg-white/25' : 'bg-white/10 hover:bg-white/15'}`}>
@@ -4378,13 +4378,13 @@ function AppUstadz({ user, profile }) {
   return (
     <div className="font-sans">
       <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
-        <div className="mx-auto max-w-6xl pb-4 pt-6 sm:pb-5 sm:pt-8">
-          <div className="flex min-w-0 items-start gap-4">
+        <div className="mx-auto max-w-6xl pb-4 pt-5 sm:pb-5 sm:pt-8">
+          <div className="flex min-w-0 flex-col items-center gap-2 text-center sm:flex-row sm:items-start sm:gap-4 sm:text-left">
             <AppLogo size={56} className="shrink-0" />
             <div className="min-w-0">
               <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
-              <p className="text-sm font-medium opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
-              <p dir="rtl" lang="ar" className="ar mt-1 text-lg opacity-80" style={{ fontSize: '1.2rem', lineHeight: 1.9, textAlign: 'right' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+              <p className="text-sm font-medium opacity-90 sm:text-base" style={{ textWrap: 'balance' }}>Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+              <p dir="rtl" lang="ar" className="ar mt-1 text-center text-lg opacity-80 sm:text-right" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
             </div>
             <Jam />
           </div>
@@ -4394,7 +4394,7 @@ function AppUstadz({ user, profile }) {
       {/* Bilah beku: tetap di atas saat halaman digulir */}
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
-          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="shrink-0 rounded-lg"><AppLogo size={36} /></button>
+          <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hidden shrink-0 rounded-lg sm:block"><AppLogo size={36} /></button>
           <div ref={menuRef} className="relative min-w-0 flex-1">
             <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
