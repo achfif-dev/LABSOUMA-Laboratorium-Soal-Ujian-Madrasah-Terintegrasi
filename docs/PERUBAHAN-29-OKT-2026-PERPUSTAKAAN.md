@@ -22,3 +22,12 @@ Diubah: `api/kitab.js` (cabang `aksi: "impor-*"`, admin), `web/App.jsx` (tab `pe
 - Firestore sungguhan: `count()` dipakai di `impor-selesai` bila ada (jalur cadangannya, `select()`, yang diuji). Coba satu kitab kecil dulu.
 - Aturan Firestore tidak diuji di emulator (hanya penjaga teks). Layar impor belum dilihat di HP (hanya render awal di server).
 - Pemilih kitab untuk penyusun soal (pilih kitab, bab, halaman, isi otomatis form) belum dibuat.
+
+## Tahap 2: pemilih kitab, bab, halaman
+Baru: `src/kitabBaca.js`, `web/lib/perpus.js`, `web/PemilihKitab.jsx`, `test/perpus.test.js`, `test/pemilihKitabUi.test.js`.
+Diubah: `api/kitab.js` (cabang `aksi: "perpus-*"`, peran pemakai alat), `web/App.jsx` (pemilih di Penyusunan Soal dan Paket Dauri; `Compose`, `PaketDauri`, `emptyForm` diekspor untuk tes render),
+`docs/SKEMA-KITAB.md`.
+Terukur: 489 tes lulus, build berhasil. Interaksi (pilih kitab, lompat bab, cari nomor cetak kembar, pakai teks, batas 6.000, mode paket) dijalankan di DOM tiruan
+dengan dua kitab nyata hasil impor; 5 halaman Fathul Mu'in menjadi satu segmen Paket Dauri berrujukan "40–44".
+Belum teruji: tampilan dan ketukan di HP, Firestore sungguhan untuk jalur baca (jalur impor sudah terbukti), dan simpan soal hasil isian otomatis (memakai bidang lama saja, jadi aturan Firestore tidak berubah).
+Tidak perlu menerbitkan `firestore.rules`.

@@ -62,6 +62,18 @@ Fungsi Vercel tidak bertambah (tetap 11 berkas di `api/`). Pembatas laju impor: 
 
 Tambahan pada `kitab/{id}`: `status` (`mengimpor` | `siap`), `diubahAt`, `diubahOleh`.
 
+## Pemilih kitab, bab, halaman (sudah dikodekan: `src/kitabBaca.js`, `web/lib/perpus.js`, `web/PemilihKitab.jsx`)
+Muncul di **Penyusunan Soal > Rujukan Kitab** (mode ganti/tambah, maks 6.000 karakter) dan **Paket Dauri > Materi** (mode tambah; tiap halaman jadi sumber sendiri
+dengan nomor cetaknya, sehingga rujukan hal. per segmen akurat, mis. "40–44").
+- Pembacaan lewat server (`aksi: perpus-daftar | perpus-isi | perpus-halaman`, semua peran pemakai alat termasuk ustadz), bukan Firestore klien: berjalan tanpa menerbitkan aturan.
+  Hanya kitab `siap` dan `aktif`. Maksimal 10 halaman per panggilan; klien mengambil jendela 5 halaman dan menyimpannya di memori.
+- Mengisi `nama` (memakai ejaan katalog Konfigurasi bila cocok, supaya cakupan materinya berlaku), `juz`, `hal` (rentang terkecil-terbesar), `bab`, `teks`.
+  Ganti teks mengosongkan `sumberUrl`; menambahkan halaman dari kitab lain ke teks yang sudah ada meminta konfirmasi.
+- Kitab bertatwil (Fathul Mu'in) bisa dipilih bagian: matn + syarah, matn saja, syarah saja.
+- Cari menurut nomor cetak. Nomor kembar (mis. 91 di Fathul Mu'in) menampilkan kedua halaman untuk dipilih.
+- **`kitabId` dan `halId` belum disimpan di dokumen soal.** `firestore.rules` untuk `soal` memakai `hasOnly(...)`: menambah bidang baru sebelum aturan diterbitkan membuat penyimpanan semua soal ditolak.
+  Menyimpannya (supaya soal bisa menautkan balik ke halaman sumber) membutuhkan perubahan aturan dan klien sekaligus; dikerjakan sebagai langkah terpisah.
+
 ## Aturan Firestore (draf, belum diuji di emulator)
 ```
 match /kitab/{kid} {
