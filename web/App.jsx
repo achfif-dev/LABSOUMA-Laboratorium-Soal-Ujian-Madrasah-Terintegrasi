@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ImporExcel from './ImporExcel.jsx';
 import AnalisisButir from './AnalisisButir.jsx';
 import KitabImpor from './KitabImpor.jsx';
+import PemilihKitab from './PemilihKitab.jsx';
+import { bagianTeks } from './lib/perpus.js';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
 import * as CD from './lib/cadanganDrive.js';
@@ -911,6 +913,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     } catch (e) { const er = apiErr(e); if (er) setKErr(er); setKGagal(url); }
     finally { setKBusy(false); }
   };
+  // Halaman dari perpustakaan -> Rujukan Kitab. Ganti = teks sumber lain (tautan, foto) tidak berlaku lagi; tambah = lanjutan bahasan.
+  const pakaiPerpus = (r, { tambah }) => {
+    if (tambah && form.teks.trim() && form.nama.trim() && form.nama.trim().toLowerCase() !== r.nama.toLowerCase()
+      && !window.confirm(`Teks saat ini dari "${form.nama}". Menambahkan halaman dari "${r.nama}" mencampur dua kitab dalam satu soal. Lanjutkan?`)) return;
+    setForm((f) => ({ ...f, nama: r.nama, juz: r.juz, hal: r.hal, bab: r.bab, teks: r.teks, ...(tambah ? {} : { sumberUrl: '' }), ai: { ...f.ai, buta: '' } }));
+    if (!tambah) { setKInfo(null); setKErr(null); setKManual(false); patchEx({ kFoto: false }); setFotoInfo(null); }
+    toast(`Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
+  };
   const importFile = (file) => {
     if (!file) return;
     if (file.size > 500000) { setKErr({ code: 'FILE', message: 'File terlalu besar (maksimal 500 KB). Ambil satu bagian saja.' }); return; }
@@ -1075,6 +1085,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
           action={<button type="button" onClick={resetRujukan} disabled={kBusy || !rujukanTerisi} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw size={13} />Reset</button>}>
           <div className="space-y-3">
             <div className="space-y-2 rounded-xl border border-line bg-bg p-3">
+              <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="form" onPakai={pakaiPerpus}
+                sekarang={{ teks: form.teks, hal: form.hal, bab: form.bab }} batas={6000} />
               {kitabCocok && kitabCocok.tautan && (
                 <div className="space-y-2 rounded-lg bg-soft p-2.5">
                   <p className="text-xs font-semibold text-soft-ink">Kitab ini punya tautan sumber</p>
@@ -3385,6 +3397,8 @@ function pulihPaket() {
   if (d.komposisi && typeof d.komposisi === 'object' && ['L1', 'L2', 'L3'].every((k) => N(d.komposisi[k]) !== undefined)) o.komposisi = { L1: N(d.komposisi.L1), L2: N(d.komposisi.L2), L3: N(d.komposisi.L3) };
   if (Array.isArray(d.foto)) o.foto = d.foto.filter((f) => f && typeof f.id === 'string' && typeof f.teks === 'string').slice(0, 60)
     .map((f) => ({ id: f.id.slice(0, 60), nama: S(f.nama, 120) || '', teks: f.teks.slice(0, 60000), hal: S(f.hal, 20) || '', kualitas: S(f.kualitas, 20) || '', ragu: Array.isArray(f.ragu) ? f.ragu.filter((r) => r && typeof r.kata === 'string').slice(0, 50) : [] }));
+  if (Array.isArray(d.perpus)) o.perpus = d.perpus.filter((f) => f && typeof f.id === 'string' && typeof f.teks === 'string').slice(0, 60)
+    .map((f) => ({ id: f.id.slice(0, 80), nama: S(f.nama, 120) || '', teks: f.teks.slice(0, 12000), hal: S(f.hal, 20) || '', juz: S(f.juz, 20) || '' }));
   const segs = Array.isArray(d.segs) ? d.segs.map((x) => (typeof x === 'string' ? x : '')) : [];
   if (Array.isArray(d.hasil)) o.hasil = d.hasil.filter((x) => x && typeof x.uid === 'string' && typeof x.bagian === 'string' && x.soal && typeof x.soal.pertanyaan === 'string' && x.soal.opsi && typeof x.soal.opsi === 'object').slice(0, 60)
     .map((x) => ({ uid: x.uid.slice(0, 80), bagian: x.bagian, soal: x.soal, segmenTeks: segs[x.si] || '', segmenHal: S(x.segmenHal, 20) || '', kutipanStatus: S(x.kutipanStatus, 20) || 'kosong', sikap: x.sikap && typeof x.sikap === 'object' ? x.sikap : null, catatan: Array.isArray(x.catatan) ? x.catatan.filter((c) => typeof c === 'string') : [], model: S(x.model, 60) || '', diedit: x.diedit === true }));
@@ -3405,6 +3419,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const [periode, setPeriode] = useState(A0.periode || '');
   const [fokus, setFokus] = useState(A0.fokus || '');
   const [teks, setTeks] = useState(A0.teks || '');
+  const [perpus, setPerpus] = useState(A0.perpus || []);          // [{id, nama, teks, hal, juz}] halaman dari perpustakaan (teks bersih dari ekspor Syamilah, tidak disunting)
   const [foto, setFoto] = useState(A0.foto || []);              // [{id, nama, teks, hal, kualitas, ragu}] satu foto = satu halaman
   const [fotoStatus, setFotoStatus] = useState('');
   const [komposisi, setKomposisi] = useState(A0.komposisi || { L1: 30, L2: 50, L3: 20 });
@@ -3422,9 +3437,9 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const rekam = useMemo(() => {
     const segs = []; const idx = new Map();
     const hs = hasil.map(({ segmenTeks, ...sisa }) => { let si = idx.get(segmenTeks); if (si === undefined) { si = segs.length; segs.push(segmenTeks || ''); idx.set(segmenTeks, si); } return { ...sisa, si }; });
-    return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, segs, hasil: hs };
-  }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, komposisi, lanjutan, hasil]);
-  useDraftSync('paketDauri', rekam, !teks.trim() && !foto.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
+    return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, perpus, komposisi, lanjutan, segs, hasil: hs };
+  }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, perpus, komposisi, lanjutan, hasil]);
+  useDraftSync('paketDauri', rekam, !teks.trim() && !foto.length && !perpus.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
 
   const tingkatOpsi = [...new Set(tingkatAktif(cfg).map((t) => t.nama).concat(tingkat))];
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, tingkat), mapel])];
@@ -3434,7 +3449,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const kitabCfg = cfg.kitab.find((k) => k.nama.toLowerCase() === nama.trim().toLowerCase());
   const cakupan = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
 
-  const sumber = useMemo(() => [{ teks, hal: halMulai.trim() }, ...foto.map((f) => ({ teks: f.teks, hal: f.hal }))], [teks, halMulai, foto]);
+  const sumber = useMemo(() => [{ teks, hal: halMulai.trim() }, ...foto.map((f) => ({ teks: f.teks, hal: f.hal })), ...perpus.map((f) => ({ teks: f.teks, hal: f.hal }))], [teks, halMulai, foto, perpus]);
   const rencana = useMemo(() => PK.rencanaPaket({ dawr, sumber, komposisi, lanjutan: lanjutan / 100 }), [dawr, sumber, komposisi, lanjutan]);
   const jumlahKarakter = useMemo(() => sumber.reduce((n, p) => n + String(p.teks || '').trim().length, 0), [sumber]);
 
@@ -3583,6 +3598,17 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
 
   const ubahKomp = (k, v) => setKomposisi((x) => ({ ...x, [k]: Math.max(0, Math.min(100, Number(v) || 0)) }));
   const bobot = Math.max(1, komposisi.L1 + komposisi.L2 + komposisi.L3);
+  // Halaman dari perpustakaan: tiap halaman jadi satu sumber dengan nomor cetaknya sendiri, jadi rujukan hal. per butir akurat.
+  const tambahPerpus = (r) => {
+    const ada = new Set(perpus.map((x) => x.id));
+    const baru = r.halaman.map((p) => ({ id: `${r.kitabId}:${p.seq}`, nama: r.nama, teks: bagianTeks(p, r.bagian), hal: String(p.hal).slice(0, 20), juz: String(p.juz) })).filter((x) => x.teks.trim() && !ada.has(x.id));
+    if (!baru.length) { toast('Halaman itu sudah ada di materi (atau kosong).'); return; }
+    if (perpus.length && perpus[0].nama.toLowerCase() !== r.nama.toLowerCase() && !window.confirm(`Materi berisi halaman dari "${perpus[0].nama}". Menambahkan dari "${r.nama}" mencampur dua kitab dalam satu paket. Lanjutkan?`)) return;
+    setPerpus((l) => [...l, ...baru].slice(0, 60));
+    if (!nama.trim()) setNama(r.nama);
+    if (!juz.trim()) setJuz(r.juz);
+    toast(`${baru.length} halaman ditambahkan ke materi.`);
+  };
   const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAURI[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
 
   return (
@@ -3615,6 +3641,19 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
       </Section>
 
       <Section title="Materi" icon={BookOpen}>
+        <div className="mb-3 space-y-2">
+          <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="paket" onPakai={tambahPerpus} disabled={jalan} />
+          {perpus.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-ink">Halaman dari perpustakaan ({perpus.length}) · {perpus.reduce((n, f) => n + f.teks.length, 0).toLocaleString('id-ID')} karakter</p>
+              <ul className="space-y-1">{perpus.map((f) => (
+                <li key={f.id} className="flex items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5 text-xs">
+                  <span className="min-w-0 flex-1 truncate">{f.nama} · hal. {f.hal} · juz {f.juz} · {f.teks.length.toLocaleString('id-ID')} karakter</span>
+                  <button type="button" aria-label={`Hapus halaman ${f.hal}`} disabled={jalan} className="text-mute hover:text-bad disabled:opacity-40" onClick={() => setPerpus((l) => l.filter((x) => x.id !== f.id))}><Trash2 size={13} /></button>
+                </li>))}</ul>
+            </div>
+          )}
+        </div>
         <textarea dir="rtl" lang="ar" className="field min-h-[160px] font-ar leading-loose" placeholder="Tempel teks kitab (Arab) di sini. Tidak dibatasi 6.000 karakter." value={teks} onChange={(e) => setTeks(e.target.value)} disabled={jalan} />
         <div className="mt-2 flex flex-wrap gap-2">
           <input ref={fileRef} type="file" accept=".txt,.htm,.html,.docx,.pdf" className="hidden" aria-label="Unggah berkas teks kitab" onChange={(e) => { tambahTeksBerkas(e.target.files[0]); e.target.value = ''; }} />
@@ -4976,4 +5015,4 @@ class ErrorBoundary extends React.Component {
 
 export { Root, ErrorBoundary, SetupError };
 // Hanya untuk tes render (test/dasborUi.test.js): tampilan murni tanpa pengambilan data.
-export { DasborView, CadanganDriveUstadz };
+export { DasborView, CadanganDriveUstadz, Compose, PaketDauri, emptyForm };
