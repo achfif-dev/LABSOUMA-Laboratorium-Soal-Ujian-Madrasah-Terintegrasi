@@ -14,7 +14,7 @@ export const MAZHAB = ['', 'syafii', 'hanafi', 'maliki', 'hanbali'];
 export const STATUS_HAK_CIPTA = ['belum-dicek', 'domain-publik', 'izin'];
 const BENTUK_MATN = ['pemisah-tatwil', 'tanpa-pemisah'];
 const ANOMALI = ['duplikat', 'mundur', 'lompat'];
-export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda'];
+export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'epub', 'html', 'json', 'teks-virtual'];
 const RE_ID = /^[a-z0-9][a-z0-9-]{1,59}$/;
 
 const tolak = (kode, pesan, status = 422) => { throw new ApiError(status, kode, pesan); };
@@ -62,6 +62,7 @@ export function validasiKitab(k) {
     jumlahHalaman: bil(k.jumlahHalaman, 1, MAKS_HALAMAN_KITAB, 'Jumlah halaman'),
     jumlahJuz: bil(k.jumlahJuz, 1, 99, 'Jumlah juz'),
     penomoranSesuaiCetak: k.penomoranSesuaiCetak === true,
+    halamanVirtual: k.halamanVirtual === true, // nomor halaman dibagi otomatis saat impor (bukan nomor cetak); pembaca menampilkan peringatan
     bentukMatn: bentuk,
     berharakat: k.berharakat === true,
     hakCipta: { status, catatan: str(hak.catatan, 600, 'Catatan hak cipta') },

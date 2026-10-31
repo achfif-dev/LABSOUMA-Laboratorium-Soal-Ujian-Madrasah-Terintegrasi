@@ -4,6 +4,7 @@
 // sekitar 4,5 MB, dan token Drive tidak perlu lewat server. Server hanya dibutuhkan untuk PEMULIHAN, karena aturan
 // Firestore melarang klien membuat soal atas nama penyusun lain; Admin SDK tidak terikat aturan itu, jadi setiap entri
 // di sini divalidasi ketat (cermin validContent() di firestore.rules) sebelum ditulis.
+import { bersihkanRujukan } from './rujukan.js';
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { BENTUK_IDS } from './bentuk.js';
@@ -76,6 +77,9 @@ export function bersihkanSoal(raw) {
   if (kelas) data.kelas = kelas;
   if (periode) data.periode = periode;
   if (bab) data.bab = bab;
+  // Tautan balik ke halaman kitab di perpustakaan (opsional): ditulis hanya bila utuh dan sah; rujukan setengah-setengah dibuang.
+  const rj = bersihkanRujukan({ kitabId: raw.kitabId, halId: raw.halId, halIdAkhir: raw.halIdAkhir });
+  if (rj.kitabId) { data.kitabId = rj.kitabId; data.halId = rj.halId; if (rj.halIdAkhir) data.halIdAkhir = rj.halIdAkhir; }
   // Penanda Paket Dauri (opsional): paket, dawr, cakupan, urut. Hanya ditulis bila ada, supaya soal biasa tetap sama persis.
   const paket = teks(raw.paket, 40, 'Id paket');
   if (paket) {

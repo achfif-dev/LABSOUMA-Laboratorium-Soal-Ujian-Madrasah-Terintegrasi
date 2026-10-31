@@ -12,6 +12,7 @@ const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan)
 const ringkas = (id, d) => ({
   id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang || '', fan: d.fan || '', mazhab: d.mazhab || '',
   jumlahHalaman: d.jumlahHalaman, jumlahJuz: d.jumlahJuz || 1, bentukMatn: d.bentukMatn, berharakat: d.berharakat === true,
+  halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '',
 });
 const dokHalaman = (d) => ({
   id: idHalaman(d.seq), seq: d.seq, juz: d.juz, hal: d.hal, teks: d.teks, batasMatn: d.batasMatn ?? null,
