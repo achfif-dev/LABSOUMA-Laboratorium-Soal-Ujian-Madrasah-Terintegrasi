@@ -20,6 +20,7 @@ pemeriksa tanpa menulis ke database: `node scripts/periksa-syamilah.mjs berkas.t
 kitab/{kitabId}                  metadata (satu dokumen)
 kitab/{kitabId}/daftar/isi       daftar isi (satu dokumen, satu bacaan)
 kitab/{kitabId}/halaman/{halId}  satu dokumen per halaman, halId = p + seq 5 digit
+kitab/{kitabId}/cari/{cNNNNN}    indeks pencarian teks: potongan <= 250 ribu karakter teks normal; cari/meta = status indeks
 soal/{id}                        field opsional baru: kitabId, halId
 ```
 
@@ -77,6 +78,15 @@ Biaya per impor 673 halaman (Fathul Mu'in): 675 tulis (3,4% kuota tulis harian S
 Fungsi Vercel tidak bertambah (tetap 11 berkas di `api/`). Pembatas laju impor: 60/menit dan 600/hari per admin.
 
 Tambahan pada `kitab/{id}`: `status` (`mengimpor` | `siap`), `diubahAt`, `diubahOleh`.
+
+## Pencarian teks (sudah dikodekan: `web/lib/cariKitab.js`, `src/kitabCari.js`, panel "Cari teks" di `web/PembacaKitab.jsx`)
+Firestore tidak punya pencarian teks penuh, dan membaca ribuan halaman per pencarian menghabiskan kuota. Maka tiap kitab punya indeks sendiri:
+- `cari/cNNNNN` = `{ dari, sampai, s:[seq], h:[hal], j:[juz], t:[teks normal], revisi }`. Teks normal = tanpa harakat/tatwil, alif/ya/ta marbutah disatukan, tanda baca jadi spasi (`normalCari`). Potongan dikelompokkan per 100 halaman (sejajar batch impor) lalu dipecah bila melebihi 250 ribu karakter. ID memakai seq pertama, jadi menulis ulang batch yang sama menimpa dokumen yang sama.
+- `cari/meta` = `{ versi, revisi, status: "siap"|"membangun", berikutnya?, jumlahGrup?, halaman }`.
+- Kitab baru: potongan ditulis dalam batch yang sama dengan halamannya (`impor-halaman`), meta ditulis di `impor-selesai`. Impor ulang (`timpa`) menghapus seluruh `cari/*`.
+- Kitab lama (tanpa meta): `perpus-cari` membangun indeks bertahap (anggaran 5,5 detik per panggilan, kemajuan di meta); jawabannya `{ siap:false, kemajuan }` sampai selesai, klien mengulang otomatis.
+- `perpus-cari` `{ kitabId, q, mode: "frasa"|"kata", lewati }` -> `{ siap, total, hasil:[{ seq, hal, juz, jumlah, teks, mulai, panjang, ... }], adaLagi, kata, mode, q }`; 50 hasil per panggilan, urut menurut seq. Hasil dibaca dari memori proses bila ada (maks 2 kitab), jadi pencarian berikutnya tidak membaca Firestore.
+- Perubahan versi normalisasi: naikkan `VERSI_INDEKS`; indeks lama dibangun ulang otomatis saat pencarian berikutnya.
 
 ## Pemilih kitab, bab, halaman (sudah dikodekan: `src/kitabBaca.js`, `web/lib/perpus.js`, `web/PemilihKitab.jsx`)
 Muncul di **Penyusunan Soal > Rujukan Kitab** (mode ganti/tambah, maks 6.000 karakter) dan **Paket Dauri > Materi** (mode tambah; tiap halaman jadi sumber sendiri
