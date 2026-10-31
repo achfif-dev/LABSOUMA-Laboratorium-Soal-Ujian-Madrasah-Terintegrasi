@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
-import { bacaDokumenKitab, FORMAT_LABEL } from './lib/dokumenKitab.js';
+import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
 import { slugKitab, isianAwal, peringatanPratinjau, isianSiap, jalankanImpor } from './lib/imporKitab.js';
 
-// Impor perpustakaan kitab: .txt ekspor Syamilah, atau .docx/.txt dengan penanda halaman [ص N]. Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
+// Impor perpustakaan kitab dari banyak sumber: .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
+// atau berkas tanpa penanda sama sekali (halaman dibagi otomatis dan ditandai virtual). Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
 // halaman hasil parse (bukan berkas mentah). `Btn`, `ErrorBox`, `callApi`, `apiErr` dioper dari App.jsx (menghindari impor melingkar).
 const STATUS = { siap: 'Siap', mengimpor: 'Belum selesai' };
 const HAK = { 'belum-dicek': 'Hak cipta: belum dicek', 'domain-publik': 'Domain publik', izin: 'Berizin' };
@@ -19,6 +20,10 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [progres, setProgres] = useState(null);
   const [errImpor, setErrImpor] = useState(null);
   const batalRef = useRef(false);
+  const berkasRef = useRef(null);            // berkas terakhir dipilih, supaya bisa dibaca ulang (nomor awal diganti, atau mode halaman virtual)
+  const [halAwal, setHalAwal] = useState('1');
+  const [tawarVirtual, setTawarVirtual] = useState(false);
+  const [membaca, setMembaca] = useState('');
   const sibuk = !!progres && progres.tahap !== 'gagal';
 
   const muatDaftar = async () => {
@@ -27,16 +32,24 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   };
   useEffect(() => { muatDaftar(); }, []);
 
+  const baca = async (f, { virtual = false } = {}) => {
+    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false);
+    setMembaca(/\.pdf$/i.test(f.name) ? 'Membaca PDF...' : 'Membaca berkas...');
+    try {
+      const n = parseInt(halAwal, 10);
+      const h = await bacaDokumenKitab({ nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1 });
+      setBerkas(f.name); setHasil(h); setIsian(isianAwal(h));
+    } catch (er) { setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er)); }
+    finally { setMembaca(''); }
+  };
   const pilihBerkas = async (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false);
-    try {
-      const h = await bacaDokumenKitab({ nama: f.name, buffer: await f.arrayBuffer() });
-      setBerkas(f.name); setHasil(h); setIsian(isianAwal(h));
-    } catch (er) { setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); }
+    berkasRef.current = f; setBerkas(f.name);
+    await baca(f);
   };
+
   const ubah = (p) => setIsian((s) => {
     const n = { ...s, ...p };
     if ('judulLatin' in p && !idManual) n.kitabId = slugKitab(p.judulLatin);
@@ -66,7 +79,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     <div className="fade-in space-y-4">
       <div className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
         <p className="font-semibold">Perpustakaan kitab</p>
-        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), atau berkas lain yang memuat penanda halaman [ص N]. Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
+        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N]. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
       </div>
 
       {errDaftar && <ErrorBox e={errDaftar} />}
@@ -90,11 +103,22 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
 
       <div className="rounded-2xl border border-line bg-surface px-4 py-4">
         <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold shadow-sm hover:border-brand hover:bg-soft">
-          <Upload size={15} />Pilih berkas kitab (.txt / .docx)
-          <input type="file" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={pilihBerkas} disabled={sibuk} />
+          <Upload size={15} />Pilih berkas kitab (.txt .docx .pdf .epub .html .json)
+          <input type="file" accept=".txt,.docx,.pdf,.epub,.html,.htm,.xhtml,.json,text/plain,text/html,application/pdf,application/epub+zip,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={pilihBerkas} disabled={sibuk || !!membaca} />
         </label>
         {berkas && <span className="ml-2 break-all text-xs text-mute">{berkas}</span>}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="ki-awal" className="text-xs text-mute">Nomor cetak halaman pertama (PDF dan halaman virtual)</label>
+          <input id="ki-awal" type="number" min="0" max="99999" inputMode="numeric" className="field !w-24 !py-1.5" value={halAwal} onChange={(e) => setHalAwal(e.target.value)} disabled={sibuk || !!membaca} />
+          {berkasRef.current && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => baca(berkasRef.current)} disabled={sibuk || !!membaca}><RefreshCw size={13} />Baca ulang</Btn>}
+        </div>
+        {membaca && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={15} className="spin" />{membaca}</p>}
         {errParse && <p role="alert" className="mt-3 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{errParse}</p>}
+        {tawarVirtual && berkasRef.current && (
+          <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+            <p>Berkas ini tidak memuat nomor halaman cetak. Halaman bisa dibagi otomatis menurut panjang teks; nomornya <b>bukan</b> nomor cetak, jadi rujukan soal ke kitab ini harus dicocokkan dengan edisi cetak.</p>
+            <Btn kind="soft" className="mt-2 !text-xs" onClick={() => baca(berkasRef.current, { virtual: true })} disabled={!!membaca}>Bagi halaman otomatis (halaman virtual)</Btn>
+          </div>)}
 
         {hasil && isian && (
           <div className="mt-4 space-y-4">

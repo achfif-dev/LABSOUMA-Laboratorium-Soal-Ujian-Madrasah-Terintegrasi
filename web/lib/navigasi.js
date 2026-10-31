@@ -2,6 +2,7 @@
 // ID tab TIDAK berubah (compose, paket, review, ...), jadi #hash, serah-terima antartab (kirimKeTab, bukaPaketDiBank), dan draf tetap berlaku.
 export const NAV_GRUP = [
   { id: 'susun', label: 'Susun', tabs: ['compose', 'paket', 'pegon'] },
+  { id: 'baca', label: 'Baca Kitab', tabs: ['baca'] }, // pembaca penuh: layar lebar, huruf besar, tanpa membuat soal
   { id: 'bank', label: 'Bank Soal', tabs: ['review', 'bank'], lencana: 'review' }, // lencana grup = soal menunggu review
   { id: 'ujian', label: 'Ujian', tabs: ['fokus', 'export', 'analisis'] },
   { id: 'kelola', label: 'Kelola', tabs: ['backup', 'dasbor', 'users', 'cfg', 'perpus', 'ai'], lencana: 'dasbor' }, // lencana grup = peringatan kuota AI
@@ -11,7 +12,7 @@ export const NAV_GRUP = [
 export const SUB_LABEL = {
   compose: 'Penyusunan', paket: 'Paket Dauri', pegon: 'Pegonizer', review: 'Review', bank: 'Approved',
   fokus: 'Fokus & Kisi-kisi', export: 'Export', analisis: 'Analisis Butir',
-  backup: 'Backup Drive', dasbor: 'Dasbor', users: 'Pengguna', cfg: 'Konfigurasi', perpus: 'Perpustakaan', ai: 'Pengaturan AI',
+  baca: 'Baca Kitab', backup: 'Backup Drive', dasbor: 'Dasbor', users: 'Pengguna', cfg: 'Konfigurasi', perpus: 'Perpustakaan', ai: 'Pengaturan AI',
 };
 
 export const grupDariTab = (id) => NAV_GRUP.find((g) => g.tabs.includes(id)) || null;

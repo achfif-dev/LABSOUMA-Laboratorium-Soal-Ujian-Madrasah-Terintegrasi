@@ -40,6 +40,11 @@ service cloud.firestore {
           && (!('kelas' in d()) || (d().kelas is string && d().kelas.size() <= 20))
           && (!('periode' in d()) || (d().periode is string && d().periode.size() <= 20))
           && (!('bab' in d()) || (d().bab is string && d().bab.size() <= 120))
+          // Tautan balik ke halaman kitab di perpustakaan (web/lib/rujukan.js): opsional; bila ada harus berbentuk id kitab dan id halaman "p00040".
+          && (!('kitabId' in d()) || (d().kitabId is string && d().kitabId.matches('^[a-z0-9][a-z0-9-]{1,59}$')))
+          && (!('halId' in d()) || (d().halId is string && d().halId.matches('^p[0-9]{5}$')))
+          && (!('halIdAkhir' in d()) || (d().halIdAkhir is string && (d().halIdAkhir == '' || d().halIdAkhir.matches('^p[0-9]{5}$'))))
+          && (!('halId' in d()) || 'kitabId' in d())
           // Paket Dauri: penanda kelompok (id paket, nomor Dauri, batas materi dari Konfigurasi, urutan di naskah). Opsional.
           && (!('paket' in d()) || (d().paket is string && d().paket.size() >= 1 && d().paket.size() <= 40))
           && (!('dawr' in d()) || d().dawr in ['1', '2', '3', '4'])
@@ -70,13 +75,14 @@ service cloud.firestore {
       function snapshotOk(s) {
         return s is map
           && s.keys().hasOnly(['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator',
-                               'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut'])
+                               'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut', 'kitabId', 'halId', 'halIdAkhir'])
           && teksMax(s, 'tingkat', 40) && teksMax(s, 'mapel', 60) && teksMax(s, 'level', 3) && teksMax(s, 'kelas', 20) && teksMax(s, 'periode', 20)
           && teksMax(s, 'nama', 120) && teksMax(s, 'juz', 20) && teksMax(s, 'hal', 20) && teksMax(s, 'bab', 120)
           && teksMax(s, 'teks', 8000) && teksMax(s, 'stimulus', 3000) && teksMax(s, 'pertanyaan', 2000) && teksMax(s, 'indikator', 1000)
           && teksMax(s, 'sumberUrl', 500) && teksMax(s, 'kunci', 1) && teksMax(s, 'pembahasan', 4000) && teksMax(s, 'bentuk', 20)
           && teksMax(s, 'jawaban', 2000) && teksMax(s, 'rubrik', 2000) && teksMax(s, 'status', 20) && teksMax(s, 'catatan', 1000)
           && teksMax(s, 'paket', 40) && teksMax(s, 'dawr', 1) && teksMax(s, 'cakupan', 120)
+          && teksMax(s, 'kitabId', 60) && teksMax(s, 'halId', 6) && teksMax(s, 'halIdAkhir', 6)
           && (!('urut' in s) || s.urut is int)
           && (!('opsi' in s) || (s.opsi is map && s.opsi.keys().hasOnly(['A', 'B', 'C', 'D', 'E'])
                 && teksMax(s.opsi, 'A', 1000) && teksMax(s.opsi, 'B', 1000) && teksMax(s.opsi, 'C', 1000) && teksMax(s.opsi, 'D', 1000) && teksMax(s.opsi, 'E', 1000)))
@@ -121,7 +127,7 @@ service cloud.firestore {
       }
       // Penanda Paket Dauri (paket, dawr, cakupan, urut), kelas, kode periode ujian, bab kitab (untuk kisi-kisi), serta bentuk soal dan jawaban bertulis (isian/uraian):
       // OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap). Tanpa `bentuk` = pilihan ganda.
-      function opsiKeys() { return ['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik']; }
+      function opsiKeys() { return ['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir']; }
       function reviewKeys() {
         return ['status', 'catatan', 'reviewerUid', 'reviewerName', 'reviewedAt', 'updatedAt'];
       }
@@ -178,7 +184,7 @@ service cloud.firestore {
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                               'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
-                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik'])
+                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'])
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']

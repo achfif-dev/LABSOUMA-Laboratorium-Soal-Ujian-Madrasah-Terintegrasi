@@ -3,6 +3,8 @@ import ImporExcel from './ImporExcel.jsx';
 import AnalisisButir from './AnalisisButir.jsx';
 import KitabImpor from './KitabImpor.jsx';
 import PemilihKitab from './PemilihKitab.jsx';
+import PembacaKitab from './PembacaKitab.jsx';
+import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
@@ -85,12 +87,13 @@ const STATUS = {
   revision: { label: 'Perlu Revisi',   cls: 'bg-bad-bg text-bad' },
 };
 const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', ustadz: 'Ustadz', nonaktif: 'Nonaktif' };
-const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik'];
+const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'];
 
 const emptyForm = () => ({
   tingkat: 'Aliyah', mapel: 'Fiqih', level: 'L3',
   kelas: '', periode: '', // opsional: kelas dan kode periode ujian (label periode diatur di Konfigurasi)
   nama: '', juz: '', hal: '', bab: '', // bab: opsional, dasar pengelompokan kisi-kisi
+  kitabId: '', halId: '', halIdAkhir: '', // tautan balik ke halaman kitab di perpustakaan (web/lib/rujukan.js); kosong = soal tidak berasal dari perpustakaan
   teks: '',
   stimulus: '', pertanyaan: '', indikator: '', sumberUrl: '',
   bentuk: 'pilgan', // pilgan | lanjutan | benarsalah | isian | uraian (public/bentuk.js)
@@ -503,6 +506,10 @@ const Meta = ({ q }) => {
   </div>
   );
 };
+function TautKitab({ q }) {
+  if (!rujukanSah(q)) return null;
+  return <> · <a href={hashBaca(q)} className="font-semibold text-brand underline" title="Buka halaman kitab asal soal ini di tab Baca Kitab">Buka di kitab</a></>;
+}
 const refText = (q) => [q.nama || 'Kitab belum diisi', q.juz && `Juz ${q.juz}`, q.hal && `Hal. ${q.hal}`].filter(Boolean).join(' · ');
 
 const Toast = ({ t }) => t ? (
@@ -917,7 +924,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   const pakaiPerpus = (r, { tambah }) => {
     if (tambah && form.teks.trim() && form.nama.trim() && form.nama.trim().toLowerCase() !== r.nama.toLowerCase()
       && !window.confirm(`Teks saat ini dari "${form.nama}". Menambahkan halaman dari "${r.nama}" mencampur dua kitab dalam satu soal. Lanjutkan?`)) return;
-    setForm((f) => ({ ...f, nama: r.nama, juz: r.juz, hal: r.hal, bab: r.bab, teks: r.teks, ...(tambah ? {} : { sumberUrl: '' }), ai: { ...f.ai, buta: '' } }));
+    const baruRj = rujukanDariHalaman(r.kitabId, r.halaman);
+    setForm((f) => ({ ...f, nama: r.nama, juz: r.juz, hal: r.hal, bab: r.bab, teks: r.teks, ...(tambah ? gabungRujukan({ kitabId: f.kitabId, halId: f.halId, halIdAkhir: f.halIdAkhir }, baruRj) : baruRj), ...(tambah ? {} : { sumberUrl: '' }), ai: { ...f.ai, buta: '' } }));
     if (!tambah) { setKInfo(null); setKErr(null); setKManual(false); patchEx({ kFoto: false }); setFotoInfo(null); }
     toast(`Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
   };
@@ -1087,6 +1095,12 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             <div className="space-y-2 rounded-xl border border-line bg-bg p-3">
               <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="form" onPakai={pakaiPerpus}
                 sekarang={{ teks: form.teks, hal: form.hal, bab: form.bab }} batas={6000} />
+              {rujukanSah(form) && (
+                <p role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-soft px-3 py-2 text-xs text-soft-ink">
+                  <BookOpen size={13} />Tertaut ke perpustakaan: <b>{form.nama || form.kitabId}</b>, urutan {rentangRujukan(form).dari}{rentangRujukan(form).sampai > rentangRujukan(form).dari ? `–${rentangRujukan(form).sampai}` : ''}.
+                  <a href={hashBaca(form)} target="_blank" rel="noreferrer" className="underline">Buka di kitab</a>
+                  <button type="button" className="ml-auto underline" onClick={() => setForm((f) => ({ ...f, kitabId: '', halId: '', halIdAkhir: '' }))}>Lepas tautan</button>
+                </p>)}
               {kitabCocok && kitabCocok.tautan && (
                 <div className="space-y-2 rounded-lg bg-soft p-2.5">
                   <p className="text-xs font-semibold text-soft-ink">Kitab ini punya tautan sumber</p>
@@ -1368,13 +1382,13 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     <article className="overflow-hidden rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
         <Meta q={q} />
-        <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /></span>
+        <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} /></span>
       </header>
       <div className="grid md:grid-cols-2">
         <div className="min-w-0 border-b border-line p-4 sm:p-5 md:border-b-0 md:border-r">
           <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><Quote size={14} />Teks Kitab Asli</h3>
           <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">{q.teks || '—'}</p></div>
-          <p className="mt-2 text-xs text-mute">{refText(q)}<RefArab q={q} /></p>
+          <p className="mt-2 text-xs text-mute">{refText(q)}<RefArab q={q} /><TautKitab q={q} /></p>
           {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
         </div>
         <div className="min-w-0 p-4 sm:p-5">
@@ -1559,7 +1573,7 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab })
           <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
-              <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
+              <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
             </div>
             {q.status === 'revision' && q.catatan && (
               <p className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-sm text-bad"><span className="font-semibold">Catatan editor: </span>{q.catatan}</p>
@@ -3764,9 +3778,17 @@ function App({ user, profile }) {
   // Tab aktif disimpan di URL (#pegon, #bank, ...) supaya refresh tetap di halaman yang sama. Tab admin hanya dipulihkan untuk admin.
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
-    return ['compose', 'paket', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'perpus', 'ai'].includes(h)) ? h : 'compose';
+    if (bacaHash(window.location.hash)) return 'baca'; // tautan balik dari soal: #baca/<kitab>/<urutan>
+    return ['compose', 'paket', 'baca', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'perpus', 'ai'].includes(h)) ? h : 'compose';
   });
   const terakhirRef = useRef({}); // sub-tab terakhir dipakai per grup navigasi (sesi ini)
+  // Tab Baca Kitab: halaman awal dari tautan balik soal (#baca/<kitab>/<urutan>[-<akhir>]). Tautan di kartu soal hanya mengubah hash, jadi didengarkan di sini.
+  const [bacaAwal, setBacaAwal] = useState(() => bacaHash(window.location.hash));
+  useEffect(() => {
+    const h = () => { const b = bacaHash(window.location.hash); if (b) { setBacaAwal(b); setTabRaw('baca'); window.scrollTo({ top: 0 }); } };
+    window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h);
+  }, []);
+  const posisiBaca = ({ kitabId, seq }) => { try { window.history.replaceState(null, '', kitabId ? `#baca/${kitabId}/${seq}` : '#baca'); } catch (e) { /* alamat tidak bisa diubah: pembaca tetap jalan */ } };
   const setTab = (id) => { setTabRaw(id); { const g = NV.grupDariTab(id); if (g) terakhirRef.current[g.id] = id; } try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -3931,7 +3953,7 @@ function App({ user, profile }) {
     const sel = Bt.selaraskan(form); // opsi dan kunci mengikuti bentuk soal (mis. isian tanpa opsi, benar-salah hanya A/B)
     const c = Object.fromEntries(FIELDS.map((k) => [k, sel[k]]));
     const lama = editingId ? (qs.find((x) => x.id === editingId) || {}) : {};
-    for (const k of ['kelas', 'periode', 'bab', 'jawaban', 'rubrik']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
+    for (const k of ['kelas', 'periode', 'bab', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
     if (c.bentuk === 'pilgan' && !('bentuk' in lama)) delete c.bentuk; // pilihan ganda = bawaan: soal biasa tetap sama persis dengan sebelum fitur bentuk
     return { ...c, ai: aiMeta() };
   };
@@ -4084,6 +4106,7 @@ function App({ user, profile }) {
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
+    { id: 'baca', label: 'Baca Kitab', icon: BookOpen },
     { id: 'analisis', label: 'Analisis Butir', icon: BarChart3 },
     ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
     ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'perpus', label: 'Perpustakaan Kitab', icon: LibraryBig }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
@@ -4191,6 +4214,7 @@ function App({ user, profile }) {
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
+        {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} />}
         {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}

@@ -38,6 +38,23 @@ export async function bacaBerkasZip(buffer, nama) {
   return null;
 }
 
+/** Daftar nama berkas di dalam ZIP (array string; kosong bila bukan ZIP). Dipakai pembaca EPUB untuk memastikan arsipnya sah sebelum diurai. */
+export function namaBerkasZip(buffer) {
+  const b = new Uint8Array(buffer); if (b.length < 22) return [];
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let e = -1;
+  for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) if (u32(dv, i) === 0x06054b50) { e = i; break; }
+  if (e < 0) return [];
+  const hasil = []; const dec = new TextDecoder();
+  let n = u16(dv, e + 10); let p = u32(dv, e + 16);
+  for (; n > 0 && p + 46 <= b.length && u32(dv, p) === 0x02014b50; n--) {
+    const pn = u16(dv, p + 28); const px = u16(dv, p + 30); const pk = u16(dv, p + 32);
+    hasil.push(dec.decode(b.subarray(p + 46, p + 46 + pn)));
+    p += 46 + pn + px + pk;
+  }
+  return hasil;
+}
+
 const ENTITAS = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 const dekode = (s) => s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-z]+);/g, (m, k) => {
   if (k[0] === '#') { const c = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10); return Number.isFinite(c) && c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : m; }

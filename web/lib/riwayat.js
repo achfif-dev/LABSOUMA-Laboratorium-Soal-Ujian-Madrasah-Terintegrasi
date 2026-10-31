@@ -2,13 +2,13 @@
 // Fungsi murni (tanpa Firestore) agar mudah diuji. Tulis-saja: aturan Firestore melarang ubah dan hapus.
 
 export const BIDANG_RIWAYAT = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator',
-  'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut'];
+  'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut', 'kitabId', 'halId', 'halIdAkhir'];
 
 export const LABEL_BIDANG = {
   tingkat: 'Tingkat', mapel: 'Mapel', level: 'Level', kelas: 'Kelas', periode: 'Periode', nama: 'Kitab', juz: 'Juz', hal: 'Halaman', bab: 'Bab',
   teks: 'Teks kitab', stimulus: 'Stimulus', pertanyaan: 'Pertanyaan', indikator: 'Indikator', sumberUrl: 'Tautan sumber', opsi: 'Pilihan jawaban',
   kunci: 'Kunci', pembahasan: 'Pembahasan', bentuk: 'Bentuk soal', jawaban: 'Jawaban', rubrik: 'Rubrik', status: 'Status', catatan: 'Catatan editor',
-  ai: 'Jejak AI', paket: 'Paket', dawr: 'Dauri', cakupan: 'Cakupan', urut: 'Urutan',
+  ai: 'Jejak AI', paket: 'Paket', dawr: 'Dauri', cakupan: 'Cakupan', urut: 'Urutan', kitabId: 'Kitab di perpustakaan', halId: 'Halaman awal (perpustakaan)', halIdAkhir: 'Halaman akhir (perpustakaan)',
 };
 
 /** Salinan isi soal untuk disimpan sebagai versi lama. Nilai undefined dibuang (Firestore menolaknya); waktu (Timestamp) tidak ikut. */
