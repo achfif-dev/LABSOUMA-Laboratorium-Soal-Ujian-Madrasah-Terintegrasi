@@ -27,7 +27,7 @@ soal/{id}                        field opsional baru: kitabId, halId
 ### `kitab/{kitabId}`
 `judul`, `judulLatin` (diisi admin; dipakai sebagai nama kitab di soal), `pengarang`, `wafatH`, `fan`, `mazhab`,
 `edisi {penerbit, muhaqqiq, cetakan}`, `jumlahHalaman`, `jumlahJuz`, `penomoranSesuaiCetak`,
-`bentukMatn` (`pemisah-tatwil` | `tanpa-pemisah`), `berharakat`, `hakCipta {status, catatan}`,
+`bentukMatn` (`pemisah-tatwil` | `tanpa-pemisah`), `bahasa` (`ar` | `id` | `jv` | `su` | `ms` | `en` | `lain`; kitab lama tanpa bidang ini = `ar`), `aksara` (`arab` | `latin` | `lain`; menentukan arah tampilan; kitab lama = `arab`), `berharakat`, `hakCipta {status, catatan}`,
 `sumber {jenis, pengunggah, tanggalSyamilah}`, `formatParser`, `revisi`, `aktif`, `dibuatOleh`, `dibuatAt`.
 
 ### `halaman/{halId}`
@@ -120,3 +120,13 @@ Pengecualian indeks `halaman.teks`, `soal.teks`, `soal.pembahasan` dari v1 tetap
 - Halaman awal tidak ada di ekspor (Mu'in mulai hal. 31, Qarib hal. 19): itu muqaddimah muhaqqiq, bukan hilangnya data.
 - Daftar isi hanya mencakup judul yang ditandai Syamilah. Kelengkapannya terhadap daftar isi cetak tidak bisa diperiksa dari berkas ini.
 - **Hak cipta belum diputuskan.** Fathul Qarib berisi tahqiq dan sub-judul editor modern (Bassam al-Jabi). Teks pengarang klasik domain publik; hasil tahqiq bisa dilindungi. Parser membuang catatan kaki dan rujukan takhrij, tapi sub-judul "•" dan tanda baca editor tetap masuk. Status awal `belum-dicek`; saya bukan penasihat hukum.
+
+
+## Kitab/buku non-Arab (1 November 2026)
+
+- `bahasa` dan `aksara` dipisah: kitab Pegon berbahasa Jawa = `bahasa: jv`, `aksara: arab` (tampil kanan ke kiri). `bahasa: ar` wajib `aksara: arab` (divalidasi server).
+- Penanda halaman Latin dikenali selain `[ص N]`: `[hal. N]`, `[hlm N]`, `[halaman N]`, `[h. N]`, `[page N]`, `[p. N]`, juga dengan jilid: `[jilid 2, hal. 5]`. Penanda Latin hanya dipakai bila berkas tidak memuat penanda Arab sama sekali.
+- Judul bab Latin: `Bab 3`, `Chapter IV`, `Pasal 2`, `Bagian 1` (harus bernomor) dan `Pendahuluan`, `Kata Pengantar`, `Kesimpulan`, `Lampiran`, `Introduction`, dst. (harus satu baris sendiri).
+- Kepala berkas Latin: `Judul:`, `Penulis:`/`Pengarang:`/`Author:`, `Penerbit:`, `Cetakan:`, `Editor:` (huruf besar/kecil bebas).
+- Bahasa dan aksara terdeteksi otomatis dari isi (saran), lalu dipilih admin di layar impor. Pemeriksaan mutu memakai aturan huruf Latin untuk kitab Latin; salah pilih (Latin dipilih untuk teks Arab, atau sebaliknya) menghalangi impor.
+- Dokumen soal TIDAK menyimpan bahasa (aturan Firestore membatasi kolom soal). Bahasa dikirim ke server saat membuat soal dan dideteksi dari teks sumber (`bahasaOtomatis`).
