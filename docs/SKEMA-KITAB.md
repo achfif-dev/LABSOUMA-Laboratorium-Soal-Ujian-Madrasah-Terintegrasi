@@ -37,6 +37,7 @@ soal/{id}                        field opsional baru: kitabId, halId
 | `teks` | Arab bersih (tanpa ZWNJ, catatan kaki, rujukan takhrij, baris pengisi). Maks 12.000, terbesar nyata 1.160 |
 | `batasMatn` | `null` = tidak diketahui. Angka = panjang bagian matn; `teks.slice(0, batasMatn)` matn, sisanya syarah |
 | `bab` | judul bab/fasal aktif sampai halaman ini |
+| `potongan` | `{ ke, dari }`, hanya bila halaman cetak terlalu panjang dan dipecah: bagian ke-`ke` dari `dari`. `hal` sama untuk semua bagian, `seq` berbeda |
 | `nomorAnomali` | `duplikat` / `mundur` / `lompat`, hanya bila ada. Untuk ditampilkan sebagai peringatan, bukan galat |
 
 ### `daftar/isi`
@@ -53,6 +54,9 @@ Bila bab melintasi beberapa halaman, UI harus menggabungkan halaman terpilih dan
 |---|---|---|
 | `.txt` ekspor Syamilah | baris berakhiran `(ص: N)` | `syamilah.js` |
 | `.docx` ekspor Syamilah, atau `.txt`/`.docx` lain | penanda sisip `[ص N]` di awal halaman, boleh di tengah kalimat | `penandaSisip.js` (+ `docx.js`, pembaca Word tanpa dependensi) |
+
+**Halaman panjang** (`web/lib/pecahHalaman.js`): halaman cetak > 6.000 karakter (batas Penyusunan Soal) dan <= 30.000 dipecah otomatis di batas baris/kalimat menjadi bagian berukuran seimbang; nomor cetak tetap.
+Halaman > 30.000 karakter tidak dipecah dan menghalangi impor: hampir pasti penanda halaman hilang atau indeks kitab menempel di halaman terakhir. Pratinjau menyebut nomor halaman dan panjangnya.
 
 Berkas **tanpa** penanda halaman (mis. hasil convert PDF biasa) tetap ditolak dengan petunjuk format: membagi halaman dengan menebak membuat rujukan halaman salah.
 Bila mengonversi PDF ke Word memakai AI, minta penanda `[ص N]` ditulis di awal setiap halaman sesuai nomor cetak.

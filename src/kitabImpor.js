@@ -88,6 +88,10 @@ export function validasiHalaman(h, jumlahHalaman) {
   if (teks.length > MAKS_TEKS_HALAMAN) tolak('KITAB_INVALID', `Teks halaman ${seq} melebihi ${MAKS_TEKS_HALAMAN} karakter.`);
   const doc = { seq, juz: bil(h.juz, 1, 99, 'Juz'), hal: bil(h.hal, 0, 99999, 'Halaman'), teks, batasMatn: bil(h.batasMatn ?? null, 0, teks.length, 'Batas matn', { boleh_null: true }) };
   if (h.bab !== undefined && h.bab !== '') doc.bab = str(h.bab, 300, 'Bab');
+  if (h.potongan !== undefined) { // halaman cetak yang dipecah: bagian ke-`ke` dari `dari`
+    const p = h.potongan && typeof h.potongan === 'object' ? h.potongan : tolak('KITAB_INVALID', `Potongan halaman ${seq} tidak valid.`);
+    const dari = bil(p.dari, 2, 99, 'Jumlah bagian'); doc.potongan = { ke: bil(p.ke, 1, dari, 'Bagian ke'), dari };
+  }
   if (h.nomorAnomali !== undefined) { if (!ANOMALI.includes(h.nomorAnomali)) tolak('KITAB_INVALID', 'Jenis anomali nomor tidak dikenal.'); doc.nomorAnomali = h.nomorAnomali; }
   return doc;
 }

@@ -6,6 +6,7 @@
 import { parseSyamilah, ErrorSyamilah } from './syamilah.js';
 import { bacaDocx } from './docx.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
+import { pecahHalamanPanjang } from './pecahHalaman.js';
 
 export const FORMAT_LABEL = {
   'txt-syamilah': 'Ekspor .txt Syamilah',
@@ -17,7 +18,9 @@ export const PESAN_TANPA_PENANDA = 'Penanda halaman tidak ditemukan. Format yang
 const tanpaPenanda = (e) => (e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA' ? new ErrorSyamilah('TANPA_PENANDA', PESAN_TANPA_PENANDA) : e);
 
 /** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string}} berkas  `buffer` untuk .docx; .txt boleh `teks` atau `buffer`. */
-export async function bacaDokumenKitab({ nama = '', buffer, teks }) {
+export async function bacaDokumenKitab(berkas) { return pecahHalamanPanjang(await bacaMentah(berkas)); }
+
+async function bacaMentah({ nama = '', buffer, teks }) {
   if (/\.docx$/i.test(nama)) {
     if (!buffer) throw new ErrorSyamilah('DOCX_RUSAK', 'Isi berkas .docx tidak terbaca.');
     const paragraf = await bacaDocx(buffer);

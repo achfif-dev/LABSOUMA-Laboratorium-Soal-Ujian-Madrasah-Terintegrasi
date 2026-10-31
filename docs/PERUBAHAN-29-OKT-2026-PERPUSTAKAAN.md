@@ -41,3 +41,10 @@ Berkas nyata Dasuqi (.docx): 261 halaman, hal. 5-265 menaik tanpa anomali, 51 ju
 diimpor lewat handler asli ke Firestore tiruan, lalu dibaca lewat pemilih: "بيان الحكم الشرعي وتقسيمه", hal. 36-37, 5.844 karakter.
 Belum teruji: pembukaan .docx di peramban HP (memakai `DecompressionStream`; peramban lama akan menampilkan pesan agar dipakai .txt), Firestore sungguhan.
 Diketahui: 3 halaman (hal. 113, 241, 259) mungkin memuat catatan "(1)" yang tidak dibuang otomatis; satu halaman ~3.500 karakter, jadi batas 6.000 di Penyusunan Soal muat sekitar 1-2 halaman.
+
+## Tahap 4: halaman terlalu panjang (kasus غاية الوصول)
+Penyebab: batas 12.000 karakter per halaman di server menolak seluruh impor bila satu halaman melebihinya; batas itu pilihan rancangan, bukan batas Firestore.
+Baru: `web/lib/pecahHalaman.js`, `test/pecahHalaman.test.js`. Diubah: `web/lib/dokumenKitab.js` (memecah hasil semua parser), `src/kitabImpor.js` (bidang `potongan`), `src/kitabBaca.js`,
+`web/lib/imporKitab.js` (peringatan), `web/PemilihKitab.jsx` (label "bagian k/n", cari nomor cetak halaman terpecah), `docs/SKEMA-KITAB.md`.
+Terukur: 510 tes (509 lulus, 1 dilewati: uji berkas nyata). Tiga kitab nyata (Fathul Mu'in, Fathul Qarib, Dasuqi) hasilnya identik (0 halaman dipecah).
+Belum teruji: berkas Ghayatul Wushul yang asli (tidak tersedia); alasan halamannya panjang belum diketahui.

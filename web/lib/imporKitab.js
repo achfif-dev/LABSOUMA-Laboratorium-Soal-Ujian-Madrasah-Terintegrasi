@@ -27,7 +27,10 @@ export function isianAwal(hasil) {
 export function peringatanPratinjau(hasil) {
   const { kitab: k, laporan: l } = hasil;
   const w = [];
-  if (l.halamanMelebihiBatas.length) w.push({ tingkat: 'bad', teks: `${l.halamanMelebihiBatas.length} halaman melebihi 12.000 karakter; server akan menolak.` });
+  const kelewat = (l.halamanPanjang || []).filter((x) => x.panjang > 30000);
+  if (kelewat.length) w.push({ tingkat: 'bad', teks: `Halaman hal. ${kelewat.map((x) => `${x.hal} (${x.panjang.toLocaleString('id-ID')} karakter)`).join(', ')} terlalu panjang untuk satu halaman cetak, dan tidak dipecah otomatis. Biasanya penanda halaman hilang, atau indeks/daftar isi kitab menempel di halaman terakhir. Perbaiki berkasnya (tambahkan penanda halaman, atau buang bagian belakang) lalu pilih ulang.` });
+  else if (l.halamanMelebihiBatas.length) w.push({ tingkat: 'bad', teks: `${l.halamanMelebihiBatas.length} halaman melebihi 12.000 karakter; server akan menolak.` });
+  if (l.halamanDipecah && l.halamanDipecah.length) w.push({ tingkat: 'warn', teks: `${l.halamanDipecah.length} halaman cetak terlalu panjang dan dipecah di batas paragraf agar muat di Penyusunan Soal: ${l.halamanDipecah.slice(0, 6).map((x) => `hal. ${x.hal} (${x.panjang.toLocaleString('id-ID')} karakter jadi ${x.bagian} bagian)`).join(', ')}${l.halamanDipecah.length > 6 ? ', ...' : ''}. Nomor halamannya tetap, jadi rujukan soal tidak berubah.` });
   if (l.halamanKosong) w.push({ tingkat: 'warn', teks: `${l.halamanKosong} halaman tanpa teks.` });
   const a = l.anomali;
   if (a.duplikat + a.mundur + a.lompat) w.push({ tingkat: 'warn', teks: `Nomor halaman cetak tidak berurutan: ${a.duplikat} kembar, ${a.mundur} mundur, ${a.lompat} melompat. Aman: kunci halaman memakai urutan, bukan nomor cetak.` });

@@ -54,6 +54,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
       const r = await pem.cariHal(kitabId, n);
       if (!r.length) setInfo(`Tidak ada halaman bernomor ${n} di kitab ini.`);
       else if (r.length === 1) setKursor(r[0].seq);
+      else if (r.every((p) => p.potongan)) { setKursor(r[0].seq); setInfo(`Halaman ${n} panjang, dipecah menjadi ${r.length} bagian. Mulai dari bagian 1; gunakan Berikutnya untuk bagian lanjutan.`); }
       else { setKembar(r); setInfo(`Nomor ${n} dipakai ${r.length} halaman di kitab ini. Pilih salah satu.`); }
     } catch (e) { gagal(e); } finally { setBusy(false); }
   };
@@ -103,7 +104,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
           {kembar.length > 0 && <div className="flex flex-wrap gap-2">{kembar.map((p) => <Btn key={p.seq} kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => { setKursor(p.seq); setKembar([]); setInfo(''); }}>Urutan {p.seq}{p.bab ? ` · ${p.bab.slice(0, 24)}` : ''}</Btn>)}</div>}
           <div className="flex items-center gap-2">
             <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1}><ChevronLeft size={14} />Sebelumnya</Btn>
-            <p className="min-w-0 flex-1 text-center text-xs text-mute">{halaman.length ? <>Hal. <b className="text-ink">{halaman.length > 1 ? `${halaman[0].hal}–${halaman[halaman.length - 1].hal}` : halaman[0].hal}</b> · juz {halaman[0].juz} · urutan {kursor}/{total}</> : busy ? 'Memuat...' : `Urutan ${kursor}/${total}`}</p>
+            <p className="min-w-0 flex-1 text-center text-xs text-mute">{halaman.length ? <>Hal. <b className="text-ink">{halaman.length > 1 ? `${halaman[0].hal}–${halaman[halaman.length - 1].hal}` : halaman[0].hal}</b> · juz {halaman[0].juz}{halaman.some((p) => p.potongan) ? ` · bagian ${halaman.filter((p) => p.potongan).map((p) => `${p.potongan.ke}/${p.potongan.dari}`).join(', ')}` : ''} · urutan {kursor}/{total}</> : busy ? 'Memuat...' : `Urutan ${kursor}/${total}`}</p>
             <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total}>Berikutnya<ChevronRight size={14} /></Btn>
           </div>
           {bisaPisah && (

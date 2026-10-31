@@ -15,7 +15,7 @@ const ringkas = (id, d) => ({
 });
 const dokHalaman = (d) => ({
   id: idHalaman(d.seq), seq: d.seq, juz: d.juz, hal: d.hal, teks: d.teks, batasMatn: d.batasMatn ?? null,
-  ...(d.bab ? { bab: d.bab } : {}), ...(d.nomorAnomali ? { nomorAnomali: d.nomorAnomali } : {}),
+  ...(d.bab ? { bab: d.bab } : {}), ...(d.nomorAnomali ? { nomorAnomali: d.nomorAnomali } : {}), ...(d.potongan ? { potongan: d.potongan } : {}),
 });
 const bulat = (v, min, maks, nama) => {
   if (!Number.isInteger(v) || v < min || v > maks) tolak(422, 'PERPUS_INVALID', `${nama} harus bilangan bulat ${min}-${maks}.`);
