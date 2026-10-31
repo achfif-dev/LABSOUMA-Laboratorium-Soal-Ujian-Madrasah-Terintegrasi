@@ -86,6 +86,8 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
       const hasil = []; for (let s = dari; s <= akhir; s++) { const p = simpanan.halaman.get(kunci(kitabId, s)); if (p) hasil.push(p); }
       return hasil;
     },
+    /** Pencarian teks di satu kitab (server: src/kitabCari.js). Hasil `{ siap:false, kemajuan }` berarti indeks kitab lama sedang dibangun: panggil lagi. */
+    cari(kitabId, { q, mode = 'frasa', lewati = 0 }) { return panggil({ aksi: 'perpus-cari', kitabId, q, mode, lewati }); },
     async cariHal(kitabId, hal) {
       const r = await panggil({ aksi: 'perpus-halaman', kitabId, hal });
       for (const p of r.halaman) simpanan.halaman.set(kunci(kitabId, p.seq), p);

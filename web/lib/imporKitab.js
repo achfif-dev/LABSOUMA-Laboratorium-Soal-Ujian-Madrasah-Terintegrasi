@@ -1,5 +1,7 @@
 // Logika klien impor perpustakaan kitab (tanpa React): pratinjau, peringatan, dan urutan panggilan ke /api/kitab.
 // Server tetap memvalidasi ulang semuanya (src/kitabImpor.js); modul ini hanya merapikan dan mengurutkan.
+import { peringatanKualitas } from './kualitasKitab.js';
+
 export const UKURAN_BATCH = 100;
 
 /** "Fathul Mu'in" -> "fathul-muin". Kosong bila tidak ada huruf/angka Latin. */
@@ -44,6 +46,22 @@ export function peringatanPratinjau(hasil) {
   if (l.labelDibuang) w.push({ tingkat: 'warn', teks: `${l.labelDibuang} label ${l.labelLapisan} dibuang. Pada kitab berlapis (syarah dan hasyiyah) teks mengalir menurut urutan baca, sehingga kutipan matn bisa terselip di tengah kalimat.` });
   if (!l.judulTerdeteksi) w.push({ tingkat: 'warn', teks: 'Tidak ada judul bab terdeteksi: daftar isi kosong.' });
   if (l.selisihDenganKepala) w.push({ tingkat: 'warn', teks: `Jumlah halaman terbaca berbeda ${l.selisihDenganKepala > 0 ? '+' : ''}${l.selisihDenganKepala} dari yang tertulis di kepala berkas.` });
+  if (l.barisBerulangDibuang) w.push({ tingkat: 'warn', teks: `${l.barisBerulangDibuang} baris judul berjalan/nomor halaman dibuang dari awal dan akhir halaman PDF${l.contohBarisBerulang && l.contohBarisBerulang.length ? ` (mis. «${l.contohBarisBerulang[0].slice(0, 40)}»)` : ''}. Periksa satu-dua halaman di pratinjau bahwa tidak ada isi yang ikut terbuang.` });
+  if (l.nomorDariPdf) w.push({ tingkat: 'warn', teks: `Nomor cetak dibaca dari nomor halaman di dalam PDF (${Math.round(l.nomorDariPdf.dukungan * 100)}% halaman bernomor sepakat; halaman PDF pertama = hal. ${l.nomorDariPdf.offset}). Nomor awal yang Anda isi tidak dipakai; isi nomor selain 1 untuk memakai nomor Anda sendiri.` });
+  else if (l.nomorTerdeteksiDiabaikan !== null && l.nomorTerdeteksiDiabaikan !== undefined) w.push({ tingkat: 'warn', teks: `PDF memuat nomor halaman yang menunjukkan halaman PDF pertama = hal. ${l.nomorTerdeteksiDiabaikan}, tetapi Anda mengisi nomor awal sendiri, jadi nomor Anda yang dipakai.` });
+  w.push(...peringatanKualitas(hasil.halaman));
+  return w;
+}
+
+/** Peringatan terhadap kitab yang SUDAH ada di perpustakaan (`daftar` dari aksi impor-daftar): ID yang sama (harus menimpa) atau judul Arab yang sama dengan ID lain (kemungkinan dobel). */
+export function peringatanDuplikat(hasil, isian, daftar) {
+  const w = []; const ada = Array.isArray(daftar) ? daftar : [];
+  const sama = ada.find((k) => k.id === isian.kitabId);
+  if (sama) w.push({ tingkat: isian.timpa ? 'warn' : 'bad', teks: isian.timpa ? `Kitab "${sama.judulLatin}" (ID ${sama.id}, rev. ${sama.revisi}, ${sama.jumlahHalaman} halaman) akan DITIMPA: halaman lamanya dihapus. Soal yang sudah bertaut ke halaman lama tetap menyimpan salinan teksnya, tetapi tautan "Buka di kitab" bisa menunjuk halaman yang berbeda bila urutannya berubah.` : `ID "${sama.id}" sudah dipakai kitab "${sama.judulLatin}" (${sama.jumlahHalaman} halaman). Centang "timpa" bila ingin menggantinya, atau pakai ID lain.` });
+  const norm = (s) => String(s || '').replace(/[\u064B-\u0652\u0670\u0640\s]+/g, '');
+  const judul = norm(hasil && hasil.kitab && hasil.kitab.judul);
+  const kembar = judul ? ada.find((k) => k.id !== isian.kitabId && norm(k.judul) === judul) : null;
+  if (kembar) w.push({ tingkat: 'warn', teks: `Judul Arab yang sama sudah ada di perpustakaan sebagai "${kembar.judulLatin}" (ID ${kembar.id}). Pastikan ini edisi berbeda, bukan impor ganda.` });
   return w;
 }
 

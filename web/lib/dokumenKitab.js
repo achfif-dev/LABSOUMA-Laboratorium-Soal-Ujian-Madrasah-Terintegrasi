@@ -35,11 +35,12 @@ export const bolehVirtual = (e) => e instanceof ErrorSyamilah && e.kode === 'TAN
 async function bacaMentah({ nama = '', buffer, teks, virtual = false, halAwal = 1, bacaPdf = null }) {
   const ada = (re) => re.test(nama);
   const awal = Number.isInteger(halAwal) && halAwal >= 0 && halAwal <= 99999 ? halAwal : 1;
+  const halAwalEksplisit = awal !== 1; // nilai bawaan 1 = admin tidak mengisi: nomor cetak boleh dibaca dari isi PDF (parsePdf)
   const teksBerkas = () => teks ?? new TextDecoder('utf-8').decode(buffer);
   if (ada(/\.pdf$/i)) {
     if (!buffer) throw new ErrorSyamilah('PDF_RUSAK', 'Isi berkas PDF tidak terbaca.');
     const per = bacaPdf || (await import('./bacaPdf.js')).teksPerHalamanPdf;
-    return { ...parsePdf(await per(buffer), { halAwal: awal, namaBerkas: nama }), format: 'pdf' };
+    return { ...parsePdf(await per(buffer), { halAwal: awal, halAwalEksplisit, namaBerkas: nama }), format: 'pdf' };
   }
   if (ada(/\.epub$/i)) {
     if (!buffer) throw new ErrorSyamilah('EPUB_RUSAK', 'Isi berkas EPUB tidak terbaca.');

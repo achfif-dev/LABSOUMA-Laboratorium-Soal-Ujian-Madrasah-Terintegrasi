@@ -10,6 +10,7 @@ import { ErrorSyamilah, HARAKAT, HURUF, KATA_KUNCI_BAB } from './syamilah.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { potongTeks } from './pecahHalaman.js';
 import { bacaBerkasZip, namaBerkasZip } from './docx.js';
+import { bersihkanEkorKepala } from './kualitasKitab.js';
 
 export const FORMAT_VERSI_LAIN = 2;
 export const TARGET_HALAMAN_VIRTUAL = 2200; // karakter per halaman virtual; di bawah batas Penyusunan Soal (6.000) sehingga 2-3 halaman muat sekaligus
@@ -202,16 +203,28 @@ export function teksHalamanPdf(items) {
   return normalArab(keluar.join('\n'));
 }
 
-/** Halaman PDF (teks per halaman) -> kitab. `halAwal` = nomor cetak pada halaman PDF pertama (diisi admin; bawaan 1). */
-export function parsePdf(teksPerHalaman, { halAwal = 1, namaBerkas = '' } = {}) {
-  const hal = (Array.isArray(teksPerHalaman) ? teksPerHalaman : []).map((t) => normalArab(t));
-  if (!hal.length) throw tanpaTeks('PDF tidak berisi halaman.');
-  const rata = hal.reduce((n, t) => n + t.length, 0) / hal.length;
+/**
+ * Halaman PDF (teks per halaman) -> kitab. `halAwal` = nomor cetak pada halaman PDF pertama (diisi admin; bawaan 1).
+ * Judul berjalan dan nomor halaman di awal/akhir halaman dibuang (web/lib/kualitasKitab.js). Bila nomor itu konsisten dan admin tidak mengisi nomor awal
+ * sendiri (`halAwalEksplisit` false), nomor cetak dipakai dari sana: lebih benar daripada menebak dari urutan halaman PDF (sampul dan pengantar bergeser).
+ */
+export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false, namaBerkas = '' } = {}) {
+  const mentah = (Array.isArray(teksPerHalaman) ? teksPerHalaman : []).map((t) => normalArab(t));
+  if (!mentah.length) throw tanpaTeks('PDF tidak berisi halaman.');
+  const rata = mentah.reduce((n, t) => n + t.length, 0) / mentah.length;
   if (rata < MINIMAL_TEKS_PER_HALAMAN_PDF) throw new ErrorSyamilah('PDF_TANPA_TEKS', 'PDF ini tidak punya lapisan teks (kemungkinan hasil pindai/gambar). Impor butuh PDF yang teksnya bisa diblok dan disalin. Untuk PDF pindai, ubah dulu ke teks (OCR) atau Word, lalu impor hasilnya.');
+  const bersih = bersihkanEkorKepala(mentah);
+  const hal = bersih.halaman;
+  const pakaiNomor = !!bersih.nomor && !halAwalEksplisit;
   const paragraf = hal.flatMap((t) => t.split('\n').map((x) => ({ teks: x, tingkat: 0, tebal: false })));
   const judul = [];
   hal.forEach((t, i) => { for (const baris of t.split('\n')) if (calonJudul(baris)) judul.push({ judul: baris.trim(), level: levelKata(baris.trim()), seq: i + 1 }); });
-  return { ...susunHasil({ halaman: hal.map((teks) => ({ teks })), judul, namaJudul: namaBerkas.replace(/\.pdf$/i, '') || judulDariBaris(paragraf), jenis: 'pdf', halAwal }), format: 'pdf' };
+  const halaman = hal.map((teks, i) => ({ teks, ...(pakaiNomor ? { hal: Math.max(0, bersih.nomor.offset + i) } : {}) }));
+  const h = susunHasil({ halaman, judul, namaJudul: namaBerkas.replace(/\.pdf$/i, '') || judulDariBaris(paragraf), jenis: 'pdf', halAwal, sesuaiCetak: pakaiNomor });
+  h.laporan.barisBerulangDibuang = bersih.dibuang; h.laporan.contohBarisBerulang = bersih.contoh;
+  h.laporan.nomorDariPdf = pakaiNomor ? { ...bersih.nomor } : null;
+  h.laporan.nomorTerdeteksiDiabaikan = !!bersih.nomor && !pakaiNomor ? bersih.nomor.offset : null;
+  return { ...h, format: 'pdf' };
 }
 
 /* ------------------------------------------------------------------ EPUB */

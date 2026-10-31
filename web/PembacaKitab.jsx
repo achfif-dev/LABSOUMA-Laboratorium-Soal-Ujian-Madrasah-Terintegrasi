@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Plus, Search, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
+import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
 // daftar isi yang bisa dicari, lompat ke nomor cetak, dan penyorotan rentang halaman yang dirujuk soal (tautan balik dari Bank Soal/Review).
+// Pencarian teks (panel samping, tab "Cari teks"; pintasan "/"): mencari di seluruh kitab tanpa harakat, hasil berupa cuplikan, kata disorot di halaman.
 // Membaca lewat server (aksi perpus-*), jadi semua peran pemakai alat, termasuk ustadz, bisa membuka; hanya kitab berstatus siap dan aktif yang terbaca.
 // `Btn`, `ErrorBox`, `callApi`, `apiErr` dioper dari App.jsx (menghindari impor melingkar). `awal` = { kitabId, dari, sampai } dari tautan soal atau #baca/...
 // `onPosisi({ kitabId, seq })` dipanggil saat halaman berganti, agar alamat (#baca/kitab/40) selalu bisa dibagikan atau dimuat ulang.
@@ -26,7 +28,16 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [lebarLayar, setLebarLayar] = useState(false);   // true = menutupi seluruh jendela
   const [panelIsi, setPanelIsi] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
   const [saring, setSaring] = useState('');
+  const [tabSamping, setTabSamping] = useState('isi');     // 'isi' | 'cari'
+  const [qCari, setQCari] = useState('');
+  const [modeCari, setModeCari] = useState('frasa');
+  const [hasilCari, setHasilCari] = useState(null);        // { total, hasil[], adaLagi, kata, mode, q }
+  const [infoCari, setInfoCari] = useState('');
+  const [cariBusy, setCariBusy] = useState(false);
+  const [kataSorot, setKataSorot] = useState(null);        // { kata[], mode }: kata yang disorot di teks halaman
   const urut = useRef(0);
+  const urutCari = useRef(0);
+  const cariRef = useRef(null);
   const areaRef = useRef(null);
   const gagal = (e) => { const x = apiErr(e); if (x) setErr(x); };
   const ubahPref = (p) => setPref((s) => { const n = { ...s, ...p }; simpanPengaturanBaca(n); return n; });
@@ -40,6 +51,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
   useEffect(() => {
     setIsi(null); setHalaman([]); setKembar([]); setSaring('');
+    urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
     if (!kitabId) return;
     setErr(null);
     pem.isi(kitabId).then(setIsi).catch(gagal);
@@ -73,11 +85,12 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       if (e.key === 'ArrowLeft') { e.preventDefault(); geser(1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); geser(-1); }
       else if (e.key === 'Escape' && lebarLayar) setLebarLayar(false);
+      else if (e.key === '/' && kitabId) { e.preventDefault(); bukaCari(); }
       else if (e.key === '+' || e.key === '=') ubahPref({ ukuran: Math.min(UKURAN_HURUF.length - 1, pref.ukuran + 1) });
       else if (e.key === '-') ubahPref({ ukuran: Math.max(0, pref.ukuran - 1) });
     };
     window.addEventListener('keydown', tekan); return () => window.removeEventListener('keydown', tekan);
-  }, [geser, lebarLayar, pref.ukuran]);
+  }, [geser, lebarLayar, pref.ukuran, kitabId]);
   // Layar lebar menutupi halaman: kunci gulir badan dokumen selama aktif.
   useEffect(() => {
     if (!lebarLayar) return undefined;
@@ -96,6 +109,30 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       else { setKembar(r); setInfo(`Nomor ${n} dipakai ${r.length} halaman di kitab ini. Pilih salah satu.`); }
     } catch (e) { gagal(e); } finally { setBusy(false); }
   };
+  const bukaCari = () => { setPanelIsi(true); setTabSamping('cari'); setTimeout(() => { if (cariRef.current) { cariRef.current.focus(); cariRef.current.select(); } }, 0); };
+  // Server membangun indeks kitab lama bertahap (sekali saja); selama `siap` false, panggil lagi. Panggilan usang (kitab/kueri berganti) dibuang lewat urutCari.
+  const jalankanCari = async (lewati = 0) => {
+    const k = siapkanKueri(qCari);
+    if (!k.q) { setInfoCari('Ketik kata yang dicari (minimal satu huruf atau angka).'); return; }
+    const n = ++urutCari.current; setCariBusy(true); setInfoCari('');
+    if (!lewati) setHasilCari(null);
+    try {
+      for (let i = 0; i < 600; i++) {
+        const r = await pem.cari(kitabId, { q: qCari, mode: modeCari, lewati });
+        if (n !== urutCari.current) return;
+        if (r.siap) {
+          setHasilCari((lama) => (lewati && lama ? { ...r, hasil: [...lama.hasil, ...r.hasil] } : r));
+          setKataSorot({ kata: r.kata, mode: r.mode });
+          if (!r.total) setInfoCari('Tidak ada halaman yang memuat kata itu. Coba kata lebih pendek, atau mode "Semua kata".');
+          return;
+        }
+        setInfoCari(`Menyiapkan pencarian kitab ini (sekali saja): ${r.kemajuan.selesai}/${r.kemajuan.total} bagian...`);
+      }
+      setInfoCari('Persiapan pencarian belum selesai. Coba lagi sebentar lagi.');
+    } catch (e) { if (n === urutCari.current) gagal(e); }
+    finally { if (n === urutCari.current) setCariBusy(false); }
+  };
+  const bukaHasil = (r) => { setSorot(null); setInfo(''); setKursor(kursorSah(r.seq, total, jumlah)); };
   const salin = async () => {
     try { await navigator.clipboard.writeText(teksSalinan(kitab, halaman, bagian)); setInfo('Teks halaman disalin.'); }
     catch { setInfo('Peramban tidak mengizinkan menyalin otomatis. Blok teksnya lalu salin manual.'); }
@@ -109,6 +146,10 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const babInfo = isi && aktif >= 0 ? rentangBab(entri, aktif, total) : null;
   const terakhir = pref.terakhir || {};
   const pesanVirtual = kitab && kitab.halamanVirtual;
+  const reSorot = useMemo(() => (kataSorot ? regexSorot(kataSorot.kata, kataSorot.mode) : null), [kataSorot]);
+  const hasilLama = hasilCari ? hasilCari.hasil : [];
+  const hasilSebelum = [...hasilLama].reverse().find((r) => r.seq < kursor) || null;
+  const hasilBerikut = hasilLama.find((r) => r.seq > kursor + jumlah - 1) || null;
 
   const bungkus = lebarLayar ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'space-y-3';
 
@@ -146,7 +187,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
     <div className={`fade-in ${bungkus}`}>
       <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mb-0' : ''}`} role="toolbar" aria-label="Alat pembaca kitab">
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => setPanelIsi((v) => !v)} aria-pressed={panelIsi}><List size={14} />Daftar isi</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={14} />Daftar isi</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={14} />Cari teks</Btn>
         <div className="flex items-center gap-1.5">
           <label htmlFor="bk-hal" className="text-xs text-mute">Hal. cetak</label>
           <input id="bk-hal" type="number" min="0" inputMode="numeric" className="field !w-20 !py-1.5" value={halInput} onChange={(e) => setHalInput(e.target.value)}
@@ -178,6 +220,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       {err && <div className={lebarLayar ? 'mx-2' : ''}><ErrorBox e={err} /></div>}
       {pesanVirtual && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman kitab ini dibagi otomatis saat diimpor, jadi nomor halamannya bukan nomor cetak. Rujukan soal ke kitab ini sebaiknya dicocokkan dengan edisi cetak.</p>}
       {kitab && !pesanVirtual && kitab.sumberJenis === 'pdf' && <p role="note" className={`rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Kitab ini diimpor dari PDF: nomor halaman mengikuti urutan PDF ditambah nomor awal yang diisi admin ({labelSumberJenis(kitab.sumberJenis)}).</p>}
+      {kataSorot && hasilCari && hasilCari.total > 0 && halaman.length > 0 && (
+        <p role="status" className={`flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>
+          <b>Pencarian:</b> <span dir="auto" lang="ar" className="ar text-sm">{hasilCari.q}</span> · {hasilCari.total.toLocaleString('id-ID')} halaman
+          <button type="button" className="rounded-lg px-2 py-0.5 underline disabled:opacity-40 disabled:no-underline" disabled={!hasilSebelum} onClick={() => hasilSebelum && bukaHasil(hasilSebelum)}>Hasil sebelumnya</button>
+          <button type="button" className="rounded-lg px-2 py-0.5 underline disabled:opacity-40 disabled:no-underline" disabled={!hasilBerikut} onClick={() => hasilBerikut && bukaHasil(hasilBerikut)}>Hasil berikutnya</button>
+          <button type="button" className="ml-auto underline" onClick={() => setKataSorot(null)}>Hilangkan sorotan kata</button>
+        </p>)}
       {sorot && halaman.length > 0 && (
         <p role="status" className={`flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>
           <b>Rujukan soal:</b> urutan {sorot.dari}{sorot.sampai > sorot.dari ? `–${sorot.sampai}` : ''} disorot.
@@ -187,24 +236,68 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
       <div className={`grid min-h-0 gap-3 ${lebarLayar ? 'flex-1 p-2' : ''} ${panelIsi ? 'lg:grid-cols-[18rem_minmax(0,1fr)]' : ''}`}>
         {panelIsi && (
-          <aside aria-label="Daftar isi" className={`flex min-h-0 flex-col rounded-2xl border border-line bg-surface ${lebarLayar ? '' : 'max-h-[70vh]'}`}>
-            <div className="border-b border-line p-2">
-              <input aria-label="Cari judul di daftar isi" className="field !py-1.5 !text-sm" placeholder="Cari judul bab..." value={saring} onChange={(e) => setSaring(e.target.value)} />
+          <aside aria-label="Panel samping" className={`flex min-h-0 flex-col rounded-2xl border border-line bg-surface ${lebarLayar ? '' : 'max-h-[70vh]'}`}>
+            <div className="flex gap-1 border-b border-line p-1.5" role="tablist" aria-label="Isi panel samping">
+              {[['isi', 'Daftar isi'], ['cari', 'Cari teks']].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={tabSamping === id} onClick={() => (id === 'cari' ? bukaCari() : setTabSamping('isi'))}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold ${tabSamping === id ? 'bg-soft text-soft-ink' : 'text-mute hover:bg-soft'}`}>{label}</button>))}
             </div>
-            {!isi ? <p className="flex items-center gap-2 p-3 text-xs text-mute"><Loader2 size={13} className="spin" />Memuat daftar isi...</p>
-              : !entri.length ? <p className="p-3 text-xs text-mute">Kitab ini tidak punya daftar isi terdeteksi. Pakai kolom Hal. cetak untuk berpindah.</p>
-              : (
-                <ul className="min-h-0 flex-1 overflow-auto p-1.5 text-sm">
-                  {daftarTampil.map(({ e, i }) => (
-                    <li key={i}>
-                      <button type="button" onClick={() => { setSorot(null); setKursor(kursorSah(e.seq, total, jumlah)); setInfo(''); }} aria-current={i === aktif ? 'true' : undefined}
-                        className={`w-full rounded-lg px-2 py-1.5 text-right leading-snug hover:bg-soft ${i === aktif ? 'bg-soft font-semibold text-soft-ink' : ''}`}>
-                        <span dir="rtl" lang="ar" className="ar block text-base">{`${'– '.repeat(Math.max(0, (e.level || 1) - 1))}${e.judul}`}</span>
-                        <span className="block text-left text-[11px] text-mute">hal. {e.hal}</span>
-                      </button>
-                    </li>))}
-                  {!daftarTampil.length && <li className="p-3 text-xs text-mute">Tidak ada judul yang cocok.</li>}
-                </ul>)}
+            {tabSamping === 'cari' ? (
+              <div className="flex min-h-0 flex-1 flex-col" role="tabpanel" aria-label="Cari teks">
+                <form className="space-y-2 border-b border-line p-2" onSubmit={(e) => { e.preventDefault(); jalankanCari(0); }} role="search">
+                  <div className="flex gap-1.5">
+                    <input ref={cariRef} dir="auto" lang="ar" type="search" aria-label="Kata yang dicari di seluruh kitab" className="field ar !py-1.5 !text-base" placeholder="Cari kata atau kalimat..." maxLength={200}
+                      value={qCari} onChange={(e) => setQCari(e.target.value)} />
+                    <Btn type="submit" kind="soft" className="!px-3 !py-1.5 !text-xs" disabled={cariBusy || !qCari.trim()} aria-label="Cari">{cariBusy ? <Loader2 size={14} className="spin" /> : <Search size={14} />}</Btn>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-mute">Mode
+                    <select aria-label="Mode pencarian" className="field !w-auto !py-1 !text-xs" value={modeCari} onChange={(e) => setModeCari(e.target.value)}>
+                      {MODE_CARI.map((m) => <option key={m} value={m}>{m === 'frasa' ? 'Frasa persis' : 'Semua kata'}</option>)}</select></label>
+                  <p className="text-[11px] leading-snug text-mute">Harakat dan variasi huruf (أ/ا، ة/ه، ى/ي) diabaikan. Awalan seperti ال dan بال ikut ditemukan.</p>
+                </form>
+                <div className="min-h-0 flex-1 overflow-auto p-1.5 text-sm" aria-live="polite">
+                  {infoCari && <p className="flex items-center gap-2 p-2 text-xs text-mute">{cariBusy && <Loader2 size={13} className="spin" />}{infoCari}</p>}
+                  {hasilCari && hasilCari.total > 0 && <p className="px-2 pb-1 text-xs text-mute">{hasilCari.total.toLocaleString('id-ID')} halaman memuat kata ini{hasilCari.adaLagi ? ` (menampilkan ${hasilLama.length} pertama)` : ''}.</p>}
+                  <ul>
+                    {hasilLama.map((r) => {
+                      const babRes = entri[entriAktif(entri, r.seq)];
+                      return (
+                        <li key={r.seq}>
+                          <button type="button" onClick={() => bukaHasil(r)} aria-current={r.seq >= kursor && r.seq <= kursor + jumlah - 1 ? 'true' : undefined}
+                            className={`w-full rounded-lg px-2 py-1.5 text-right leading-snug hover:bg-soft ${r.seq >= kursor && r.seq <= kursor + jumlah - 1 ? 'bg-soft' : ''}`}>
+                            <span dir="rtl" lang="ar" className="ar block text-base">
+                              {r.awalTerpotong ? '… ' : ''}{potongCuplikan(r, hasilCari.kata, hasilCari.mode).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))}{r.akhirTerpotong ? ' …' : ''}
+                            </span>
+                            <span className="block text-left text-[11px] text-mute">hal. {r.hal} · juz {r.juz}{r.jumlah > 1 ? ` · ${r.jumlah}×` : ''}{babRes ? <> · <span dir="rtl" lang="ar" className="ar">{babRes.judul.slice(0, 40)}</span></> : null}</span>
+                          </button>
+                        </li>);
+                    })}
+                  </ul>
+                  {hasilCari && hasilCari.adaLagi && (
+                    <div className="p-2"><Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => jalankanCari(hasilLama.length)} disabled={cariBusy}>Muat hasil berikutnya</Btn></div>)}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-line p-2">
+                  <input aria-label="Cari judul di daftar isi" className="field !py-1.5 !text-sm" placeholder="Cari judul bab..." value={saring} onChange={(e) => setSaring(e.target.value)} />
+                </div>
+                {!isi ? <p className="flex items-center gap-2 p-3 text-xs text-mute"><Loader2 size={13} className="spin" />Memuat daftar isi...</p>
+                  : !entri.length ? <p className="p-3 text-xs text-mute">Kitab ini tidak punya daftar isi terdeteksi. Pakai kolom Hal. cetak untuk berpindah, atau tab Cari teks.</p>
+                  : (
+                    <ul className="min-h-0 flex-1 overflow-auto p-1.5 text-sm">
+                      {daftarTampil.map(({ e, i }) => (
+                        <li key={i}>
+                          <button type="button" onClick={() => { setSorot(null); setKursor(kursorSah(e.seq, total, jumlah)); setInfo(''); }} aria-current={i === aktif ? 'true' : undefined}
+                            className={`w-full rounded-lg px-2 py-1.5 text-right leading-snug hover:bg-soft ${i === aktif ? 'bg-soft font-semibold text-soft-ink' : ''}`}>
+                            <span dir="rtl" lang="ar" className="ar block text-base">{`${'– '.repeat(Math.max(0, (e.level || 1) - 1))}${e.judul}`}</span>
+                            <span className="block text-left text-[11px] text-mute">hal. {e.hal}</span>
+                          </button>
+                        </li>))}
+                      {!daftarTampil.length && <li className="p-3 text-xs text-mute">Tidak ada judul yang cocok.</li>}
+                    </ul>)}
+              </>
+            )}
           </aside>)}
 
         <section ref={areaRef} aria-label="Isi kitab" aria-busy={busy} className={`min-h-0 min-w-0 rounded-2xl border border-line bg-surface ${lebarLayar ? 'overflow-auto' : ''}`}>
@@ -229,7 +322,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       {disorot && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 font-semibold text-brand-fg">rujukan soal</span>}
                     </header>
                     <div lang="ar" className="ar whitespace-pre-wrap break-words text-right" style={{ fontSize: `${px}px`, lineHeight: 2.15 }}>
-                      {teks || <span className="text-sm text-mute" dir="ltr">(halaman tanpa teks pada bagian ini)</span>}
+                      {teks ? potongSorot(teks, reSorot).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))
+                        : <span className="text-sm text-mute" dir="ltr">(halaman tanpa teks pada bagian ini)</span>}
                     </div>
                   </article>);
               })}

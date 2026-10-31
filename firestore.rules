@@ -267,6 +267,8 @@ service cloud.firestore {
       allow write: if false;
       match /halaman/{hid} { allow read: if isStaff(); allow write: if false; }
       match /daftar/{x} { allow read: if isStaff(); allow write: if false; }
+      // Indeks pencarian teks (src/kitabCari.js): potongan besar berisi teks normal. Hanya server yang membaca dan menulis (lewat aksi perpus-cari); klien ditolak.
+      match /cari/{x} { allow read, write: if false; }
     }
 
     // rate/{uid} dan koleksi lain: hanya Cloud Functions (Admin SDK). Klien ditolak.

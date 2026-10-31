@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
 import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
-import { slugKitab, isianAwal, peringatanPratinjau, isianSiap, jalankanImpor } from './lib/imporKitab.js';
+import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor } from './lib/imporKitab.js';
 
 // Impor perpustakaan kitab dari banyak sumber: .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
 // atau berkas tanpa penanda sama sekali (halaman dibagi otomatis dan ditandai virtual). Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
@@ -24,6 +24,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [halAwal, setHalAwal] = useState('1');
   const [tawarVirtual, setTawarVirtual] = useState(false);
   const [membaca, setMembaca] = useState('');
+  const [urutLihat, setUrutLihat] = useState(1);   // halaman yang ditampilkan di pratinjau (urutan, bukan nomor cetak)
   const sibuk = !!progres && progres.tahap !== 'gagal';
 
   const muatDaftar = async () => {
@@ -38,7 +39,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     try {
       const n = parseInt(halAwal, 10);
       const h = await bacaDokumenKitab({ nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1 });
-      setBerkas(f.name); setHasil(h); setIsian(isianAwal(h));
+      setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
     } catch (er) { setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er)); }
     finally { setMembaca(''); }
   };
@@ -70,7 +71,9 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     catch (e) { toast((apiErr(e) || {}).message || 'Gagal mengubah status.'); }
   };
 
-  const peringatan = hasil ? peringatanPratinjau(hasil) : [];
+  // Pemeriksaan mutu menyisir seluruh teks kitab: dihitung sekali per hasil baca, bukan di tiap ketikan pada kolom isian.
+  const peringatanIsi = useMemo(() => (hasil ? peringatanPratinjau(hasil) : []), [hasil]);
+  const peringatan = hasil && isian ? [...peringatanDuplikat(hasil, isian, daftar), ...peringatanIsi] : peringatanIsi;
   const terhalang = peringatan.some((p) => p.tingkat === 'bad');
   const l = hasil && hasil.laporan;
   const pct = progres && progres.total ? Math.round((progres.tertulis / progres.total) * 100) : 0;
@@ -108,7 +111,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
         </label>
         {berkas && <span className="ml-2 break-all text-xs text-mute">{berkas}</span>}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <label htmlFor="ki-awal" className="text-xs text-mute">Nomor cetak halaman pertama (PDF dan halaman virtual)</label>
+          <label htmlFor="ki-awal" className="text-xs text-mute">Nomor cetak halaman pertama (PDF dan halaman virtual; biarkan 1 agar nomor cetak dibaca dari isi PDF bila ada)</label>
           <input id="ki-awal" type="number" min="0" max="99999" inputMode="numeric" className="field !w-24 !py-1.5" value={halAwal} onChange={(e) => setHalAwal(e.target.value)} disabled={sibuk || !!membaca} />
           {berkasRef.current && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => baca(berkasRef.current)} disabled={sibuk || !!membaca}><RefreshCw size={13} />Baca ulang</Btn>}
         </div>
@@ -135,9 +138,25 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
             {peringatan.map((p, i) => (
               <p key={i} role={p.tingkat === 'bad' ? 'alert' : undefined} className={`flex gap-2 rounded-xl px-4 py-3 text-sm ${p.tingkat === 'bad' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}`}><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span>{p.teks}</span></p>
             ))}
-            <details className="rounded-xl border border-line px-4 py-2 text-sm">
-              <summary className="cursor-pointer font-semibold">Cuplikan halaman pertama</summary>
-              <p dir="rtl" lang="ar" className="ar mt-2 whitespace-pre-wrap">{hasil.halaman[0].teks.slice(0, 500)}</p>
+            <details className="rounded-xl border border-line px-4 py-2 text-sm" open>
+              <summary className="cursor-pointer font-semibold">Pratinjau halaman</summary>
+              {(() => {
+                const n = hasil.halaman.length; const u = Math.min(Math.max(1, urutLihat), n); const p = hasil.halaman[u - 1];
+                const terpanjang = hasil.halaman.reduce((m, x, i) => (x.teks.length > hasil.halaman[m].teks.length ? i : m), 0) + 1;
+                return (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-mute">
+                      <label htmlFor="ki-lihat">Urutan</label>
+                      <input id="ki-lihat" type="number" min="1" max={n} inputMode="numeric" className="field !w-20 !py-1" value={u} onChange={(e) => setUrutLihat(parseInt(e.target.value, 10) || 1)} />
+                      <span>dari {n}</span>
+                      {[['Awal', 1], ['Tengah', Math.ceil(n / 2)], ['Akhir', n], ['Terpanjang', terpanjang]].map(([label, v]) => (
+                        <Btn key={label} kind="ghost" className="!px-2.5 !py-1 !text-xs" onClick={() => setUrutLihat(v)}>{label}</Btn>))}
+                    </div>
+                    <p className="text-xs text-mute">Hal. {p.hal} · juz {p.juz} · {p.teks.length.toLocaleString('id-ID')} karakter{p.bab ? <> · bab: <span dir="rtl" lang="ar" className="ar">{p.bab}</span></> : null}</p>
+                    <p dir="rtl" lang="ar" className="ar max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-soft px-3 py-2 text-lg leading-loose">{p.teks.slice(0, 1500)}{p.teks.length > 1500 ? ' …' : ''}</p>
+                    <p className="text-xs text-mute">Periksa beberapa halaman (awal, tengah, akhir): huruf utuh bersambung, urutan kata benar, dan tidak ada judul berjalan atau nomor halaman yang menempel.</p>
+                  </div>);
+              })()}
             </details>
 
             <div className="grid gap-3 sm:grid-cols-2">
