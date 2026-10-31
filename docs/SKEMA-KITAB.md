@@ -48,6 +48,18 @@ Tambah `kitabId` (maks 100) dan `halId` (maks 20), opsional. `teks`, `nama`, `ju
 (soal yang sudah disetujui tidak berubah bila teks kitab dikoreksi).
 Bila bab melintasi beberapa halaman, UI harus menggabungkan halaman terpilih dan menolak bila lebih dari `MAX_TEKS` (6.000).
 
+## Format berkas yang dikenali (pintu masuk: `web/lib/dokumenKitab.js`)
+| Format | Pembagi halaman | Parser |
+|---|---|---|
+| `.txt` ekspor Syamilah | baris berakhiran `(ص: N)` | `syamilah.js` |
+| `.docx` ekspor Syamilah, atau `.txt`/`.docx` lain | penanda sisip `[ص N]` di awal halaman, boleh di tengah kalimat | `penandaSisip.js` (+ `docx.js`, pembaca Word tanpa dependensi) |
+
+Berkas **tanpa** penanda halaman (mis. hasil convert PDF biasa) tetap ditolak dengan petunjuk format: membagi halaman dengan menebak membuat rujukan halaman salah.
+Bila mengonversi PDF ke Word memakai AI, minta penanda `[ص N]` ditulis di awal setiap halaman sesuai nomor cetak.
+Dasar rancangan format `[ص N]`: Hasyiyah ad-Dasuqi 'ala Umm al-Barahin (.docx, Syamilah #8703): 261 halaman (hal. 5-265), 51 judul, 233 label lapisan dibuang.
+Pada kitab berlapis (syarah + hasyiyah) label pemisah lapisan dibuang dan teks dibiarkan mengalir (`batasMatn: null`), karena kalimat hasyiyah melintasi label.
+`sumber.jenis`: `syamilah-txt` | `syamilah-docx` | `teks-penanda`; `sumber.rujukan` memuat "Syamilah #id" bila terbaca.
+
 ## Impor (sudah dikodekan: `src/kitabImpor.js`, `api/kitab.js`, `web/KitabImpor.jsx`)
 Menu: **Kelola > Perpustakaan** (admin saja).
 1. Admin memilih `.txt`; berkas diparse di perangkat (`web/lib/syamilah.js`), lalu tampil pratinjau dan peringatan.

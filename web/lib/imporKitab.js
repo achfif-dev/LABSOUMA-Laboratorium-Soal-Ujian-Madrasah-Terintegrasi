@@ -34,6 +34,8 @@ export function peringatanPratinjau(hasil) {
   if (k.bentukMatn === 'tanpa-pemisah') w.push({ tingkat: 'warn', teks: 'Matn tidak terpisah dari syarah di berkas ini (batas matn tidak diketahui).' });
   else if (l.halamanTanpaPemisah) w.push({ tingkat: 'warn', teks: `${l.halamanTanpaPemisah} halaman tanpa pemisah matn dan syarah.` });
   if (k.edisi.muhaqqiq) w.push({ tingkat: 'warn', teks: `Edisi ini bertahqiq (${k.edisi.muhaqqiq}). Teks pengarang klasik domain publik, tetapi hasil tahqiq bisa dilindungi hak cipta. Status hak cipta awal: belum dicek.` });
+  if (l.catatanTertinggal && l.catatanTertinggal.length) w.push({ tingkat: 'warn', teks: `${l.catatanTertinggal.length} halaman (hal. ${l.catatanTertinggal.map((x) => x.hal).join(', ')}) memuat catatan bernomor "(1)" di tengah teks yang mungkin catatan editor. Tidak dibuang otomatis; periksa di perpustakaan.` });
+  if (l.labelDibuang) w.push({ tingkat: 'warn', teks: `${l.labelDibuang} label ${l.labelLapisan} dibuang. Pada kitab berlapis (syarah dan hasyiyah) teks mengalir menurut urutan baca, sehingga kutipan matn bisa terselip di tengah kalimat.` });
   if (!l.judulTerdeteksi) w.push({ tingkat: 'warn', teks: 'Tidak ada judul bab terdeteksi: daftar isi kosong.' });
   if (l.selisihDenganKepala) w.push({ tingkat: 'warn', teks: `Jumlah halaman terbaca berbeda ${l.selisihDenganKepala > 0 ? '+' : ''}${l.selisihDenganKepala} dari yang tertulis di kepala berkas.` });
   return w;

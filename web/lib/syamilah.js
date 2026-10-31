@@ -21,20 +21,20 @@ export class ErrorSyamilah extends Error {
 }
 
 const ANGKA_INDIA = '٠١٢٣٤٥٦٧٨٩';
-const keAngka = (s) => String(s).replace(/[٠-٩]/g, (d) => String(ANGKA_INDIA.indexOf(d)));
-const rapikan = (s) => String(s).replace(/[\u00a0\u200c]/g, ' ').replace(/\s+/g, ' ').trim();
+export const keAngka = (s) => String(s).replace(/[٠-٩]/g, (d) => String(ANGKA_INDIA.indexOf(d)));
+export const rapikan = (s) => String(s).replace(/[\u00a0\u200c]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const RE_MARKER = /^(.*?)\(\s*(?:ج\s*:?\s*([0-9٠-٩]+)\s*[-–،,]?\s*)?ص\s*:\s*([0-9٠-٩]+)\s*\)\s*$/;
 const RE_JUDUL = /^\s*(•)?\s*\u200c\u200c\s*(.*\S)\s*$/;
 const RE_PEMISAH = /^\u0640+\s*$/;
 const RE_CATATAN = /^\s*(?:\((\d{1,3})\)|(\d{1,3}))\s+\S/;
-const RE_TAKHRIJ = /[ \u00a0]*\[[^\]\n]*رقم\s*:[^\]\n]*\]/g;
+export const RE_TAKHRIJ = /[ \u00a0]*\[[^\]\n]*رقم\s*:[^\]\n]*\]/g;
 const RE_PENGISI = /^[\s.\u00b7\u2026\u2022*_\-0\u0660]+$/; // baris titik-titik, nol, "…", "* * *" (penanda matn dipotong)
-const HARAKAT = /[\u064B-\u0652\u0670]/g;
-const HURUF = /[\u0621-\u064A]/g;
+export const HARAKAT = /[\u064B-\u0652\u0670]/g;
+export const HURUF = /[\u0621-\u064A]/g;
 
-const MEDAN = {
-  'القسم': 'fan', 'الكتاب': 'judulPanjang', 'المؤلف': 'pengarang', 'بعناية': 'muhaqqiq', 'تحقيق': 'muhaqqiq',
+export const MEDAN = {
+  'القسم': 'fan', 'الكتاب': 'judulPanjang', 'المؤلف': 'pengarang', 'بعناية': 'muhaqqiq', 'تحقيق': 'muhaqqiq', 'المحقق': 'muhaqqiq',
   'الناشر': 'penerbit', 'الطبعة': 'cetakan', 'عدد الأجزاء': 'jumlahJuz', 'عدد الصفحات': 'jumlahHalamanCetak',
   'أعده للشاملة': 'pengunggah', 'تاريخ النشر بالشاملة': 'tanggalSyamilah',
 };
@@ -51,7 +51,7 @@ export function parseKepala(baris) {
     if (m && MEDAN[m[1].trim()]) k[MEDAN[m[1].trim()]] = rapikan(m[2]);
     if (/ترقيم الكتاب موافق للمطبوع/.test(b)) k.penomoranSesuaiCetak = true;
   }
-  const w = /\(\s*ت\s*([0-9٠-٩]{2,4})\s*هـ?\s*\)/.exec(k.pengarang || '');
+  const w = /\(\s*(?:ت|المتوفى\s*:?)\s*([0-9٠-٩]{2,4})\s*هـ?\s*\)/.exec(k.pengarang || '');
   if (w) k.wafatH = +keAngka(w[1]);
   if (k.jumlahJuz) k.jumlahJuz = +keAngka(k.jumlahJuz) || 1;
   if (k.jumlahHalamanCetak) k.jumlahHalamanCetak = +keAngka(k.jumlahHalamanCetak) || null;
@@ -185,7 +185,7 @@ export function parseSyamilah(mentah, opsi = {}) {
     jumlahHalaman: halaman.length, jumlahJuz: kepala.jumlahJuz || Math.max(...penanda.map((p) => p.juz)),
     penomoranSesuaiCetak: !!kepala.penomoranSesuaiCetak,
     bentukMatn: denganPemisah / halaman.length > 0.5 ? 'pemisah-tatwil' : 'tanpa-pemisah',
-    berharakat: huruf ? harakat / huruf > 0.01 : false,
+    berharakat: huruf ? harakat / huruf > 0.02 : false,
     hakCipta: { status: 'belum-dicek', catatan: kepala.muhaqqiq ? `Ada muhaqqiq: ${kepala.muhaqqiq}. Teks pengarang klasik domain publik; hasil tahqiq/judul/catatan kaki edisi bisa dilindungi.` : '' },
     sumber: { jenis: 'syamilah-txt', pengunggah: kepala.pengunggah || '', tanggalSyamilah: kepala.tanggalSyamilah || '' },
     formatParser: FORMAT_VERSI, aktif: true, revisi: 1,

@@ -31,3 +31,13 @@ Terukur: 489 tes lulus, build berhasil. Interaksi (pilih kitab, lompat bab, cari
 dengan dua kitab nyata hasil impor; 5 halaman Fathul Mu'in menjadi satu segmen Paket Dauri berrujukan "40–44".
 Belum teruji: tampilan dan ketukan di HP, Firestore sungguhan untuk jalur baca (jalur impor sudah terbukti), dan simpan soal hasil isian otomatis (memakai bidang lama saja, jadi aturan Firestore tidak berubah).
 Tidak perlu menerbitkan `firestore.rules`.
+
+## Tahap 3: impor .docx dan teks dengan penanda `[ص N]`
+Baru: `web/lib/docx.js`, `web/lib/penandaSisip.js`, `web/lib/dokumenKitab.js`, `test/dokumenKitab.test.js`.
+Diubah: `web/KitabImpor.jsx` (memilih .txt atau .docx, menampilkan format terbaca), `web/lib/imporKitab.js` (peringatan catatan tertinggal dan label dibuang),
+`web/lib/syamilah.js` (ekspor pembantu, pola wafat "(المتوفى: …)", ambang harakat 0,02), `src/kitabImpor.js` (`sumber.jenis` tiga nilai, `sumber.rujukan`), `test/kitabImporUi.test.js`, `docs/SKEMA-KITAB.md`.
+Terukur: 502 tes (501 lulus, 1 dilewati: uji berkas nyata, jalankan dengan `KITAB_DASUQI_DOCX=...`); build berhasil.
+Berkas nyata Dasuqi (.docx): 261 halaman, hal. 5-265 menaik tanpa anomali, 51 judul (47 cocok dengan daftar isi), tanpa sisa tatwil/penanda/label;
+diimpor lewat handler asli ke Firestore tiruan, lalu dibaca lewat pemilih: "بيان الحكم الشرعي وتقسيمه", hal. 36-37, 5.844 karakter.
+Belum teruji: pembukaan .docx di peramban HP (memakai `DecompressionStream`; peramban lama akan menampilkan pesan agar dipakai .txt), Firestore sungguhan.
+Diketahui: 3 halaman (hal. 113, 241, 259) mungkin memuat catatan "(1)" yang tidak dibuang otomatis; satu halaman ~3.500 karakter, jadi batas 6.000 di Penyusunan Soal muat sekitar 1-2 halaman.

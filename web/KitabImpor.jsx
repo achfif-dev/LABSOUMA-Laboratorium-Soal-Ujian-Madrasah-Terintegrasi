@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
-import { parseSyamilah } from './lib/syamilah.js';
+import { bacaDokumenKitab, FORMAT_LABEL } from './lib/dokumenKitab.js';
 import { slugKitab, isianAwal, peringatanPratinjau, isianSiap, jalankanImpor } from './lib/imporKitab.js';
 
-// Impor perpustakaan kitab dari ekspor Syamilah (.txt UTF-8). Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
+// Impor perpustakaan kitab: .txt ekspor Syamilah, atau .docx/.txt dengan penanda halaman [ص N]. Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
 // halaman hasil parse (bukan berkas mentah). `Btn`, `ErrorBox`, `callApi`, `apiErr` dioper dari App.jsx (menghindari impor melingkar).
 const STATUS = { siap: 'Siap', mengimpor: 'Belum selesai' };
 const HAK = { 'belum-dicek': 'Hak cipta: belum dicek', 'domain-publik': 'Domain publik', izin: 'Berizin' };
@@ -33,7 +33,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     if (!f) return;
     setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false);
     try {
-      const h = parseSyamilah(await f.text());
+      const h = await bacaDokumenKitab({ nama: f.name, buffer: await f.arrayBuffer() });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h));
     } catch (er) { setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); }
   };
@@ -66,7 +66,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     <div className="fade-in space-y-4">
       <div className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
         <p className="font-semibold">Perpustakaan kitab</p>
-        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
+        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), atau berkas lain yang memuat penanda halaman [ص N]. Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
       </div>
 
       {errDaftar && <ErrorBox e={errDaftar} />}
@@ -90,8 +90,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
 
       <div className="rounded-2xl border border-line bg-surface px-4 py-4">
         <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold shadow-sm hover:border-brand hover:bg-soft">
-          <Upload size={15} />Pilih berkas .txt Syamilah
-          <input type="file" accept=".txt,text/plain" className="hidden" onChange={pilihBerkas} disabled={sibuk} />
+          <Upload size={15} />Pilih berkas kitab (.txt / .docx)
+          <input type="file" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={pilihBerkas} disabled={sibuk} />
         </label>
         {berkas && <span className="ml-2 break-all text-xs text-mute">{berkas}</span>}
         {errParse && <p role="alert" className="mt-3 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{errParse}</p>}
@@ -99,6 +99,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
         {hasil && isian && (
           <div className="mt-4 space-y-4">
             <div>
+              <p className="text-xs text-mute">Format terbaca: {FORMAT_LABEL[hasil.format] || hasil.format}</p>
               <p dir="rtl" lang="ar" className="ar text-lg">{hasil.kitab.judul}</p>
               <p className="text-sm text-mute">{hasil.kitab.pengarang}</p>
             </div>

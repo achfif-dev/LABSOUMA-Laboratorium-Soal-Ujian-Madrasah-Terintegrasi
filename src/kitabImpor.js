@@ -14,6 +14,7 @@ export const MAZHAB = ['', 'syafii', 'hanafi', 'maliki', 'hanbali'];
 export const STATUS_HAK_CIPTA = ['belum-dicek', 'domain-publik', 'izin'];
 const BENTUK_MATN = ['pemisah-tatwil', 'tanpa-pemisah'];
 const ANOMALI = ['duplikat', 'mundur', 'lompat'];
+export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda'];
 const RE_ID = /^[a-z0-9][a-z0-9-]{1,59}$/;
 
 const tolak = (kode, pesan, status = 422) => { throw new ApiError(status, kode, pesan); };
@@ -46,6 +47,8 @@ export function validasiKitab(k) {
   if (!MAZHAB.includes(mazhab)) tolak('KITAB_INVALID', 'Mazhab tidak dikenal.');
   const status = str(hak.status || 'belum-dicek', 20, 'Status hak cipta');
   if (!STATUS_HAK_CIPTA.includes(status)) tolak('KITAB_INVALID', 'Status hak cipta tidak dikenal.');
+  const jenisSumber = str(sumber.jenis || 'syamilah-txt', 30, 'Jenis sumber');
+  if (!JENIS_SUMBER.includes(jenisSumber)) tolak('KITAB_INVALID', 'Jenis sumber tidak dikenal.');
   const bentuk = str(k.bentukMatn, 30, 'Bentuk matn', { wajib: true });
   if (!BENTUK_MATN.includes(bentuk)) tolak('KITAB_INVALID', 'Bentuk matn tidak dikenal.');
   return {
@@ -62,7 +65,7 @@ export function validasiKitab(k) {
     bentukMatn: bentuk,
     berharakat: k.berharakat === true,
     hakCipta: { status, catatan: str(hak.catatan, 600, 'Catatan hak cipta') },
-    sumber: { jenis: 'syamilah-txt', pengunggah: str(sumber.pengunggah, 200, 'Pengunggah'), tanggalSyamilah: str(sumber.tanggalSyamilah, 100, 'Tanggal Syamilah') },
+    sumber: { jenis: jenisSumber, pengunggah: str(sumber.pengunggah, 200, 'Pengunggah'), tanggalSyamilah: str(sumber.tanggalSyamilah, 100, 'Tanggal Syamilah'), rujukan: str(sumber.rujukan, 200, 'Rujukan sumber') },
     formatParser: bil(k.formatParser ?? 1, 1, 99, 'Versi parser'),
   };
 }
