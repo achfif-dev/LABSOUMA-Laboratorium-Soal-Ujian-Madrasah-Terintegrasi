@@ -5,6 +5,7 @@
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman } from './kitabImpor.js';
+import { aksiCari } from './kitabCari.js';
 
 export const MAKS_HALAMAN_BACA = 10;
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
@@ -43,6 +44,8 @@ export async function aksiBaca(body) {
     const isi = await db.doc(`kitab/${kid}/daftar/isi`).get();
     return { kitab: ringkas(kid, m), entri: isi.exists ? isi.data().entri || [] : [] };
   }
+
+  if (b.aksi === 'perpus-cari') return aksiCari(b, kid, m);
 
   if (b.aksi === 'perpus-halaman') {
     let docs = [];

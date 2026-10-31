@@ -4,6 +4,7 @@
 // ditulis ulang dari daftar putih, hasil parse klien tidak pernah disalin mentah.
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
+import { VERSI_INDEKS, bangunPotongan } from '../web/lib/cariKitab.js';
 
 export const MAKS_HALAMAN_PER_PANGGILAN = 100;
 export const MAKS_TEKS_HALAMAN = 12000;
@@ -102,14 +103,20 @@ async function hitung(col) {
   return (await col.select().get()).docs.length;
 }
 
-async function hapusHalaman(db, kid) {
-  const snap = await db.collection(`kitab/${kid}/halaman`).select().get();
+async function hapusKoleksi(db, path) {
+  const snap = await db.collection(path).select().get();
   for (let i = 0; i < snap.docs.length; i += MAKS_BATCH) {
     const b = db.batch();
     snap.docs.slice(i, i + MAKS_BATCH).forEach((d) => b.delete(d.ref));
     await b.commit();
   }
   return snap.docs.length;
+}
+// Halaman dan indeks pencarian (kitab/{id}/cari) dihapus bersama saat impor ulang; yang dilaporkan hanya jumlah halaman.
+async function hapusHalaman(db, kid) {
+  const n = await hapusKoleksi(db, `kitab/${kid}/halaman`);
+  await hapusKoleksi(db, `kitab/${kid}/cari`);
+  return n;
 }
 
 const ringkasMeta = (id, d) => ({
@@ -155,6 +162,8 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
     if (new Set(docs.map((d) => d.seq)).size !== docs.length) tolak('KITAB_INVALID', 'Ada urutan halaman kembar dalam satu panggilan.');
     const bt = db.batch();
     docs.forEach((d) => bt.set(db.doc(`kitab/${kid}/halaman/${idHalaman(d.seq)}`), d));
+    // Indeks pencarian ditulis dalam batch yang sama dengan halamannya: halaman lengkap = indeks lengkap (src/kitabCari.js).
+    bangunPotongan(docs).forEach((p) => bt.set(db.doc(`kitab/${kid}/cari/${p.id}`), { ...p.data, revisi: meta.revisi || 1 }));
     await bt.commit();
     return { ok: true, tertulis: docs.length };
   }
@@ -164,6 +173,7 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
     if (meta.status !== 'mengimpor') tolak('KITAB_STATUS', 'Kitab ini tidak sedang diimpor.', 409);
     const n = await hitung(db.collection(`kitab/${kid}/halaman`));
     if (n !== meta.jumlahHalaman) tolak('KITAB_JUMLAH_BEDA', `Halaman tersimpan ${n}, seharusnya ${meta.jumlahHalaman}. Kitab belum diaktifkan; ulangi impor dengan "timpa".`, 409);
+    await db.doc(`kitab/${kid}/cari/meta`).set({ versi: VERSI_INDEKS, revisi: meta.revisi || 1, status: 'siap', halaman: n });
     await ref.set({ ...meta, status: 'siap', aktif: true, diubahAt: sekarang(), diubahOleh: uid });
     return { ok: true, jumlah: n };
   }
