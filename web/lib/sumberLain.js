@@ -6,7 +6,7 @@
 //  - Penanda halaman cetak ASLI (EPUB pagebreak, JSON ber-`hal`, PDF + nomor awal yang diisi admin) dipakai apa adanya.
 //  - Tanpa penanda sama sekali, halaman DIBAGI OTOMATIS menurut panjang teks dan kitab ditandai `halamanVirtual: true`. Nomornya bukan nomor cetak;
 //    soal yang merujuk ke sana tetap bisa ditautkan balik ke halamannya di perpustakaan, tetapi pembaca dan pemilih menampilkan peringatan.
-import { ErrorSyamilah, HARAKAT, HURUF, KATA_KUNCI_BAB } from './syamilah.js';
+import { ErrorSyamilah, HARAKAT, HURUF, KATA_KUNCI_BAB, levelKata } from './syamilah.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { potongTeks } from './pecahHalaman.js';
 import { bacaBerkasZip, namaBerkasZip } from './docx.js';
@@ -60,7 +60,6 @@ export function paragrafDariHtml(html, { pagebreak = false } = {}) {
 }
 
 /* ------------------------------------------------------------------ halaman virtual */
-const levelKata = (t) => (/^(مقدمة|مدخل|كتاب)/.test(t) ? 1 : /^باب/.test(t) ? 2 : 3);
 /** Baris pendek berawalan kata bab (باب، فصل، كتاب ...) tanpa tanda akhir kalimat = calon judul, untuk sumber tanpa gaya judul. */
 export const calonJudul = (t) => { const s = String(t || '').trim(); return s.length >= 3 && s.length <= 90 && KATA_KUNCI_BAB.test(s) && !/[.؟!؛]$/.test(s); };
 

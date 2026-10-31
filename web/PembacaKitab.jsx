@@ -4,6 +4,7 @@ import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js'
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
+import { tampilanTeks, kitabArab } from './lib/bahasa.js';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
 // daftar isi yang bisa dicari, lompat ke nomor cetak, dan penyorotan rentang halaman yang dirujuk soal (tautan balik dari Bank Soal/Review).
@@ -73,24 +74,26 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   }, [isi, kursor, jumlah]);
 
   const kitab = isi && isi.kitab;
+  const arab = kitabArab(kitab); // kitab berhuruf Arab dibaca kanan ke kiri; buku berhuruf Latin kiri ke kanan (arah halaman, panah papan ketik, tombol)
+  const tk = (ekstra) => tampilanTeks(kitab, ekstra);
   const geser = useCallback((d) => { setInfo(''); setSorot((s) => s); setKursor((k) => kursorSah(k + d * jumlah, total, jumlah)); }, [total, jumlah]);
   const bisaPisah = kitab && kitab.bentukMatn === 'pemisah-tatwil' && halaman.some((p) => p.batasMatn !== null);
   const bagian = bisaPisah ? pref.bagian : 'semua';
 
-  // Pintasan papan ketik. Arah baca Arab: halaman berikutnya ada di KIRI. Tidak aktif saat mengetik di kolom isian.
+  // Pintasan papan ketik. Arah baca Arab: halaman berikutnya ada di KIRI; buku Latin: di KANAN. Tidak aktif saat mengetik di kolom isian.
   useEffect(() => {
     const tekan = (e) => {
       const t = e.target; if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); geser(1); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); geser(-1); }
+      if (e.key === (arab ? 'ArrowLeft' : 'ArrowRight')) { e.preventDefault(); geser(1); }
+      else if (e.key === (arab ? 'ArrowRight' : 'ArrowLeft')) { e.preventDefault(); geser(-1); }
       else if (e.key === 'Escape' && lebarLayar) setLebarLayar(false);
       else if (e.key === '/' && kitabId) { e.preventDefault(); bukaCari(); }
       else if (e.key === '+' || e.key === '=') ubahPref({ ukuran: Math.min(UKURAN_HURUF.length - 1, pref.ukuran + 1) });
       else if (e.key === '-') ubahPref({ ukuran: Math.max(0, pref.ukuran - 1) });
     };
     window.addEventListener('keydown', tekan); return () => window.removeEventListener('keydown', tekan);
-  }, [geser, lebarLayar, pref.ukuran, kitabId]);
+  }, [geser, lebarLayar, pref.ukuran, kitabId, arab]);
   // Layar lebar menutupi halaman: kunci gulir badan dokumen selama aktif.
   useEffect(() => {
     if (!lebarLayar) return undefined;
@@ -170,9 +173,9 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
               <li key={k.id}>
                 <button type="button" onClick={() => { setSorot(null); setKursor(terakhir[k.id] || 1); setKitabId(k.id); }}
                   className="flex h-full w-full flex-col gap-1 rounded-2xl border border-line bg-surface px-4 py-3 text-left shadow-sm transition hover:border-brand hover:bg-soft">
-                  <span dir="rtl" lang="ar" className="ar text-xl">{k.judul}</span>
+                  {k.judul && k.judul !== k.judulLatin && <span {...tampilanTeks(k, 'text-xl')}>{k.judul}</span>}
                   <span className="text-sm font-semibold">{k.judulLatin}</span>
-                  {k.pengarang && <span dir="rtl" lang="ar" className="ar text-sm text-mute">{k.pengarang}</span>}
+                  {k.pengarang && <span {...tampilanTeks(k, 'text-sm text-mute')}>{k.pengarang}</span>}
                   <span className="mt-auto pt-1 text-xs text-mute">{k.jumlahHalaman} halaman{k.fan ? ` · ${k.fan}` : ''}{terakhir[k.id] ? ` · terakhir dibaca urutan ${terakhir[k.id]}` : ''}</span>
                 </button>
               </li>))}
@@ -222,7 +225,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       {kitab && !pesanVirtual && kitab.sumberJenis === 'pdf' && <p role="note" className={`rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Kitab ini diimpor dari PDF: nomor halaman mengikuti urutan PDF ditambah nomor awal yang diisi admin ({labelSumberJenis(kitab.sumberJenis)}).</p>}
       {kataSorot && hasilCari && hasilCari.total > 0 && halaman.length > 0 && (
         <p role="status" className={`flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>
-          <b>Pencarian:</b> <span dir="auto" lang="ar" className="ar text-sm">{hasilCari.q}</span> · {hasilCari.total.toLocaleString('id-ID')} halaman
+          <b>Pencarian:</b> <span dir="auto" {...(arab ? { lang: 'ar' } : {})} className={`${arab ? 'ar ' : ''}text-sm`}>{hasilCari.q}</span> · {hasilCari.total.toLocaleString('id-ID')} halaman
           <button type="button" className="rounded-lg px-2 py-0.5 underline disabled:opacity-40 disabled:no-underline" disabled={!hasilSebelum} onClick={() => hasilSebelum && bukaHasil(hasilSebelum)}>Hasil sebelumnya</button>
           <button type="button" className="rounded-lg px-2 py-0.5 underline disabled:opacity-40 disabled:no-underline" disabled={!hasilBerikut} onClick={() => hasilBerikut && bukaHasil(hasilBerikut)}>Hasil berikutnya</button>
           <button type="button" className="ml-auto underline" onClick={() => setKataSorot(null)}>Hilangkan sorotan kata</button>
@@ -246,7 +249,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
               <div className="flex min-h-0 flex-1 flex-col" role="tabpanel" aria-label="Cari teks">
                 <form className="space-y-2 border-b border-line p-2" onSubmit={(e) => { e.preventDefault(); jalankanCari(0); }} role="search">
                   <div className="flex gap-1.5">
-                    <input ref={cariRef} dir="auto" lang="ar" type="search" aria-label="Kata yang dicari di seluruh kitab" className="field ar !py-1.5 !text-base" placeholder="Cari kata atau kalimat..." maxLength={200}
+                    <input ref={cariRef} dir="auto" {...(arab ? { lang: 'ar' } : {})} type="search" aria-label="Kata yang dicari di seluruh kitab" className={`field ${arab ? 'ar ' : ''}!py-1.5 !text-base`} placeholder="Cari kata atau kalimat..." maxLength={200}
                       value={qCari} onChange={(e) => setQCari(e.target.value)} />
                     <Btn type="submit" kind="soft" className="!px-3 !py-1.5 !text-xs" disabled={cariBusy || !qCari.trim()} aria-label="Cari">{cariBusy ? <Loader2 size={14} className="spin" /> : <Search size={14} />}</Btn>
                   </div>
@@ -264,11 +267,11 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       return (
                         <li key={r.seq}>
                           <button type="button" onClick={() => bukaHasil(r)} aria-current={r.seq >= kursor && r.seq <= kursor + jumlah - 1 ? 'true' : undefined}
-                            className={`w-full rounded-lg px-2 py-1.5 text-right leading-snug hover:bg-soft ${r.seq >= kursor && r.seq <= kursor + jumlah - 1 ? 'bg-soft' : ''}`}>
-                            <span dir="rtl" lang="ar" className="ar block text-base">
+                            className={`w-full rounded-lg px-2 py-1.5 ${arab ? 'text-right' : 'text-left'} leading-snug hover:bg-soft ${r.seq >= kursor && r.seq <= kursor + jumlah - 1 ? 'bg-soft' : ''}`}>
+                            <span {...tk('block text-base')}>
                               {r.awalTerpotong ? '… ' : ''}{potongCuplikan(r, hasilCari.kata, hasilCari.mode).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))}{r.akhirTerpotong ? ' …' : ''}
                             </span>
-                            <span className="block text-left text-[11px] text-mute">hal. {r.hal} · juz {r.juz}{r.jumlah > 1 ? ` · ${r.jumlah}×` : ''}{babRes ? <> · <span dir="rtl" lang="ar" className="ar">{babRes.judul.slice(0, 40)}</span></> : null}</span>
+                            <span className="block text-left text-[11px] text-mute">hal. {r.hal} · juz {r.juz}{r.jumlah > 1 ? ` · ${r.jumlah}×` : ''}{babRes ? <> · <span {...tk()}>{babRes.judul.slice(0, 40)}</span></> : null}</span>
                           </button>
                         </li>);
                     })}
@@ -289,8 +292,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       {daftarTampil.map(({ e, i }) => (
                         <li key={i}>
                           <button type="button" onClick={() => { setSorot(null); setKursor(kursorSah(e.seq, total, jumlah)); setInfo(''); }} aria-current={i === aktif ? 'true' : undefined}
-                            className={`w-full rounded-lg px-2 py-1.5 text-right leading-snug hover:bg-soft ${i === aktif ? 'bg-soft font-semibold text-soft-ink' : ''}`}>
-                            <span dir="rtl" lang="ar" className="ar block text-base">{`${'– '.repeat(Math.max(0, (e.level || 1) - 1))}${e.judul}`}</span>
+                            className={`w-full rounded-lg px-2 py-1.5 ${arab ? 'text-right' : 'text-left'} leading-snug hover:bg-soft ${i === aktif ? 'bg-soft font-semibold text-soft-ink' : ''}`}>
+                            <span {...tk('block text-base')}>{`${'– '.repeat(Math.max(0, (e.level || 1) - 1))}${e.judul}`}</span>
                             <span className="block text-left text-[11px] text-mute">hal. {e.hal}</span>
                           </button>
                         </li>))}
@@ -303,13 +306,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
         <section ref={areaRef} aria-label="Isi kitab" aria-busy={busy} className={`min-h-0 min-w-0 rounded-2xl border border-line bg-surface ${lebarLayar ? 'overflow-auto' : ''}`}>
           {kitab && (
             <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-2">
-              <span dir="rtl" lang="ar" className="ar text-lg">{kitab.judul}</span>
+              <span {...tk('text-lg')}>{kitab.judul}</span>
               <span className="text-xs text-mute">{kitab.judulLatin}</span>
-              {babInfo && entri[aktif] && <span className="text-xs text-mute">· bab: <span dir="rtl" lang="ar" className="ar">{entri[aktif].judul}</span></span>}
+              {babInfo && entri[aktif] && <span className="text-xs text-mute">· bab: <span {...tk()}>{entri[aktif].judul}</span></span>}
             </div>)}
           {!halaman.length && (busy || !isi) && <p className="flex items-center gap-2 p-6 text-sm text-mute"><Loader2 size={16} className="spin" />Memuat halaman...</p>}
           {halaman.length > 0 && (
-            <div dir="rtl" className={`mx-auto flex gap-4 px-4 py-5 ${jumlah === 2 ? 'max-w-none flex-col xl:flex-row' : lebar.kelas}`}>
+            <div dir={arab ? 'rtl' : 'ltr'} className={`mx-auto flex gap-4 px-4 py-5 ${jumlah === 2 ? 'max-w-none flex-col xl:flex-row' : lebar.kelas}`}>
               {halaman.map((p) => {
                 const disorot = sorot && p.seq >= sorot.dari && p.seq <= sorot.sampai;
                 const teks = bagianTeks(p, bagian);
@@ -321,7 +324,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       {p.nomorAnomali && <span className="text-warn">nomor cetak {p.nomorAnomali}</span>}
                       {disorot && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 font-semibold text-brand-fg">rujukan soal</span>}
                     </header>
-                    <div lang="ar" className="ar whitespace-pre-wrap break-words text-right" style={{ fontSize: `${px}px`, lineHeight: 2.15 }}>
+                    <div {...(kitab && kitab.bahasa && kitab.bahasa !== 'lain' ? { lang: kitab.bahasa } : (arab ? { lang: 'ar' } : {}))} className={`${arab ? 'ar text-right' : 'text-left'} whitespace-pre-wrap break-words`} style={{ fontSize: `${px}px`, lineHeight: arab ? 2.15 : 1.75 }}>
                       {teks ? potongSorot(teks, reSorot).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))
                         : <span className="text-sm text-mute" dir="ltr">(halaman tanpa teks pada bagian ini)</span>}
                     </div>
@@ -332,13 +335,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       </div>
 
       <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mt-0' : ''}`}>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1} aria-keyshortcuts="ArrowRight" title="Halaman sebelumnya (→)"><ChevronRight size={14} />Sebelumnya</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1} aria-keyshortcuts={arab ? 'ArrowRight' : 'ArrowLeft'} title={arab ? 'Halaman sebelumnya (→)' : 'Halaman sebelumnya (←)'}>{arab ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}Sebelumnya</Btn>
         <div className="min-w-0 flex-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-soft" role="progressbar" aria-valuemin={1} aria-valuemax={total || 1} aria-valuenow={kursor} aria-label="Posisi baca">
             <div className="h-full bg-brand transition-all" style={{ width: `${total ? Math.round((kursor / total) * 100) : 0}%` }} /></div>
           <p className="mt-1 text-center text-xs text-mute">{halaman.length ? <>Hal. <b className="text-ink">{halaman.length > 1 ? `${halaman[0].hal}–${halaman[halaman.length - 1].hal}` : halaman[0].hal}</b> · urutan {kursor}/{total}</> : `Urutan ${kursor}/${total}`}{info ? ` · ${info}` : ''}</p>
         </div>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total} aria-keyshortcuts="ArrowLeft" title="Halaman berikutnya (←, arah baca Arab)">Berikutnya<ChevronLeft size={14} /></Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total} aria-keyshortcuts={arab ? 'ArrowLeft' : 'ArrowRight'} title={arab ? 'Halaman berikutnya (←, arah baca Arab)' : 'Halaman berikutnya (→)'}>Berikutnya{arab ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}</Btn>
       </div>
       {kembar.length > 0 && (
         <div className={`flex flex-wrap items-center gap-2 ${lebarLayar ? 'mx-2 mb-2' : ''}`} role="group" aria-label="Pilih halaman bernomor kembar">

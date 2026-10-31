@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Library, Loader2, ChevronLeft, ChevronRight, Plus, Check } from 'lucide-react';
 import { buatPemuat, isianRujukan, labelEntri, rentangBab } from './lib/perpus.js';
+import { tampilanTeks } from './lib/bahasa.js';
 
 // Pemilih kitab, bab, dan halaman dari perpustakaan (hasil impor admin). Dipakai di Penyusunan Soal (mode "form": ganti atau tambah teks)
 // dan Paket Dauri (mode "paket": menambah halaman ke materi). Tidak menulis apa pun sendiri: hasilnya diserahkan ke `onPakai`.
@@ -113,7 +114,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
                 <label key={v} className="flex items-center gap-1.5"><input type="radio" name="pk-bagian" className="accent-[var(--brand)]" checked={bagian === v} onChange={() => setBagian(v)} />{l}</label>))}
             </div>
           )}
-          {halaman.length > 0 && <p dir="rtl" lang="ar" className="ar max-h-52 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-3 text-lg">{teksHalaman}</p>}
+          {halaman.length > 0 && <p {...tampilanTeks(kitab, 'max-h-52 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-3 text-lg')}>{teksHalaman}</p>}
           {anomali.length > 0 && <p className="text-xs text-warn">Nomor cetak halaman ini {anomali.map((p) => p.nomorAnomali).join(', ')} di kitab sumber; urutan {anomali.map((p) => p.seq).join(', ')} tetap benar.</p>}
           {info && <p role="status" className="text-xs text-soft-ink">{info}</p>}
           <div className="flex flex-wrap gap-2">

@@ -1,6 +1,7 @@
 // Logika klien impor perpustakaan kitab (tanpa React): pratinjau, peringatan, dan urutan panggilan ke /api/kitab.
 // Server tetap memvalidasi ulang semuanya (src/kitabImpor.js); modul ini hanya merapikan dan mengurutkan.
 import { peringatanKualitas } from './kualitasKitab.js';
+import { aksaraBawaan, LABEL_BAHASA } from './bahasa.js';
 
 export const UKURAN_BATCH = 100;
 
@@ -16,18 +17,32 @@ export function bagiBatch(daftar, maks = UKURAN_BATCH) {
   return hasil;
 }
 
+/** Pilihan "bahasa : aksara" di formulir impor. Nilai = `${bahasa}:${aksara}`. Pegon/Jawi = bahasa daerah/Melayu/Indonesia beraksara Arab (tampil kanan ke kiri). */
+export const PILIHAN_BAHASA = [
+  ['ar:arab', 'Arab'], ['id:latin', 'Indonesia (Latin)'], ['jv:latin', 'Jawa (Latin)'], ['su:latin', 'Sunda (Latin)'], ['ms:latin', 'Melayu (Latin)'], ['en:latin', 'Inggris (Latin)'],
+  ['lain:latin', 'Bahasa lain (Latin)'], ['id:arab', 'Indonesia (aksara Arab/Pegon)'], ['jv:arab', 'Jawa (Pegon)'], ['su:arab', 'Sunda (Pegon)'], ['ms:arab', 'Melayu (Jawi)'], ['lain:lain', 'Aksara lain (kiri ke kanan)'],
+];
+export const nilaiBahasa = (i) => `${i.bahasa}:${i.aksara}`;
+export const bahasaDariNilai = (v) => { const [bahasa, aksara] = String(v).split(':'); return { bahasa, aksara }; };
+
 const MAZHAB_DARI_FAN = [[/الشافع/, 'syafii'], [/الحنفي/, 'hanafi'], [/المالك/, 'maliki'], [/الحنبل/, 'hanbali']];
 export const tebakMazhab = (fan) => (MAZHAB_DARI_FAN.find(([re]) => re.test(fan || '')) || [0, ''])[1];
 
-/** Isian awal formulir dari hasil parse. Nama Latin sengaja dikosongkan: tidak bisa ditebak dari judul Arab. */
+/**
+ * Isian awal formulir dari hasil parse. Kitab Arab: nama Latin dikosongkan (tidak bisa ditebak dari judul Arab).
+ * Buku berhuruf Latin: judulnya sudah Latin, jadi dipakai sebagai nama awal (admin tetap bisa mengubahnya).
+ */
 export function isianAwal(hasil) {
   const k = hasil.kitab;
-  return { judulLatin: '', kitabId: '', mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false };
+  const aksara = k.aksara || 'arab'; const bahasa = k.bahasa || (aksara === 'arab' ? 'ar' : 'id');
+  const judulLatin = aksara === 'arab' ? '' : String(k.judul || '').trim().slice(0, 150);
+  return { judulLatin, kitabId: judulLatin ? slugKitab(judulLatin) : '', bahasa, aksara, mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false };
 }
 
 /** Peringatan untuk admin sebelum impor. `tingkat`: 'bad' menghalangi, 'warn' memberi tahu. */
-export function peringatanPratinjau(hasil) {
+export function peringatanPratinjau(hasil, pilihan = null) {
   const { kitab: k, laporan: l } = hasil;
+  const bahasa = (pilihan && pilihan.bahasa) || k.bahasa || 'ar'; const aksara = (pilihan && pilihan.aksara) || k.aksara || aksaraBawaan(bahasa);
   const w = [];
   const kelewat = (l.halamanPanjang || []).filter((x) => x.panjang > 30000);
   if (kelewat.length) w.push({ tingkat: 'bad', teks: `Halaman hal. ${kelewat.map((x) => `${x.hal} (${x.panjang.toLocaleString('id-ID')} karakter)`).join(', ')} terlalu panjang untuk satu halaman cetak, dan tidak dipecah otomatis. Biasanya penanda halaman hilang, atau indeks/daftar isi kitab menempel di halaman terakhir. Perbaiki berkasnya (tambahkan penanda halaman, atau buang bagian belakang) lalu pilih ulang.` });
@@ -39,7 +54,8 @@ export function peringatanPratinjau(hasil) {
   if (l.halamanKosong) w.push({ tingkat: 'warn', teks: `${l.halamanKosong} halaman tanpa teks.` });
   const a = l.anomali;
   if (a.duplikat + a.mundur + a.lompat) w.push({ tingkat: 'warn', teks: `Nomor halaman cetak tidak berurutan: ${a.duplikat} kembar, ${a.mundur} mundur, ${a.lompat} melompat. Aman: kunci halaman memakai urutan, bukan nomor cetak.` });
-  if (k.bentukMatn === 'tanpa-pemisah') w.push({ tingkat: 'warn', teks: 'Matn tidak terpisah dari syarah di berkas ini (batas matn tidak diketahui).' });
+  if (aksara !== 'arab') { /* pemisahan matn dan syarah hanya dikenal pada kitab Arab (Syamilah); tidak relevan untuk buku biasa */ }
+  else if (k.bentukMatn === 'tanpa-pemisah') w.push({ tingkat: 'warn', teks: 'Matn tidak terpisah dari syarah di berkas ini (batas matn tidak diketahui).' });
   else if (l.halamanTanpaPemisah) w.push({ tingkat: 'warn', teks: `${l.halamanTanpaPemisah} halaman tanpa pemisah matn dan syarah.` });
   if (k.edisi.muhaqqiq) w.push({ tingkat: 'warn', teks: `Edisi ini bertahqiq (${k.edisi.muhaqqiq}). Teks pengarang klasik domain publik, tetapi hasil tahqiq bisa dilindungi hak cipta. Status hak cipta awal: belum dicek.` });
   if (l.catatanTertinggal && l.catatanTertinggal.length) w.push({ tingkat: 'warn', teks: `${l.catatanTertinggal.length} halaman (hal. ${l.catatanTertinggal.map((x) => x.hal).join(', ')}) memuat catatan bernomor "(1)" di tengah teks yang mungkin catatan editor. Tidak dibuang otomatis; periksa di perpustakaan.` });
@@ -49,7 +65,8 @@ export function peringatanPratinjau(hasil) {
   if (l.barisBerulangDibuang) w.push({ tingkat: 'warn', teks: `${l.barisBerulangDibuang} baris judul berjalan/nomor halaman dibuang dari awal dan akhir halaman PDF${l.contohBarisBerulang && l.contohBarisBerulang.length ? ` (mis. «${l.contohBarisBerulang[0].slice(0, 40)}»)` : ''}. Periksa satu-dua halaman di pratinjau bahwa tidak ada isi yang ikut terbuang.` });
   if (l.nomorDariPdf) w.push({ tingkat: 'warn', teks: `Nomor cetak dibaca dari nomor halaman di dalam PDF (${Math.round(l.nomorDariPdf.dukungan * 100)}% halaman bernomor sepakat; halaman PDF pertama = hal. ${l.nomorDariPdf.offset}). Nomor awal yang Anda isi tidak dipakai; isi nomor selain 1 untuk memakai nomor Anda sendiri.` });
   else if (l.nomorTerdeteksiDiabaikan !== null && l.nomorTerdeteksiDiabaikan !== undefined) w.push({ tingkat: 'warn', teks: `PDF memuat nomor halaman yang menunjukkan halaman PDF pertama = hal. ${l.nomorTerdeteksiDiabaikan}, tetapi Anda mengisi nomor awal sendiri, jadi nomor Anda yang dipakai.` });
-  w.push(...peringatanKualitas(hasil.halaman));
+  if (aksara !== 'arab') w.push({ tingkat: 'warn', teks: `Kitab/buku berbahasa ${LABEL_BAHASA[bahasa] || 'lain'} (huruf ${aksara === 'latin' ? 'Latin' : 'selain Arab'}): tampil kiri ke kanan. Pembuangan catatan kaki otomatis dirancang untuk kitab Arab; periksa halaman yang memuat catatan, dan pastikan teks di pratinjau utuh.` });
+  w.push(...peringatanKualitas(hasil.halaman, { bahasa, aksara }));
   return w;
 }
 
@@ -58,20 +75,20 @@ export function peringatanDuplikat(hasil, isian, daftar) {
   const w = []; const ada = Array.isArray(daftar) ? daftar : [];
   const sama = ada.find((k) => k.id === isian.kitabId);
   if (sama) w.push({ tingkat: isian.timpa ? 'warn' : 'bad', teks: isian.timpa ? `Kitab "${sama.judulLatin}" (ID ${sama.id}, rev. ${sama.revisi}, ${sama.jumlahHalaman} halaman) akan DITIMPA: halaman lamanya dihapus. Soal yang sudah bertaut ke halaman lama tetap menyimpan salinan teksnya, tetapi tautan "Buka di kitab" bisa menunjuk halaman yang berbeda bila urutannya berubah.` : `ID "${sama.id}" sudah dipakai kitab "${sama.judulLatin}" (${sama.jumlahHalaman} halaman). Centang "timpa" bila ingin menggantinya, atau pakai ID lain.` });
-  const norm = (s) => String(s || '').replace(/[\u064B-\u0652\u0670\u0640\s]+/g, '');
+  const norm = (s) => String(s || '').replace(/[\u064B-\u0652\u0670\u0640\s]+/g, '').toLowerCase();
   const judul = norm(hasil && hasil.kitab && hasil.kitab.judul);
   const kembar = judul ? ada.find((k) => k.id !== isian.kitabId && norm(k.judul) === judul) : null;
   if (kembar) w.push({ tingkat: 'warn', teks: `Judul Arab yang sama sudah ada di perpustakaan sebagai "${kembar.judulLatin}" (ID ${kembar.id}). Pastikan ini edisi berbeda, bukan impor ganda.` });
   return w;
 }
 
-export const isianSiap = (isian) => !!isian.judulLatin.trim() && /^[a-z0-9][a-z0-9-]{1,59}$/.test(isian.kitabId);
+export const isianSiap = (isian) => !!isian.judulLatin.trim() && /^[a-z0-9][a-z0-9-]{1,59}$/.test(isian.kitabId) && PILIHAN_BAHASA.some(([v]) => v === nilaiBahasa(isian));
 
 export function muatanMulai(hasil, isian) {
   const { kitab, daftarIsi } = hasil;
   return {
     aksi: 'impor-mulai', kitabId: isian.kitabId, timpa: !!isian.timpa, daftarIsi,
-    kitab: { ...kitab, judulLatin: isian.judulLatin.trim(), mazhab: isian.mazhab, hakCipta: { status: isian.hakCipta, catatan: isian.catatanHak } },
+    kitab: { ...kitab, judul: kitab.judul || isian.judulLatin.trim(), judulLatin: isian.judulLatin.trim(), bahasa: isian.bahasa, aksara: isian.aksara, mazhab: isian.mazhab, hakCipta: { status: isian.hakCipta, catatan: isian.catatanHak } },
   };
 }
 

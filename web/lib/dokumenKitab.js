@@ -2,12 +2,15 @@
 // { kitab, halaman, daftarIsi, laporan } (lihat docs/SKEMA-KITAB.md). Format yang dikenali:
 //  - .txt ekspor Syamilah: baris "<judul>(ص: N)"                         -> parseSyamilah
 //  - .docx ekspor Syamilah, atau .txt/.docx lain dengan penanda "[ص N]" -> parsePenandaSisip
-// Berkas tanpa penanda halaman (mis. hasil convert PDF) sengaja ditolak: membagi halaman dengan menebak membuat rujukan halaman salah.
+// Berkas tanpa penanda halaman (mis. hasil convert PDF) sengaja ditolak kecuali admin memilih halaman virtual: membagi halaman dengan menebak membuat rujukan halaman salah.
+// Bahasa tidak membatasi: kitab Arab, buku/kitab berhuruf Latin (Indonesia, Jawa, Sunda, Melayu, Inggris, dst.), dan Pegon/Jawi sama-sama diterima.
+// Penanda halaman Latin yang dikenali: "[hal. N]", "[hlm N]", "[halaman N]", "[page N]", "[p. N]", "[jilid 2, hal. 5]" (lihat penandaSisip.js).
 import { parseSyamilah, ErrorSyamilah } from './syamilah.js';
 import { bacaDocx } from './docx.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { pecahHalamanPanjang } from './pecahHalaman.js';
 import { parsePdf, parseEpub, parseHtml, parseJson, parseTeksBebas, parseDocxBebas } from './sumberLain.js';
+import { aksaraDominan, tebakBahasa, aksaraBawaan } from './bahasa.js';
 
 export const FORMAT_LABEL = {
   'txt-syamilah': 'Ekspor .txt Syamilah',
@@ -23,12 +26,31 @@ export const FORMAT_LABEL = {
   'teks-virtual': 'Teks tanpa penanda halaman (halaman virtual)',
 };
 export const EKSTENSI_DIKENAL = ['.txt', '.docx', '.pdf', '.epub', '.html', '.htm', '.xhtml', '.json'];
-export const PESAN_TANPA_PENANDA = 'Penanda halaman tidak ditemukan. Format yang dikenali: (1) ekspor .txt Syamilah (baris berakhiran "(ص: N)"); (2) berkas .docx atau .txt yang memuat penanda "[ص N]" di dalam teks. Bila berkasnya tidak punya penanda sama sekali, pilih "Bagi halaman otomatis": halaman dibuat menurut panjang teks dan ditandai virtual (bukan nomor cetak).';
+export const PESAN_TANPA_PENANDA = 'Penanda halaman tidak ditemukan. Format yang dikenali: (1) ekspor .txt Syamilah (baris berakhiran "(ص: N)"); (2) berkas .docx atau .txt yang memuat penanda "[ص N]" (kitab Arab) atau "[hal. N]" (buku berhuruf Latin) di dalam teks. Bila berkasnya tidak punya penanda sama sekali, pilih "Bagi halaman otomatis": halaman dibuat menurut panjang teks dan ditandai virtual (bukan nomor cetak).';
 
 const tanpaPenanda = (e) => (e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA' ? new ErrorSyamilah('TANPA_PENANDA', PESAN_TANPA_PENANDA) : e);
 
 /** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string, virtual?:boolean, halAwal?:number, bacaPdf?:Function}} berkas  `buffer` untuk .docx/.pdf/.epub; teks/HTML/JSON boleh `teks` atau `buffer`. `halAwal` = nomor cetak halaman pertama (PDF, halaman virtual). */
-export async function bacaDokumenKitab(berkas) { return pecahHalamanPanjang(await bacaMentah(berkas)); }
+export async function bacaDokumenKitab(berkas) { return tetapkanBahasa(pecahHalamanPanjang(await bacaMentah(berkas))); }
+
+/** Cuplikan teks untuk mendeteksi bahasa: 30 halaman pertama dan 30 halaman dari tengah (sampul/pengantar saja tidak menentukan). */
+const cuplikan = (halaman) => {
+  const n = halaman.length; const idx = new Set();
+  for (let i = 0; i < Math.min(30, n); i++) idx.add(i);
+  for (let i = Math.floor(n / 2); i < Math.min(n, Math.floor(n / 2) + 30); i++) idx.add(i);
+  return [...idx].map((i) => halaman[i].teks).join('\n');
+};
+/**
+ * Isi `kitab.aksara` dan `kitab.bahasa` dari isi teks sebagai SARAN awal (admin bisa mengubahnya di layar impor). Nilai yang sudah ada tidak ditimpa.
+ * Murni: mengembalikan hasil baru, masukan tidak diubah.
+ */
+export function tetapkanBahasa(hasil) {
+  const contoh = cuplikan(hasil.halaman || []);
+  const aksara = hasil.kitab.aksara || aksaraDominan(contoh) || 'arab';
+  const bahasa = hasil.kitab.bahasa || (aksara === 'arab' ? 'ar' : tebakBahasa(contoh));
+  return { ...hasil, kitab: { ...hasil.kitab, aksara, bahasa }, laporan: { ...hasil.laporan, aksara, bahasa } };
+}
+export { aksaraBawaan };
 /** Sama dengan bacaDokumenKitab, tetapi hasilnya bisa dipakai ulang: `err.kode === 'TANPA_PENANDA'` berarti berkas sah tetapi tanpa nomor halaman; ulangi dengan `{ virtual: true }`. */
 export const bolehVirtual = (e) => e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA';
 

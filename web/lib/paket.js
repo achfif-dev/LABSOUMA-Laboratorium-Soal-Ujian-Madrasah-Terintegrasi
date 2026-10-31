@@ -92,7 +92,9 @@ export const gabungPembahasan = (kutipan, isi) => (String(kutipan || '').trim() 
 export function statusKutipan(periksa, mentah, teks) {
   const k = String(mentah || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   if (!k) return { status: 'kosong', kutipan: '' };
-  const r = periksa({ pembahasan: k }, teks);
+  // Sumber berhuruf Latin: pemeriksa hanya menilai bagian bertanda petik, sedangkan kolom kutipan berisi salinan polos.
+  const latin = /\p{L}/u.test(teks || '') && !/[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]/.test(String(teks).slice(0, 2000));
+  const r = periksa({ pembahasan: latin ? `"${k.replace(/"/g, '')}"` : k }, teks);
   const cocok = r.ringkas.total > 0 && r.ringkas.tidak_ditemukan === 0;
   const status = r.ringkas.total === 0 ? 'kosong' : (!cocok ? 'tidak_cocok' : (r.status === 'lolos' ? 'cocok' : 'mirip'));
   return { status, kutipan: cocok ? k : '' };

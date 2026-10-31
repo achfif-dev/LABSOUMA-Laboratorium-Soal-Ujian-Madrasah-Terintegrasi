@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
 import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
-import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor } from './lib/imporKitab.js';
+import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
+import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
 
-// Impor perpustakaan kitab dari banyak sumber: .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
+// Impor perpustakaan kitab/buku dari banyak sumber (Arab maupun berhuruf Latin, mis. Indonesia/Jawa/Inggris; Pegon/Jawi tampil kanan ke kiri): .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
 // atau berkas tanpa penanda sama sekali (halaman dibagi otomatis dan ditandai virtual). Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
 // halaman hasil parse (bukan berkas mentah). `Btn`, `ErrorBox`, `callApi`, `apiErr` dioper dari App.jsx (menghindari impor melingkar).
 const STATUS = { siap: 'Siap', mengimpor: 'Belum selesai' };
@@ -72,7 +73,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   };
 
   // Pemeriksaan mutu menyisir seluruh teks kitab: dihitung sekali per hasil baca, bukan di tiap ketikan pada kolom isian.
-  const peringatanIsi = useMemo(() => (hasil ? peringatanPratinjau(hasil) : []), [hasil]);
+  const pilihBahasa = isian ? isian.bahasa : null; const pilihAksara = isian ? isian.aksara : null;
+  const peringatanIsi = useMemo(() => (hasil ? peringatanPratinjau(hasil, pilihBahasa ? { bahasa: pilihBahasa, aksara: pilihAksara } : null) : []), [hasil, pilihBahasa, pilihAksara]);
   const peringatan = hasil && isian ? [...peringatanDuplikat(hasil, isian, daftar), ...peringatanIsi] : peringatanIsi;
   const terhalang = peringatan.some((p) => p.tingkat === 'bad');
   const l = hasil && hasil.laporan;
@@ -82,7 +84,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     <div className="fade-in space-y-4">
       <div className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
         <p className="font-semibold">Perpustakaan kitab</p>
-        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N]. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
+        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N] (kitab Arab) atau [hal. N] (buku berbahasa Indonesia, Jawa, Inggris, dan lain-lain). Bahasa dikenali otomatis dan bisa diubah sebelum impor. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
       </div>
 
       {errDaftar && <ErrorBox e={errDaftar} />}
@@ -97,8 +99,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
             <li key={k.id} className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
               <div className="mr-auto min-w-0">
                 <p className="font-semibold">{k.judulLatin} <span className="font-normal text-mute">· {k.id}</span></p>
-                <p dir="rtl" lang="ar" className="ar truncate text-mute">{k.judul}</p>
-                <p className="text-xs text-mute">{k.jumlahHalaman} halaman · rev. {k.revisi} · {STATUS[k.status] || k.status} · {k.aktif ? 'aktif' : 'tidak aktif'} · {HAK[k.hakCipta] || k.hakCipta}</p>
+                {k.judul && k.judul !== k.judulLatin && <p {...tampilanTeks(k, 'truncate text-mute')}>{k.judul}</p>}
+                <p className="text-xs text-mute">{LABEL_BAHASA[bahasaKitab(k)]} · {k.jumlahHalaman} halaman · rev. {k.revisi} · {STATUS[k.status] || k.status} · {k.aktif ? 'aktif' : 'tidak aktif'} · {HAK[k.hakCipta] || k.hakCipta}</p>
               </div>
               {k.status === 'siap' && <Btn kind="ghost" onClick={() => aktifkan(k)}>{k.aktif ? <><EyeOff size={15} />Sembunyikan</> : <><Eye size={15} />Aktifkan</>}</Btn>}
             </li>))}</ul>}
@@ -127,12 +129,13 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
           <div className="mt-4 space-y-4">
             <div>
               <p className="text-xs text-mute">Format terbaca: {FORMAT_LABEL[hasil.format] || hasil.format}</p>
-              <p dir="rtl" lang="ar" className="ar text-lg">{hasil.kitab.judul}</p>
+              <p {...tampilanTeks(isian, 'text-lg')}>{hasil.kitab.judul}</p>
               <p className="text-sm text-mute">{hasil.kitab.pengarang}</p>
             </div>
             <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
               {[['Halaman', l.jumlahHalaman], ['Judul bab', l.judulTerdeteksi], ['Catatan kaki dibuang', l.catatanKakiDibuang], ['Rujukan takhrij dibuang', l.rujukanDibuang],
-                ['Halaman cetak', `${l.halPertama}-${l.halTerakhir}`], ['Ukuran teks', `${Math.round(l.ukuranBytes / 1024)} KB`], ['Berharakat', hasil.kitab.berharakat ? 'ya' : 'tidak'], ['Matn terpisah', hasil.kitab.bentukMatn === 'pemisah-tatwil' ? 'ya' : 'tidak']]
+                ['Halaman cetak', `${l.halPertama}-${l.halTerakhir}`], ['Ukuran teks', `${Math.round(l.ukuranBytes / 1024)} KB`], ['Bahasa terdeteksi', LABEL_BAHASA[hasil.kitab.bahasa] || '-'],
+                ...(isian.aksara === 'arab' ? [['Berharakat', hasil.kitab.berharakat ? 'ya' : 'tidak'], ['Matn terpisah', hasil.kitab.bentukMatn === 'pemisah-tatwil' ? 'ya' : 'tidak']] : [])]
                 .map(([a, b]) => <div key={a} className="rounded-xl bg-soft px-3 py-2"><dt className="text-xs text-mute">{a}</dt><dd className="font-semibold">{b}</dd></div>)}
             </dl>
             {peringatan.map((p, i) => (
@@ -152,8 +155,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                       {[['Awal', 1], ['Tengah', Math.ceil(n / 2)], ['Akhir', n], ['Terpanjang', terpanjang]].map(([label, v]) => (
                         <Btn key={label} kind="ghost" className="!px-2.5 !py-1 !text-xs" onClick={() => setUrutLihat(v)}>{label}</Btn>))}
                     </div>
-                    <p className="text-xs text-mute">Hal. {p.hal} · juz {p.juz} · {p.teks.length.toLocaleString('id-ID')} karakter{p.bab ? <> · bab: <span dir="rtl" lang="ar" className="ar">{p.bab}</span></> : null}</p>
-                    <p dir="rtl" lang="ar" className="ar max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-soft px-3 py-2 text-lg leading-loose">{p.teks.slice(0, 1500)}{p.teks.length > 1500 ? ' …' : ''}</p>
+                    <p className="text-xs text-mute">Hal. {p.hal} · juz {p.juz} · {p.teks.length.toLocaleString('id-ID')} karakter{p.bab ? <> · bab: <span {...tampilanTeks(isian)}>{p.bab}</span></> : null}</p>
+                    <p {...tampilanTeks(isian, `max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-soft px-3 py-2 text-lg ${isian.aksara === 'arab' ? 'leading-loose' : 'leading-relaxed'}`)}>{p.teks.slice(0, 1500)}{p.teks.length > 1500 ? ' …' : ''}</p>
                     <p className="text-xs text-mute">Periksa beberapa halaman (awal, tengah, akhir): huruf utuh bersambung, urutan kata benar, dan tidak ada judul berjalan atau nomor halaman yang menempel.</p>
                   </div>);
               })()}
@@ -166,6 +169,10 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
               <label className="text-sm"><span className="font-semibold">ID kitab *</span>
                 <input className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" value={isian.kitabId} onChange={(e) => { setIdManual(true); ubah({ kitabId: e.target.value.toLowerCase() }); }} placeholder="fathul-muin" />
                 <span className="text-xs text-mute">Huruf kecil, angka, tanda hubung. Tidak bisa diganti setelah impor.</span></label>
+              <label className="text-sm"><span className="font-semibold">Bahasa dan aksara teks *</span>
+                <select className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" value={nilaiBahasa(isian)} onChange={(e) => ubah(bahasaDariNilai(e.target.value))}>
+                  {PILIHAN_BAHASA.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</select>
+                <span className="text-xs text-mute">Terdeteksi otomatis. Menentukan arah tampilan (Arab kanan ke kiri, Latin kiri ke kanan) dan petunjuk untuk AI saat menyusun soal.</span></label>
               <label className="text-sm"><span className="font-semibold">Mazhab</span>
                 <select className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" value={isian.mazhab} onChange={(e) => ubah({ mazhab: e.target.value })}>
                   <option value="">Tidak ditentukan</option><option value="syafii">Syafi'i</option><option value="hanafi">Hanafi</option><option value="maliki">Maliki</option><option value="hanbali">Hanbali</option></select></label>

@@ -9,7 +9,7 @@
 //      jadi pembagian atas/bawah akan memotong kalimat. Label dibuang dan teks dibiarkan mengalir menurut urutan baca.
 //  3c. Penanda "[ص N]" yang nomornya melompat sendirian lalu kembali berurutan (mis. 241, 75, 242) bukan halaman: dianggap teks.
 //  4. Syamilah menyisipkan tatwil sebelum kaf ("المالـكي", 1.266 kali): dibuang di sini.
-import { ErrorSyamilah, FORMAT_VERSI, KATA_KUNCI_BAB, MEDAN, keAngka, rapikan, RE_TAKHRIJ, HARAKAT, HURUF } from './syamilah.js';
+import { ErrorSyamilah, FORMAT_VERSI, KATA_KUNCI_BAB, levelKata, MEDAN, keAngka, rapikan, RE_TAKHRIJ, HARAKAT, HURUF } from './syamilah.js';
 
 const SRC_PENANDA = '\\[\\s*(?:ج\\s*:?\\s*([0-9٠-٩]+)\\s*[-–،,]?\\s*)?ص\\s*([0-9٠-٩]+)\\s*\\]'; // tanpa titik dua: "[ص: ٧٥]" = ayat (surat Shad), bukan halaman
 const RE_ADA = new RegExp(SRC_PENANDA);
@@ -22,7 +22,6 @@ const bersihkan = (s) => String(s).replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u
   .replace(/(?<=[\u0621-\u064A\u064B-\u0652])\u0640+(?=[\u0621-\u064A])/g, '').replace(/[ \t]+/g, ' ');
 const tanpaEkor = (t) => t.replace(/[\u064B-\u0652\u0670]+$/, ''); // diakritik yatim di ujung (sisa kata sebelumnya) menempel pada label
 const judulBersih = (t) => rapikan(t).replace(/^[0-9٠-٩]+(?:\.[0-9٠-٩]+)*\.?\s+/, '');
-const levelKata = (t) => (/^(مقدمة|مدخل|كتاب)/.test(t) ? 1 : /^باب/.test(t) ? 2 : 3);
 
 export const paragrafDariTeks = (teks) => String(teks ?? '').replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').split('\n').map((t) => ({ teks: t, tingkat: 0, tebal: false }));
 
@@ -30,7 +29,8 @@ function kepalaDariBaris(baris) {
   const k = {};
   for (const b of baris) {
     const m = /^\s*([^:]{2,30}):\s*(.*\S)\s*$/.exec(b);
-    if (m && MEDAN[m[1].trim()]) k[MEDAN[m[1].trim()]] = rapikan(m[2]);
+    const kunciMedan = m && (MEDAN[m[1].trim()] || MEDAN[m[1].trim().toLowerCase()]);
+    if (kunciMedan) k[kunciMedan] = rapikan(m[2]);
     const id = /رقم الكتاب في المكتبة الشاملة\s*:\s*([0-9٠-٩]+)/.exec(b); if (id) k.idSyamilah = keAngka(id[1]);
     const ts = /^الطابع الزمني\s*:\s*(.+)$/.exec(b.trim()); if (ts) k.tanggalSyamilah = rapikan(ts[1]);
     if (/ترقيم الكتاب موافق للمطبوع/.test(b)) k.penomoranSesuaiCetak = true;
@@ -63,9 +63,29 @@ function selesaikanHalaman(h) {
  * @param {{teks:string, tingkat:number, tebal:boolean}[]} paragraf  dari bacaDocx() atau paragrafDariTeks()
  * @param {{jenis?:string}} [opsi]
  */
-export function parsePenandaSisip(paragraf, opsi = {}) {
+// Penanda halaman berhuruf Latin untuk buku/kitab non-Arab: "[hal. 12]", "[hlm 12]", "[halaman 12]", "[h. 12]", "[page 12]", "[p. 12]",
+// boleh didahului jilid: "[jilid 2, hal. 12]", "[juz 2 hal 12]", "[vol. 2, p. 12]". Sengaja ketat: harus satu pasang kurung siku berisi HANYA penanda itu.
+const SRC_PENANDA_LATIN = '\\[\\s*(?:(?:jilid|juz|jld|vol|volume|j)\\.?\\s*([0-9]{1,2})\\s*[-–,;]?\\s*)?(?:halaman|hlm|hal|page|pp|p|h)\\.?\\s*([0-9]{1,5})\\s*\\]';
+/**
+ * Ubah penanda Latin menjadi bentuk Arab yang dipahami parser ("[ص N]" / "[ج M - ص N]"), supaya seluruh aturan sesudahnya (anomali nomor, judul, catatan)
+ * dipakai bersama. Hanya dijalankan bila dokumen TIDAK memuat satu pun penanda Arab: berkas Syamilah yang sudah ada diproses persis seperti sebelumnya.
+ */
+export function normalkanPenandaLatin(paragraf) {
+  if (paragraf.some((p) => RE_ADA.test(p.teks))) return paragraf;
+  const re = new RegExp(SRC_PENANDA_LATIN, 'gi');
+  let ada = false;
+  const hasil = paragraf.map((p) => {
+    if (!re.test(p.teks)) return p;
+    re.lastIndex = 0; ada = true;
+    return { ...p, teks: p.teks.replace(re, (_, juz, hal) => (juz ? `[ج ${juz} - ص ${hal}]` : `[ص ${hal}]`)) };
+  });
+  return ada ? hasil : paragraf;
+}
+
+export function parsePenandaSisip(paragrafMasuk, opsi = {}) {
+  const paragraf = normalkanPenandaLatin(paragrafMasuk);
   const iMarker = paragraf.findIndex((p) => RE_ADA.test(p.teks));
-  if (iMarker < 0) throw new ErrorSyamilah('TANPA_PENANDA', 'Tidak ada penanda halaman "[ص N]" di dalam teks.');
+  if (iMarker < 0) throw new ErrorSyamilah('TANPA_PENANDA', 'Tidak ada penanda halaman \"[ص N]\" atau \"[hal. N]\" di dalam teks.');
   let iAwal = iMarker;
   while (iAwal > 0 && (paragraf[iAwal - 1].tingkat > 0 || !paragraf[iAwal - 1].teks.trim())) iAwal--; // judul tepat sebelum penanda pertama ikut isi
   const kepalaBaris = paragraf.slice(0, iAwal).map((p) => rapikan(bersihkan(p.teks))).filter(Boolean);

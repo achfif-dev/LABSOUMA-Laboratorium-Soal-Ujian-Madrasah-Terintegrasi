@@ -6,6 +6,7 @@ import PemilihKitab from './PemilihKitab.jsx';
 import PembacaKitab from './PembacaKitab.jsx';
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
+import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
 import * as CD from './lib/cadanganDrive.js';
@@ -827,7 +828,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   const ujiButa = async (soal, bentuk = form.bentuk) => {
     setButaState({ loading: true });
     try {
-      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: form.teks, nama: form.nama, tingkat: form.tingkat, level: form.level, bentuk, soal });
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, tingkat: form.tingkat, level: form.level, bentuk, soal });
       setButaState({ data: d.hasil });
       const st = d.hasil.status === 'sepakat' || d.hasil.status === 'beda' ? d.hasil.status : '';
       setForm((f) => ({ ...f, ai: { ...f.ai, buta: st } }));
@@ -848,8 +849,9 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   const arabicProblem = (txt) => {
     let letters = 0, arab = 0;
     for (const ch of txt) { if (/\p{L}/u.test(ch)) { letters++; if (ARAB.test(ch)) arab++; } }
-    if (letters < 15) return 'Teks terlalu pendek. Tempel minimal satu kalimat Arab lengkap.';
-    if (arab / letters < 0.6) return 'Teks kitab harus berbahasa Arab. Kolom ini terdeteksi berisi teks non-Arab.';
+    if (letters < 15) return 'Teks terlalu pendek. Tempel minimal satu kalimat lengkap.';
+    // Teks berhuruf Latin (buku Indonesia, Jawa, Inggris, dst.) diterima; teks Arab tetap harus dominan Arab bila memang berhuruf Arab.
+    if (bahasaOtomatis(txt) === 'ar' && arab / letters < 0.6) return 'Teks kitab terdeteksi campuran Arab dan huruf lain. Tempel satu bahasa saja per soal.';
     return null;
   };
   const ERR_TITLE = {
@@ -869,7 +871,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     try {
       const res = await fetch('/api/generate', {
         method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
-        body: JSON.stringify({ teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus }),
+        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus }),
       });
       let data = null;
       try { data = await res.json(); } catch (e) {}
@@ -974,7 +976,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   };
 
   const runAssist = async (kind) => {
-    const bad = arabicProblem(form.teks.trim());
+    const bad = bahasaOtomatis(form.teks) !== 'ar' && form.teks.trim() ? 'Terjemah dan analisis kata hanya tersedia untuk teks Arab.' : arabicProblem(form.teks.trim());
     if (bad) { setAi({ kind, error: { code: 'INVALID_ARABIC', message: bad } }); return; }
     setAi({ kind, loading: true });
     try {
@@ -990,7 +992,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     setTl({ loading: true });
     try {
       const d = await callApi('/api/assist', {
-        aksi: 'telaah', teks: form.teks, nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, bentuk: form.bentuk,
+        aksi: 'telaah', teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, bentuk: form.bentuk,
         soal: { stimulus: form.stimulus, pertanyaan: form.pertanyaan, opsi: form.opsi, kunci: form.kunci, pembahasan: form.pembahasan, indikator: form.indikator, jawaban: form.jawaban, rubrik: form.rubrik },
       });
       setTl({ data: d.hasil });
@@ -1007,7 +1009,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
 
   const validate = () => {
     const e = [];
-    if (!form.teks.trim()) e.push('Teks kitab (Arab) belum diisi.');
+    if (!form.teks.trim()) e.push('Teks kitab belum diisi.');
     if (!form.nama.trim()) e.push('Nama kitab belum diisi.');
     e.push(...Bt.periksaSoal(form)); // pertanyaan, opsi/kunci atau jawaban, dan pembahasan, sesuai bentuk soal
     return e;
@@ -1176,7 +1178,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
               <datalist id="daftar-bab">{babSaran.map((b) => <option key={b} value={b} />)}</datalist>
               <p className="mt-1 text-xs text-mute">Soal dengan bab yang sama dikelompokkan di kisi-kisi. {babSaran.length ? 'Pilihan berasal dari saran AI di tab Fokus Ujian.' : 'Tab Fokus Ujian bisa menyarankan bab yang penting.'}</p></div>
             <div><Label htmlFor="teks">Teks Kitab</Label>
-              <textarea id="teks" dir="rtl" lang="ar" rows={7} className="field ar" placeholder="الصق النص العربي هنا..." value={form.teks} onChange={(e) => set('teks', e.target.value)} />
+              <textarea id="teks" {...tampilanDariIsi(form.teks, 'field')} rows={7} placeholder="الصق النص هنا (عربي أو لغة أخرى)... / Tempel teks kitab atau buku di sini" value={form.teks} onChange={(e) => set('teks', e.target.value)} />
               <p className={`mt-1 text-xs ${form.teks.length > 6000 ? 'font-semibold text-bad' : 'text-mute'}`}>
                 {form.teks.length.toLocaleString('id-ID')} / 6.000 karakter{form.teks.length > 6000 ? '. Potong teks agar bisa diproses AI.' : ''}
               </p>
@@ -1360,7 +1362,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
   const runButa = async () => {
     setButa({ loading: true });
     try {
-      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: q.teks, nama: q.nama, tingkat: q.tingkat, level: q.level, bentuk: Bt.bentukDari(q), soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci } });
+      const d = await callApi('/api/assist', { aksi: 'cekbuta', teks: q.teks, bahasa: bahasaOtomatis(q.teks), nama: q.nama, tingkat: q.tingkat, level: q.level, bentuk: Bt.bentukDari(q), soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci } });
       setButa({ data: d.hasil });
     } catch (e) { const er = apiErr(e); setButa(er ? { error: er } : null); }
   };
@@ -1372,7 +1374,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     setTl({ loading: true });
     try {
       const d = await callApi('/api/assist', {
-        aksi: 'telaah', teks: q.teks, nama: q.nama, juz: q.juz, hal: q.hal, tingkat: q.tingkat, mapel: q.mapel, level: q.level, bentuk: Bt.bentukDari(q),
+        aksi: 'telaah', teks: q.teks, bahasa: bahasaOtomatis(q.teks), nama: q.nama, juz: q.juz, hal: q.hal, tingkat: q.tingkat, mapel: q.mapel, level: q.level, bentuk: Bt.bentukDari(q),
         soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci, pembahasan: q.pembahasan, indikator: q.indikator || '', jawaban: q.jawaban || '', rubrik: q.rubrik || '' },
       });
       setTl({ data: d.hasil });
@@ -3346,8 +3348,8 @@ const LABEL_KUTIPAN_STATUS = { cocok: 'Kutipan cocok dengan teks', mirip: 'Kutip
 const masalahArabPaket = (txt) => {
   let huruf = 0; let arab = 0;
   for (const ch of String(txt || '')) { if (/\p{L}/u.test(ch)) { huruf++; if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(ch)) arab++; } }
-  if (huruf < 15) return 'Materi terlalu pendek. Tempel minimal satu kalimat Arab lengkap.';
-  if (arab / huruf < 0.6) return 'Materi harus berbahasa Arab. Teks yang terdeteksi sebagian besar bukan Arab.';
+  if (huruf < 15) return 'Materi terlalu pendek. Tempel minimal satu kalimat lengkap.';
+  if (bahasaOtomatis(txt) === 'ar' && arab / huruf < 0.6) return 'Materi terdeteksi campuran Arab dan huruf lain. Gunakan satu bahasa per paket.';
   return null;
 };
 const tidur = (ms, sinyal) => new Promise((res) => { const t = setTimeout(res, ms); if (sinyal) sinyal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true }); });
@@ -3521,7 +3523,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
       const seg = rencana.segmen[tugas.segmen];
       setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
       const d = await panggilSabar('/api/assist', {
-        aksi: 'paket', teks: seg.teks, hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
+        aksi: 'paket', teks: seg.teks, bahasa: bahasaOtomatis(seg.teks), hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
         spek: tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level })),
       }, ctl.signal, { onTunggu: (s) => setStatus(`Menunggu batas permintaan AI (${s} detik)...`) });
       const h = d.hasil;
@@ -3668,7 +3670,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
             </div>
           )}
         </div>
-        <textarea dir="rtl" lang="ar" className="field min-h-[160px] font-ar leading-loose" placeholder="Tempel teks kitab (Arab) di sini. Tidak dibatasi 6.000 karakter." value={teks} onChange={(e) => setTeks(e.target.value)} disabled={jalan} />
+        <textarea {...tampilanDariIsi(teks, 'field min-h-[160px] leading-loose')} placeholder="Tempel teks kitab atau buku (Arab atau bahasa lain) di sini. Tidak dibatasi 6.000 karakter." value={teks} onChange={(e) => setTeks(e.target.value)} disabled={jalan} />
         <div className="mt-2 flex flex-wrap gap-2">
           <input ref={fileRef} type="file" accept=".txt,.htm,.html,.docx,.pdf" className="hidden" aria-label="Unggah berkas teks kitab" onChange={(e) => { tambahTeksBerkas(e.target.files[0]); e.target.value = ''; }} />
           <input ref={galeriRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" aria-label="Pilih banyak foto halaman kitab" onChange={(e) => { tambahFoto(e.target.files); e.target.value = ''; }} />

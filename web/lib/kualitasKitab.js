@@ -5,6 +5,8 @@
 // urutan terbalik, atau karakter pengganti; semuanya lolos parser dan baru ketahuan setelah soal dibuat dari teks itu. Nomor halaman dan judul berjalan
 // yang ikut tersimpan mengotori teks yang dikutip ke soal dan hasil pencarian.
 
+import { aksaraBawaan } from './bahasa.js';
+
 const HURUF_ARAB = /[ء-يٱٮ-ۓ]/g;
 const HURUF_LATIN = /[A-Za-z]/g;
 const KONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
@@ -20,9 +22,12 @@ const TERBALIK = new Set(['يف', 'نم', 'ىلع', 'هللا', 'يتلا', 'ي�
 /**
  * Periksa isi halaman. Murni; tidak mengubah masukan.
  * @param {{teks:string}[]} halaman
+ * @param {{aksara?:'arab'|'latin'|'lain', bahasa?:string}} [opsi]  aksara/bahasa yang dinyatakan untuk kitab ini. Tanpa opsi: dianggap kitab Arab (perilaku lama).
+ *   Kitab berhuruf Latin tidak diperiksa dengan aturan huruf Arab (huruf terpisah, kata menempel, urutan terbalik); gantinya aturan huruf Latin.
  * @returns {{tingkat:'bad'|'warn', kode:string, teks:string}[]}
  */
-export function periksaKualitasTeks(halaman) {
+export function periksaKualitasTeks(halaman, opsi = {}) {
+  const aksaraDinyatakan = (opsi && (opsi.aksara || (opsi.bahasa ? aksaraBawaan(opsi.bahasa) : null))) || 'arab';
   const temuan = []; const tambah = (tingkat, kode, teks) => temuan.push({ tingkat, kode, teks });
   if (!Array.isArray(halaman)) return temuan;
   const n = halaman.length; if (!n) return temuan;
@@ -41,12 +46,27 @@ export function periksaKualitasTeks(halaman) {
 
   if (arab + latin >= 200) {
     const nisbah = arab / (arab + latin);
-    if (nisbah < 0.25) tambah('bad', 'bukan-arab', `Hanya ${Math.round(nisbah * 100)}% huruf berupa huruf Arab. Berkas ini mungkin bukan kitab berbahasa Arab, atau teks Arabnya tidak terbaca.`);
-    else if (nisbah < 0.7) tambah('warn', 'sedikit-arab', `${Math.round((1 - nisbah) * 100)}% huruf berupa huruf Latin. Wajar bila kitab ini memuat terjemah atau catatan Latin; bila tidak, periksa hasil bacanya.`);
+    if (aksaraDinyatakan === 'arab') {
+      if (nisbah < 0.25) tambah('bad', 'bukan-arab', `Hanya ${Math.round(nisbah * 100)}% huruf berupa huruf Arab. Berkas ini mungkin bukan kitab berbahasa Arab, atau teks Arabnya tidak terbaca. Bila memang kitab/buku berbahasa lain (Indonesia, Jawa, Inggris, dst.), pilih bahasanya pada kolom Bahasa di bawah.`);
+      else if (nisbah < 0.7) tambah('warn', 'sedikit-arab', `${Math.round((1 - nisbah) * 100)}% huruf berupa huruf Latin. Wajar bila kitab ini memuat terjemah atau catatan Latin; bila tidak, periksa hasil bacanya.`);
+    } else if (nisbah > 0.6) {
+      tambah('bad', 'aksara-tidak-cocok', `${Math.round(nisbah * 100)}% huruf berupa huruf Arab, padahal bahasa yang dipilih berhuruf Latin. Pilih bahasa Arab (atau bahasa berhuruf Arab, mis. Pegon) agar kitab tampil kanan ke kiri.`);
+    }
+  }
+
+  // Kata (token) huruf Latin (kitab/buku berhuruf Latin): huruf terpisah-pisah dan kata menempel, ciri PDF dengan pemetaan huruf atau spasi yang buruk.
+  if (aksaraDinyatakan !== 'arab') {
+    const kataLatin = gabung.split(/\s+/).map((t) => t.replace(/[^\p{L}]/gu, '')).filter(Boolean);
+    if (kataLatin.length >= 200) {
+      const tunggal = kataLatin.filter((t) => t.length === 1 && !/^[aAiIoOyY]$/.test(t)).length;
+      if (tunggal / kataLatin.length > 0.2) tambah('bad', 'huruf-terpisah', `${Math.round(100 * tunggal / kataLatin.length)}% kata hanya satu huruf: huruf-huruf terpisah-pisah (ciri PDF dengan pemetaan huruf buruk). Coba ekspor ulang, atau pakai sumber lain.`);
+      const panjang = kataLatin.filter((t) => t.length >= 30).length;
+      if (panjang / kataLatin.length > 0.01) tambah('warn', 'kata-menempel', `${panjang} kata berukuran tidak wajar (30 huruf atau lebih): spasi antarkata kemungkinan hilang saat ekstraksi.`);
+    }
   }
 
   // Kata (token) Arab: huruf terpisah, kata menempel, urutan huruf terbalik.
-  const kataArab = gabung.split(/\s+/).map((t) => t.replace(/[^\u0621-\u064A\u0671\u066E-\u06D3]/g, '')).filter(Boolean);
+  const kataArab = aksaraDinyatakan !== 'arab' ? [] : gabung.split(/\s+/).map((t) => t.replace(/[^\u0621-\u064A\u0671\u066E-\u06D3]/g, '')).filter(Boolean);
   if (kataArab.length >= 200) {
     const tunggal = kataArab.filter((t) => t.length === 1 && t !== 'و').length;
     if (tunggal / kataArab.length > 0.2) tambah('bad', 'huruf-terpisah', `${Math.round(100 * tunggal / kataArab.length)}% kata hanya satu huruf: huruf-huruf terpisah-pisah (ciri PDF dengan pemetaan huruf buruk). Coba ekspor ulang, atau pakai sumber lain.`);
@@ -143,4 +163,4 @@ export function bersihkanEkorKepala(teksPerHalaman, opsi = {}) {
 }
 
 /** Ringkasan temuan mutu untuk layar impor (format sama dengan peringatanPratinjau). */
-export const peringatanKualitas = (halaman) => periksaKualitasTeks(halaman).map(({ tingkat, teks }) => ({ tingkat, teks }));
+export const peringatanKualitas = (halaman, opsi) => periksaKualitasTeks(halaman, opsi).map(({ tingkat, teks }) => ({ tingkat, teks }));

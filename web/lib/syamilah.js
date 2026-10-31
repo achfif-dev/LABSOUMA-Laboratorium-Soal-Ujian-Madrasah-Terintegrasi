@@ -14,7 +14,14 @@
 //     Rujukan takhrij sisipan "[البخاري رقم: 1 ...]" adalah tambahan muhaqqiq, bukan teks pengarang.
 
 export const FORMAT_VERSI = 1;
-export const KATA_KUNCI_BAB = /^(مقدمة|مدخل|كتاب|باب|فصل|فرع|تتمة|خاتمة)/;
+// Kata kunci judul bab. Bagian Arab = awalan kata (mis. "باب الصلاة"). Bagian Latin (untuk kitab/buku berhuruf Latin) sengaja lebih ketat agar kalimat biasa
+// tidak terbaca sebagai judul: kata bab harus diikuti nomor ("Bab 3", "Chapter IV"), dan judul tanpa nomor ("Pendahuluan") harus berdiri sendiri sebagai satu baris.
+const huruf2 = (kata) => kata.split('').map((c) => (/[a-z]/.test(c) ? `[${c}${c.toUpperCase()}]` : c)).join('');
+const KATA_NOMOR_LATIN = ['bab', 'bagian', 'pasal', 'chapter', 'part', 'section'].map(huruf2).join('|');
+const KATA_TUNGGAL_LATIN = ['pendahuluan', 'kata pengantar', 'prakata', 'pengantar', 'prolog', 'epilog', 'penutup', 'kesimpulan', 'lampiran', 'introduction', 'preface', 'foreword', 'conclusion', 'appendix'].map(huruf2).join('|');
+export const KATA_KUNCI_BAB = new RegExp(`^(?:مقدمة|مدخل|كتاب|باب|فصل|فرع|تتمة|خاتمة|(?:${KATA_NOMOR_LATIN})\\s+(?:[0-9]{1,3}|[IVXLC]{1,7})(?![A-Za-z])|(?:${KATA_TUNGGAL_LATIN})\\s*$)`);
+/** Tingkat judul dari kata kuncinya: 1 = pengantar/kitab/bagian besar, 2 = bab, 3 = lainnya. */
+export const levelKata = (t) => (/^(مقدمة|مدخل|كتاب)/.test(t) || new RegExp(`^(?:${KATA_TUNGGAL_LATIN})\\s*$`).test(t) ? 1 : /^باب/.test(t) || new RegExp(`^(?:${KATA_NOMOR_LATIN})\\s`).test(t) ? 2 : 3);
 
 export class ErrorSyamilah extends Error {
   constructor(kode, pesan) { super(pesan); this.name = 'ErrorSyamilah'; this.kode = kode; }
@@ -37,6 +44,9 @@ export const MEDAN = {
   'القسم': 'fan', 'الكتاب': 'judulPanjang', 'المؤلف': 'pengarang', 'بعناية': 'muhaqqiq', 'تحقيق': 'muhaqqiq', 'المحقق': 'muhaqqiq',
   'الناشر': 'penerbit', 'الطبعة': 'cetakan', 'عدد الأجزاء': 'jumlahJuz', 'عدد الصفحات': 'jumlahHalamanCetak',
   'أعده للشاملة': 'pengunggah', 'تاريخ النشر بالشاملة': 'tanggalSyamilah',
+  // Kepala berkas buku/kitab berhuruf Latin (dicocokkan tanpa membedakan huruf besar/kecil; lihat penandaSisip.kepalaDariBaris).
+  judul: 'judulPanjang', title: 'judulPanjang', penulis: 'pengarang', pengarang: 'pengarang', author: 'pengarang', penyusun: 'pengarang',
+  penerbit: 'penerbit', publisher: 'penerbit', cetakan: 'cetakan', edition: 'cetakan', editor: 'muhaqqiq', penyunting: 'muhaqqiq', pentahqiq: 'muhaqqiq',
 };
 
 /** Baca kepala berkas (baris sebelum penanda halaman pertama). */

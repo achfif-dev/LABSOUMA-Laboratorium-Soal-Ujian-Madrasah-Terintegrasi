@@ -3,9 +3,14 @@
 //  - server  : import dari src/kutipan.js (api/generate.js, api/assist.js)
 //  - browser : dimuat lewat <script type="module"> di index.html -> window.Kutipan
 //
+// Teks sumber berhuruf Latin (buku Indonesia, Jawa, Inggris, dst.): kutipan = bagian di antara tanda petik ganda ("...", “...”, «...»). Mode dipilih otomatis dari
+// teks sumber (kurang dari 50% huruf Arab = mode Latin), jadi pemanggil lama tidak perlu mengubah apa pun. Pencocokan tidak membedakan huruf besar/kecil.
+//
 // Cara kerja: kutipan = rangkaian kata Arab (>= MIN_KATA) yang tidak terputus huruf Latin.
 // Teks dinormalisasi (harakat, tatwil, bentuk alif/ya/ta marbutah) lalu dicocokkan per kata
 // dengan pencocokan substring aproksimasi (jarak edit tingkat kata, algoritma Sellers).
+
+import { nisbahArab } from './bahasa.js';
 
 export const MIN_KATA = 3;       // kutipan lebih pendek dari ini dianggap istilah, bukan kutipan
 export const TOLERANSI_MIRIP = 0.15; // selisih <= 15% jumlah kata (minimal 1 kata) = "mirip", perlu dicek manual
@@ -27,6 +32,7 @@ export function normalisasi(s) {
     .replace(/\u0626/g, '\u064A')                 // ئ -> ي
     .replace(/\u0629/g, '\u0647')                 // ة -> ه
     .replace(/\u06A9/g, '\u0643').replace(/\u06CC/g, '\u064A') // ک ی (bentuk Persia) -> ك ي
+    .toLowerCase()                                  // huruf Latin; tidak berpengaruh pada huruf Arab
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')            // tanda baca, kurung, simbol
     .replace(/\s+/g, ' ')
     .trim();
@@ -41,6 +47,7 @@ export function normalisasiH(s) {
     .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
     .replace(/\u0649/g, '\u064A').replace(/\u0624/g, '\u0648').replace(/\u0626/g, '\u064A').replace(/\u0629/g, '\u0647')
     .replace(/\u06A9/g, '\u0643').replace(/\u06CC/g, '\u064A')
+    .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -76,6 +83,20 @@ export function ekstrakKutipan(teks, minKata = MIN_KATA) {
   for (const m of String(teks || '').matchAll(RUN_ARAB)) {
     const mentah = m[0].trim();
     const norm = normalisasi(mentah);
+    if (norm && norm.split(' ').length >= minKata) hasil.push({ mentah, norm });
+  }
+  return hasil;
+}
+
+/** Teks sumber berhuruf Latin (bukan kitab Arab)? Teks tanpa huruf sama sekali dianggap Arab (perilaku lama). */
+export const sumberLatin = (teks) => { const t = String(teks || ''); return /\p{L}/u.test(t) && nisbahArab(t) < 0.5; };
+
+const RE_PETIK = /["\u201c\u201e\u00ab]([^"\u201c\u201d\u201e\u00ab\u00bb]{3,700})["\u201d\u00bb]/g;
+/** Mode Latin: kutipan = isi tanda petik ganda yang memuat >= minKata kata. */
+export function ekstrakKutipanLatin(teks, minKata = MIN_KATA) {
+  const hasil = [];
+  for (const m of String(teks || '').matchAll(RE_PETIK)) {
+    const mentah = m[1].trim(); const norm = normalisasi(mentah);
     if (norm && norm.split(' ').length >= minKata) hasil.push({ mentah, norm });
   }
   return hasil;
@@ -122,6 +143,8 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
   const ringkas = { total: 0, cocok: 0, mirip: 0, tidak_ditemukan: 0 };
   const detail = [];
   const peringatan = [];
+  const latin = sumberLatin(teks);
+  const ambil = latin ? ekstrakKutipanLatin : ekstrakKutipan;
   const kitab = normalisasi(teks);
   if (!kitab) {
     return { status: 'tanpa_teks', ringkas, detail, peringatan: ['Teks kitab kosong, kutipan tidak bisa diperiksa.'] };
@@ -131,7 +154,7 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
   const gudang = ` ${kitab} `; // jalur cepat untuk kecocokan persis
 
   for (const [nama, isi] of Object.entries(bidang || {})) {
-    for (const k of ekstrakKutipan(isi, minKata)) {
+    for (const k of ambil(isi, minKata)) {
       ringkas.total++;
       let status; let skor;
       let terdekat; let harakatBeda;
@@ -156,7 +179,7 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
   const pembahasanAda = String((bidang || {}).pembahasan || '').trim();
   const kutipanPembahasan = detail.some((d) => d.bidang === 'pembahasan');
   if (pembahasanAda && !kutipanPembahasan) {
-    peringatan.push('Pembahasan tidak memuat kutipan Arab dari teks kitab, padahal pembahasan seharusnya menyertakan dalilnya.');
+    peringatan.push(latin ? 'Pembahasan tidak memuat kutipan dalam tanda petik dari teks sumber, padahal pembahasan seharusnya menyertakan dasarnya.' : 'Pembahasan tidak memuat kutipan Arab dari teks kitab, padahal pembahasan seharusnya menyertakan dalilnya.');
   }
   const status = ringkas.tidak_ditemukan > 0 ? 'gagal' : (ringkas.mirip > 0 || peringatan.length ? 'periksa' : 'lolos');
   return { status, ringkas, detail, peringatan };
