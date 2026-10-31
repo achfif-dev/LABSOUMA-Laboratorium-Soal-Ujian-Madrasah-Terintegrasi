@@ -5,6 +5,7 @@
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { VERSI_INDEKS, bangunPotongan } from '../web/lib/cariKitab.js';
+import { BAHASA, AKSARA, aksaraBawaan } from '../web/lib/bahasa.js';
 
 export const MAKS_HALAMAN_PER_PANGGILAN = 100;
 export const MAKS_TEKS_HALAMAN = 12000;
@@ -52,6 +53,13 @@ export function validasiKitab(k) {
   if (!JENIS_SUMBER.includes(jenisSumber)) tolak('KITAB_INVALID', 'Jenis sumber tidak dikenal.');
   const bentuk = str(k.bentukMatn, 30, 'Bentuk matn', { wajib: true });
   if (!BENTUK_MATN.includes(bentuk)) tolak('KITAB_INVALID', 'Bentuk matn tidak dikenal.');
+  // Bahasa dan aksara: klien lama tidak mengirimnya, dan kitab lama tidak punya; keduanya dianggap Arab. Teks tidak diperiksa di sini (server hanya melihat
+  // metadata pada impor-mulai); ketidakcocokan isi dengan pilihan ini sudah diperiksa klien dan hanya memengaruhi arah tampilan, bukan keamanan.
+  const bahasa = str(k.bahasa, 10, 'Bahasa') || 'ar';
+  if (!BAHASA.includes(bahasa)) tolak('KITAB_INVALID', 'Bahasa kitab tidak dikenal.');
+  const aksara = str(k.aksara, 10, 'Aksara') || aksaraBawaan(bahasa);
+  if (!AKSARA.includes(aksara)) tolak('KITAB_INVALID', 'Aksara kitab tidak dikenal.');
+  if (bahasa === 'ar' && aksara !== 'arab') tolak('KITAB_INVALID', 'Kitab berbahasa Arab harus beraksara Arab.');
   return {
     judul: str(k.judul, 300, 'Judul', { wajib: true }),
     judulLatin: str(k.judulLatin, 150, 'Nama kitab (Latin)', { wajib: true }),
@@ -65,6 +73,7 @@ export function validasiKitab(k) {
     penomoranSesuaiCetak: k.penomoranSesuaiCetak === true,
     halamanVirtual: k.halamanVirtual === true, // nomor halaman dibagi otomatis saat impor (bukan nomor cetak); pembaca menampilkan peringatan
     bentukMatn: bentuk,
+    bahasa, aksara,
     berharakat: k.berharakat === true,
     hakCipta: { status, catatan: str(hak.catatan, 600, 'Catatan hak cipta') },
     sumber: { jenis: jenisSumber, pengunggah: str(sumber.pengunggah, 200, 'Pengunggah'), tanggalSyamilah: str(sumber.tanggalSyamilah, 100, 'Tanggal Syamilah'), rujukan: str(sumber.rujukan, 200, 'Rujukan sumber') },
@@ -120,7 +129,7 @@ async function hapusHalaman(db, kid) {
 }
 
 const ringkasMeta = (id, d) => ({
-  id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status,
+  id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
   aktif: d.aktif === true, revisi: d.revisi || 1, hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
 });
 

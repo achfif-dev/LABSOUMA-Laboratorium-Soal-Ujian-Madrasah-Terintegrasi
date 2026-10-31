@@ -19,7 +19,8 @@ const ErrorBox = ({ e }) => React.createElement('p', null, e && e.message);
 test('KitabImpor: render awal tanpa galat; ada petunjuk, pemilih berkas, dan tombol segarkan', () => {
   const html = renderToString(React.createElement(KitabImpor, { Btn, ErrorBox, callApi: async () => ({ kitab: [] }), apiErr: (e) => e, toast() {} })).replace(/<!-- -->/g, '');
   assert.match(html, /Perpustakaan kitab/);
-  assert.match(html, /Pilih berkas kitab \(\.txt \/ \.docx\)/);
+  assert.match(html, /Pilih berkas kitab \(\.txt \.docx \.pdf/); // teks tombol diperbarui saat PDF/EPUB/HTML/JSON ditambahkan; tes ini tertinggal sejak itu
+  assert.match(html, /\[hal\. N\]/); // petunjuk penanda halaman Latin (buku non-Arab)
   assert.match(html, /type="file"/);
   assert.match(html, /Segarkan/);
   assert.ok(!/Impor ke perpustakaan/.test(html), 'tombol impor baru muncul setelah berkas dipilih');

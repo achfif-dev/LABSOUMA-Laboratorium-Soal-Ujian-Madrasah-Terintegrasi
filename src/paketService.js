@@ -6,7 +6,7 @@
 //   - Pilihan ganda dan melanjutkan memakai TIGA opsi (أ ب ج) seperti template.
 //   - Tiap butir wajib membawa `kutipan_kitab`: salinan persis dari teks. Server mencocokkannya dengan teks; yang tidak cocok dibuang
 //     dan butirnya ditandai, jadi naskah kunci tidak pernah memuat "kutipan" karangan model.
-import { ApiError, getClient, getModel, clean, cleanLine, arabicProblem, resolveTingkat, resolveLevel, toApiError, periksaPenolakan, TOOL_TOLAK, MAX_TEKS } from './soalService.js';
+import { ApiError, getClient, getModel, clean, cleanLine, teksProblem, resolveBahasa, resolveTingkat, resolveLevel, toApiError, periksaPenolakan, TOOL_TOLAK, MAX_TEKS } from './soalService.js';
 import { KERANGKA_ASWAJA } from './aswaja.js';
 import { periksaKutipan } from './kutipan.js';
 import { periksaSikap } from './sikap.js';
@@ -18,6 +18,17 @@ export const BENTUK_PAKET = ['pilgan', 'lanjutan', 'isian', 'uraian'];
 const LEVEL_NAMA = { L1: 'L1 (Ingatan: fakta atau definisi langsung dari teks)', L2: 'L2 (Aplikasi: menerapkan teks pada kasus yang diringkas dalam kalimat soal)', L3: 'L3 (HOTS: penalaran, membedakan, atau menentukan hukum dari kondisi yang diringkas dalam kalimat soal)' };
 const BATAS_SOAL = 150; // sama dengan BATAS_SOAL di web/lib/naskah.js (sekitar dua baris di template)
 
+/** Prompt paket untuk teks sumber berbahasa lain (bahasa Arab: prompt asli tanpa perubahan). */
+export function sistemPaketFor(bahasa = 'ar') {
+  if (!bahasa || bahasa === 'ar') return SISTEM_PAKET;
+  const nama = { id: 'Indonesia', jv: 'Jawa', su: 'Sunda', ms: 'Melayu', en: 'Inggris' }[bahasa] || 'lain';
+  return SISTEM_PAKET
+    .replace('dari teks kitab turats berbahasa Arab', `dari teks kitab atau buku berbahasa ${nama}`)
+    .replace('salinan PERSIS 3 sampai 25 kata Arab yang berurutan dari <teks_kitab> (lengkap dengan harakat dan ejaan seperti di teks)', 'salinan PERSIS 3 sampai 25 kata yang berurutan dari <teks_kitab> (ejaan dan tanda baca seperti di teks)')
+    .replace('teks Arab hanya pada "kutipan_kitab"', 'kutipan dari teks sumber hanya pada "kutipan_kitab"')
+    .replace('jangan mengutip Arab di sini', 'jangan mengutip teks sumber di sini')
+    .replace('Jika teks bukan bahasa Arab yang bermakna', `Jika teks bukan bahasa ${nama} yang bermakna`);
+}
 export const SISTEM_PAKET = `Kamu penyusun soal ujian profesional untuk madrasah (MI, MTs, MA) di bawah Kementerian Agama RI. Kamu menyusun butir naskah ujian format IMDA dari teks kitab turats berbahasa Arab.
 
 ${KERANGKA_ASWAJA}
@@ -78,7 +89,9 @@ export function validatePaket(body) {
   const raw = String(body.teks ?? '');
   if (raw.length > MAX_TEKS) throw new ApiError(422, 'TEKS_TOO_LONG', `Satu panggilan paket memuat satu segmen (maksimal ${MAX_TEKS} karakter). Pembagian segmen dilakukan aplikasi; muat ulang halaman bila pesan ini muncul dari aplikasi.`);
   const teks = clean(raw, MAX_TEKS);
-  const problem = arabicProblem(teks);
+  const bahasa = resolveBahasa(body.bahasa);
+  if (!bahasa) throw new ApiError(400, 'BAD_REQUEST', 'Bahasa teks tidak dikenal.');
+  const problem = teksProblem(teks, bahasa);
   if (problem) throw new ApiError(422, 'INVALID_ARABIC', problem);
   const tingkat = resolveTingkat(body.tingkat);
   if (!tingkat) throw new ApiError(400, 'BAD_REQUEST', 'Tingkat tidak dikenal. Pilih salah satu tingkat yang tersedia di menu Konfigurasi.');
@@ -92,7 +105,7 @@ export function validatePaket(body) {
     return { bentuk, level };
   });
   return {
-    teks, tingkat, spek,
+    teks, bahasa, tingkat, spek,
     kelas: cleanLine(body.kelas, 20), nama: cleanLine(body.nama, 120), juz: cleanLine(body.juz, 20), hal: cleanLine(body.hal, 20),
     mapel: cleanLine(body.mapel, 60) || 'Fiqih', fokus: cleanLine(body.fokus, 300), cakupan: cleanLine(body.cakupan, 200),
   };
@@ -117,7 +130,7 @@ export function buildPaketPrompt(input, target) {
 <metadata>
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
-Rujukan kitab: ${rujukan}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${input.bahasa}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}
 </metadata>
 
 Daftar permintaan:
@@ -196,7 +209,7 @@ export async function generatePaket(body, deps = {}) {
     msg = await client.messages.create({
       model: deps.model || getModel(),
       max_tokens: 700 + input.spek.length * 650,
-      system: SISTEM_PAKET,
+      system: sistemPaketFor(input.bahasa),
       tools: [TOOL_PAKET, TOOL_TOLAK],
       tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: buildPaketPrompt(input, target) }],

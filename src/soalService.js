@@ -62,6 +62,10 @@ export function periksaPenolakan(msg) {
 const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 const LETTER_RE = /\p{L}/u;
 export const MAX_TEKS = 6000;
+export const BAHASA_TEKS = ['ar', 'id', 'jv', 'su', 'ms', 'en', 'lain']; // sama dengan web/lib/bahasa.js
+const NAMA_BAHASA = { ar: 'Arab', id: 'Indonesia', jv: 'Jawa', su: 'Sunda', ms: 'Melayu', en: 'Inggris', lain: 'bahasa lain' };
+/** Kode bahasa teks sumber dari permintaan; kosong = 'ar' (klien lama). Tidak dikenal = undefined. */
+export const resolveBahasa = (raw) => { if (raw === undefined || raw === null || raw === '') return 'ar'; const k = String(raw).trim().toLowerCase(); return BAHASA_TEKS.includes(k) ? k : undefined; };
 export const MIN_ARABIC_LETTERS = 15;
 
 /** Mengembalikan pesan masalah (string) atau null jika teks layak dipakai. */
@@ -77,6 +81,30 @@ export function arabicProblem(teks) {
   if (letters < MIN_ARABIC_LETTERS) return `Teks terlalu pendek. Tempel minimal satu kalimat Arab lengkap (sekitar ${MIN_ARABIC_LETTERS} huruf atau lebih).`;
   if (arabic / letters < 0.6) return 'Teks kitab harus berbahasa Arab. Kolom ini terdeteksi berisi teks non-Arab.';
   return null;
+}
+
+/**
+ * Masalah pada teks sumber menurut bahasanya. Bahasa Arab: aturan lama (arabicProblem). Bahasa lain: cukup panjang saja (>= MIN_ARABIC_LETTERS huruf);
+ * kalau isinya tidak bermakna AI memanggil tolak_teks. Aksara tidak diperiksa agar Pegon/Jawi (bahasa daerah beraksara Arab) tetap bisa dipakai.
+ */
+export function teksProblem(teks, bahasa = 'ar') {
+  if (!bahasa || bahasa === 'ar') return arabicProblem(teks);
+  let letters = 0;
+  for (const ch of String(teks || '')) if (LETTER_RE.test(ch)) letters++;
+  if (letters < MIN_ARABIC_LETTERS) return `Teks terlalu pendek. Tempel minimal satu kalimat lengkap (sekitar ${MIN_ARABIC_LETTERS} huruf atau lebih).`;
+  return null;
+}
+
+/** Sesuaikan prompt sistem (yang ditulis untuk kitab Arab) ke bahasa lain. Bahasa Arab: prompt dikembalikan apa adanya. */
+export function sesuaikanPromptBahasa(prompt, bahasa) {
+  if (!bahasa || bahasa === 'ar') return prompt;
+  const nama = NAMA_BAHASA[bahasa] || 'lain';
+  const terjemah = bahasa === 'id' ? 'tanpa terjemahan karena teks sudah berbahasa Indonesia' : 'terjemahkan ke Bahasa Indonesia';
+  return prompt
+    .replace('berbasis teks kitab turats berbahasa Arab', `berbasis teks kitab atau buku berbahasa ${nama}`)
+    .replace('kutipan Arab hanya boleh diambil persis dari teks', 'kutipan dari teks sumber hanya boleh diambil persis dari teks dan ditulis di antara tanda petik ganda ("...")')
+    .replace('Kutip bagian Arab yang relevan persis seperti di teks (beserta harakat), terjemahkan, lalu jelaskan', `Kutip bagian yang relevan persis seperti di teks, ditulis di antara tanda petik ganda, ${terjemah}, lalu jelaskan`)
+    .replace('Jika teks bukan bahasa Arab yang bermakna', `Jika teks bukan bahasa ${nama} yang bermakna`);
 }
 
 export const TINGKAT = {
@@ -123,7 +151,9 @@ export function validateInput(body) {
     throw new ApiError(422, 'TEKS_TOO_LONG', `Teks kitab terlalu panjang (maksimal ${MAX_TEKS} karakter). Ambil satu bagian pembahasan saja.`);
   }
   const teks = clean(rawTeks, MAX_TEKS);
-  const problem = arabicProblem(teks);
+  const bahasa = resolveBahasa(body.bahasa);
+  if (!bahasa) throw new ApiError(400, 'BAD_REQUEST', 'Bahasa teks tidak dikenal.');
+  const problem = teksProblem(teks, bahasa);
   if (problem) throw new ApiError(422, 'INVALID_ARABIC', problem);
 
   const tingkat = resolveTingkat(body.tingkat);
@@ -135,6 +165,7 @@ export function validateInput(body) {
 
   return {
     teks,
+    bahasa,
     tingkat,
     level,
     bentuk,
@@ -200,7 +231,7 @@ BENTUK SOAL PERMINTAAN INI: URAIAN. Aturan di bawah menggantikan aturan 3, 4, da
 - Ukuran menyesuaikan jenjang: MI satu perintah sederhana dengan 1-3 poin; MTs 2-4 poin; MA 3-5 poin atau penalaran.
 - Tidak ada opsi dan tidak ada kunci huruf.`,
 };
-export const systemPromptFor = (bentuk) => SYSTEM_PROMPT + (ATURAN_BENTUK[bentukDari(bentuk)] || '');
+export const systemPromptFor = (bentuk, bahasa = 'ar') => sesuaikanPromptBahasa(SYSTEM_PROMPT + (ATURAN_BENTUK[bentukDari(bentuk)] || ''), bahasa);
 
 const LEVEL_NAME = { L1: 'L1 (Ingatan)', L2: 'L2 (Aplikasi)', L3: 'L3 (HOTS)' };
 
@@ -221,7 +252,7 @@ export function buildUserPrompt(input, targetKey) {
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
-Rujukan kitab: ${rujukan}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}
 </metadata>
 ${petunjukTarget(bentuk, targetKey)}
 
@@ -450,7 +481,7 @@ export async function generateSoal(body, deps = {}) {
     msg = await client.messages.create({
       model: getModel(),
       max_tokens: 3000,
-      system: systemPromptFor(input.bentuk),
+      system: systemPromptFor(input.bentuk, input.bahasa),
       tools: [toolSoalFor(input.bentuk), TOOL_TOLAK],
       tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: buildUserPrompt(input, targetKey) }],
