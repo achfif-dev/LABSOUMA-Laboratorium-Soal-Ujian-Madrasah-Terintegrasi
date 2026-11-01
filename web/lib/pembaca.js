@@ -62,5 +62,5 @@ export function teksSalinan(kitab, halaman, bagian = 'semua') {
   return `${isi}\n\n— ${(kitab && (kitab.judulLatin || kitab.judul)) || ''}, hal. ${nomor}`;
 }
 
-const LABEL_JENIS = { 'syamilah-txt': 'ekspor Syamilah .txt', 'syamilah-docx': 'ekspor Syamilah .docx', 'teks-penanda': 'teks bertanda halaman', pdf: 'PDF', 'pdf-ocr': 'PDF dibaca dengan OCR AI', epub: 'EPUB', html: 'HTML', json: 'JSON', 'teks-virtual': 'teks tanpa penanda' };
+const LABEL_JENIS = { 'syamilah-txt': 'ekspor Syamilah .txt', 'syamilah-docx': 'ekspor Syamilah .docx', 'teks-penanda': 'teks bertanda halaman', pdf: 'PDF', 'pdf-ocr': 'PDF dibaca dengan OCR AI', 'epub-ocr': 'EPUB hasil OCR Internet Archive', epub: 'EPUB', html: 'HTML', json: 'JSON', 'teks-virtual': 'teks tanpa penanda' };
 export const labelSumberJenis = (j) => LABEL_JENIS[j] || String(j || '');

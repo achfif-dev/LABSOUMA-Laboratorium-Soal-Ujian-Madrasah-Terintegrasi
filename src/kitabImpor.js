@@ -16,7 +16,7 @@ export const MAZHAB = ['', 'syafii', 'hanafi', 'maliki', 'hanbali'];
 export const STATUS_HAK_CIPTA = ['belum-dicek', 'domain-publik', 'izin'];
 const BENTUK_MATN = ['pemisah-tatwil', 'tanpa-pemisah'];
 const ANOMALI = ['duplikat', 'mundur', 'lompat'];
-export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'pdf-ocr', 'epub', 'html', 'json', 'teks-virtual'];
+export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'pdf-ocr', 'epub', 'epub-ocr', 'html', 'json', 'teks-virtual'];
 const RE_ID = /^[a-z0-9][a-z0-9-]{1,59}$/;
 
 const tolak = (kode, pesan, status = 422) => { throw new ApiError(status, kode, pesan); };

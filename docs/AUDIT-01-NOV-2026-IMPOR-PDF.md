@@ -39,3 +39,41 @@ Dasar: clone `main` (commit e93b6b7), 579 tes lulus sebelum perubahan, 598 sesud
 ## Diverifikasi dengan pdf.js sungguhan
 
 PDF uji Arab dengan 4 halaman, penanda buku bertingkat, dan metadata (tahap 1); PDF dua kolom 3 halaman (3 dari 3 terdeteksi, urutan baca benar: kolom kanan lalu kiri), PDF nazham (0 terdeteksi sebagai kolom), dan PDF paragraf (tahap 2). Tahap 1: judul, pengarang, 3 penanda buku (dengan level), calon judul menurut ukuran huruf (rasio 1,83), dan urutan teks logis terbaca benar.
+
+## Audit impor EPUB (1 Nov 2026)
+
+**Temuan utama [Pasti]: `parseEpub` tidak punya satu pun tes sebelumnya.** Cacat di bawah dikonfirmasi dengan EPUB sungguhan (ZIP terkompresi buatan `test/_epub.js`) sebelum diperbaiki, lalu jalur diuji ulang pada EPUB nyata (IDPF accessible_epub_3: 38 berkas, 85 halaman virtual, metadata terbaca).
+
+| # | Cacat (terbukti) | Dampak | Status |
+|---|---|---|---|
+| 1 | Nomor pagebreak hanya angka Latin (`\d`); `title="١٢"` atau `id="page_١٢"` tidak terbaca | EPUB kitab ber-nomor Arab-Hindi dianggap tanpa penanda halaman, atau halamannya hilang | Diperbaiki (juga angka Persia) |
+| 2 | Atribut berkutip tunggal (`full-path='..'`, `id='..'`) tidak terbaca | EPUB sah ditolak "container.xml tidak menunjuk OPF" | Diperbaiki; awalan `opf:` juga diterima |
+| 3 | `</td>` tidak memberi spasi | Syair dalam tabel menempel: "مالكمصليا" | Diperbaiki (juga dd/dt/figcaption/aside/pre) |
+| 4 | `decodeURIComponent` tanpa penjaga | Galat mentah "URI malformed" | Diperbaiki |
+| 5 | Catatan kaki EPUB3 (`aside footnote/endnote`) dan tautan `noteref` tercampur di teks halaman | Hamisy ikut jadi rujukan pemeriksa kutipan | Dibuang dan dihitung, sama dengan jalur Syamilah |
+| 6 | Teks sebelum penanda halaman pertama (sampul, pengantar) dibuang tanpa peringatan | Isi hilang senyap | Dilaporkan (`teksSebelumPenanda`) dan diperingatkan; perilaku membuang dipertahankan |
+| 7 | Bab di OPF yang berkasnya hilang dilewati tanpa jejak | Teks hilang senyap | Dihitung (`babTakTerbaca`) dan diperingatkan |
+| 8 | Dokumen navigasi (`properties="nav"`) ikut diimpor sebagai isi bila ada di spine | Daftar isi tercetak jadi halaman | Dilewati |
+| 9 | Arsip rusak/DRM menghasilkan galat mentah; pesan menyebut ".docx" | Membingungkan | `EPUB_DRM` (enkripsi selain pengaburan font) dan `EPUB_RUSAK` berbahasa jelas |
+| 10 | EPUB isi gambar (pindai) hanya berpesan "tidak berisi teks" | Tidak ada arahan | Pesan menunjuk jalur PDF + OCR AI |
+
+Dugaan yang **tidak** terbukti: performa. 3000 berkas XHTML (satu halaman per berkas) selesai dalam sekitar 2 detik di Node, jadi tidak diubah.
+
+**Belum dikerjakan**
+1. Daftar isi EPUB (nav.xhtml / toc.ncx) belum dipakai; daftar isi masih ditebak dari tag h1-h6 (pemetaan anchor ke halaman butuh penanda posisi di aliran teks).
+2. Format penanda halaman selain `epub:type="pagebreak"` / `role="doc-pagebreak"` (mis. `<span class="PageNumber">[12]</span>` dari konverter tertentu) belum dikenali; EPUB seperti itu jatuh ke halaman virtual. Belum ada contoh EPUB kitab Arab nyata untuk memastikan format mana yang umum.
+3. Item spine `linear="no"` tetap ikut diimpor.
+4. EPUB bergambar (hasil pindai) belum bisa di-OCR langsung.
+
+### Berkas nyata: متن_لب_الأصول.epub (diunggah pengguna)
+
+Sumber: **Internet Archive, hasil OCR otomatis** (`hocr-to-epub`), 99 berkas `page_N.html`, tanpa penanda halaman cetak. Sebelum perbaikan, parser menolaknya (TANPA_PENANDA); bila dipaksa dengan halaman virtual, hasilnya 27 halaman karangan yang memuat notice bahasa Inggris Internet Archive sebagai isi dan baris "estimated to be only N% accurate" tercampur di teks.
+
+Fakta kualitas [Pasti, dihitung dari berkasnya]: 81 dari 99 halaman mencantumkan perkiraan akurasi OCR; semuanya antara 24,69% dan 47,86% (median 34,16%); tidak ada yang di atas 50%. Teks contoh: "ختصر" (مختصر), "ني" (في), "نحفة" (تحفة), baris acak bercampur huruf Latin.
+
+Perbaikan: mode EPUB Internet Archive (dikenali dari `archive.org/details/` di OPF dan >= 80% berkas bernama `page_N`):
+- satu berkas = satu halaman, `hal` = N (nomor lembar pindai, bukan nomor cetak), lembar kosong dilewati tanpa dihitung sebagai anomali penomoran;
+- notice Internet Archive dan baris akurasi dibuang dari teks; akurasi diringkas di `laporan.ocrAkurasi` dan diperingatkan keras bila median < 70%;
+- semua halaman ditandai `ocr: true`, sumber `epub-ocr`, rujukan `archive.org/details/<id>`; lolos validasi server (diuji pada berkas aslinya: 99 halaman, validasiHalaman 99/99, validasiKitab lolos).
+
+**Rekomendasi: jangan jadikan berkas ini rujukan soal.** Dengan akurasi sekitar 34%, pemeriksa kutipan akan menolak kutipan yang benar atau meloloskan teks yang rusak. Cari teks Syamilah/Waqfeya untuk لب الأصول, atau unduh PDF pindai dari archive.org lalu gunakan "Baca dengan OCR AI" (mutunya belum teruji, lihat batasan OCR di atas).

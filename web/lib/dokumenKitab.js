@@ -21,6 +21,7 @@ export const FORMAT_LABEL = {
   'pdf-ocr': 'PDF dibaca dengan OCR AI (sebagian atau seluruh halaman)',
   epub: 'EPUB dengan penanda halaman cetak',
   'epub-virtual': 'EPUB tanpa penanda halaman (halaman virtual)',
+  'epub-ocr': 'EPUB hasil pindai Internet Archive (satu berkas per lembar, teks OCR)',
   html: 'HTML dengan penanda halaman',
   'html-virtual': 'HTML tanpa penanda halaman (halaman virtual)',
   json: 'JSON halaman',

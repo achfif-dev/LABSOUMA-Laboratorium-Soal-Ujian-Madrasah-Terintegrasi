@@ -29,13 +29,19 @@ const dekode = (s) => s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-z]+);/g, (m, k) => {
 });
 
 /* ------------------------------------------------------------------ HTML -> paragraf */
-const RE_PAGEBREAK = /<(?:span|div|a|p|hr)\b[^>]*(?:epub:type\s*=\s*"[^"]*pagebreak[^"]*"|role\s*=\s*"doc-pagebreak")[^>]*>/gi;
+const RE_PAGEBREAK = /<(?:span|div|a|p|hr)\b[^>]*(?:epub:type\s*=\s*(?:"[^"]*pagebreak[^"]*"|'[^']*pagebreak[^']*')|role\s*=\s*(?:"doc-pagebreak"|'doc-pagebreak'))[^>]*>/gi;
+// Catatan kaki/akhir EPUB3 (aside atau li bertipe footnote/endnote/rearnote) dan tautan rujukannya (noteref).
+const RE_CATATAN = /<(aside|li)\b[^>]*(?:epub:type\s*=\s*(?:"[^"]*(?:foot|end|rear)notes?\b[^"]*"|'[^']*(?:foot|end|rear)notes?\b[^']*')|role\s*=\s*(?:"doc-(?:foot|end)notes?"|'doc-(?:foot|end)notes?'))[^>]*>[\s\S]*?<\/\1>/gi;
+const RE_NOTEREF = /<a\b[^>]*(?:epub:type\s*=\s*(?:"[^"]*noteref[^"]*"|'[^']*noteref[^']*')|role\s*=\s*(?:"doc-noteref"|'doc-noteref'))[^>]*>[\s\S]*?<\/a>/gi;
+/** Nilai atribut XML/HTML (kutip ganda atau tunggal); kosong bila tidak ada. Tidak cocok dengan atribut bernama sebagian (data-id untuk id). */
+const attr = (tag, nama) => { const m = new RegExp(`(?<![\\w:.-])${nama}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(tag); return m ? (m[1] ?? m[2] ?? '') : ''; };
+const keAscii = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
 
 /** Nomor halaman dari tag pagebreak EPUB: atribut title / aria-label / id ("page_12", "p12"). Tidak ketemu = null. */
 function nomorPagebreak(tag) {
-  const t = /\btitle\s*=\s*"([^"]*)"/i.exec(tag) || /\baria-label\s*=\s*"([^"]*)"/i.exec(tag);
-  const dariTeks = t && /(\d{1,5})/.exec(t[1]); if (dariTeks) return +dariTeks[1];
-  const id = /\bid\s*=\s*"([^"]*)"/i.exec(tag); const dariId = id && /(\d{1,5})(?!.*\d)/.exec(id[1]);
+  const label = attr(tag, 'title') || attr(tag, 'aria-label');
+  const dariTeks = label && /(\d{1,5})/.exec(keAscii(label)); if (dariTeks) return +dariTeks[1];
+  const id = attr(tag, 'id'); const dariId = id && /(\d{1,5})(?!.*\d)/.exec(keAscii(id));
   return dariId ? +dariId[1] : null;
 }
 
@@ -43,19 +49,20 @@ function nomorPagebreak(tag) {
  * HTML/XHTML -> paragraf [{ teks, tingkat, tebal }] (sama dengan keluaran bacaDocx, jadi parser berpenanda bisa memakainya).
  * h1..h6 menjadi tingkat 1..6. `pagebreak: true` mengganti tag pagebreak EPUB dengan penanda "[ص N]" (hanya bila nomornya terbaca).
  */
-export function paragrafDariHtml(html, { pagebreak = false } = {}) {
+export function paragrafDariHtml(html, { pagebreak = false, buangCatatan = false } = {}) {
   let h = String(html ?? '').replace(/^\ufeff/, '').replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, '');
-  let ada = 0;
+  let ada = 0; let catatan = 0;
+  if (buangCatatan) h = h.replace(RE_CATATAN, () => { catatan++; return ''; }).replace(RE_NOTEREF, '');
   if (pagebreak) h = h.replace(RE_PAGEBREAK, (tag) => { const n = nomorPagebreak(tag); if (n === null) return ''; ada++; return `\n[ص ${n}]\n`; });
   h = h.replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n\u0001${n}\u0002`).replace(/<\/h[1-6]>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|tr|section|article|blockquote|table|ul|ol)>/gi, '\n').replace(/<(p|div|li|tr|section|article|blockquote)\b[^>]*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(td|th)>/gi, ' ').replace(/<\/(p|div|li|tr|section|article|blockquote|table|ul|ol|dd|dt|figcaption|caption|aside|header|footer|pre|figure)>/gi, '\n').replace(/<(p|div|li|tr|section|article|blockquote)\b[^>]*>/gi, '\n')
     .replace(/<[^>]+>/g, '');
   const hasil = dekode(h).split('\n').map((baris) => {
     const m = /^\u0001([1-6])\u0002/.exec(baris);
     const teks = (m ? baris.slice(3) : baris).replace(/[\u0001\u0002]/g, '').replace(/[ \t]+/g, ' ').trim();
     return { teks, tingkat: m ? +m[1] : 0, tebal: false };
   }).filter((p) => p.teks);
-  hasil.adaPagebreak = ada;
+  hasil.adaPagebreak = ada; hasil.catatanDibuang = catatan;
   return hasil;
 }
 
@@ -409,42 +416,112 @@ export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false
 }
 
 /* ------------------------------------------------------------------ EPUB */
-const bacaTeks = async (buffer, nama) => { const b = await bacaBerkasZip(buffer, nama); return b ? new TextDecoder('utf-8').decode(b) : null; };
-const attr = (tag, nama) => { const m = new RegExp(`\\b${nama}\\s*=\\s*"([^"]*)"`, 'i').exec(tag); return m ? m[1] : ''; };
+const bacaTeks = async (buffer, nama) => {
+  let b;
+  try { b = await bacaBerkasZip(buffer, nama); }
+  catch (e) { throw new ErrorSyamilah('EPUB_RUSAK', 'Isi EPUB tidak bisa dibuka (arsip rusak atau terkunci DRM).'); }
+  return b ? new TextDecoder('utf-8').decode(b) : null;
+};
 const gabungJalur = (dasar, rel) => {
-  const bagian = (dasar.includes('/') ? dasar.slice(0, dasar.lastIndexOf('/') + 1) : '') + decodeURIComponent(rel.split('#')[0]);
+  let tanpaFragmen = rel.split('#')[0];
+  try { tanpaFragmen = decodeURIComponent(tanpaFragmen); } catch { /* persen tak sah: pakai apa adanya */ }
+  const bagian = (dasar.includes('/') ? dasar.slice(0, dasar.lastIndexOf('/') + 1) : '') + tanpaFragmen;
   const hasil = []; for (const s of bagian.split('/')) { if (s === '..') hasil.pop(); else if (s && s !== '.') hasil.push(s); }
   return hasil.join('/');
 };
+// EPUB hasil pindai Internet Archive ("hocr-to-epub"): satu berkas page_N.html per lembar pindai, tanpa penanda halaman cetak; N = nomor lembar pindai (bukan nomor cetak).
+// Halaman berteks OCR buruk diberi baris "The text on this page is estimated to be only N% accurate" oleh Internet Archive.
+const RE_AKURASI_ARSIP = /^The text on this page is estimated to be only ([\d.]+)% accurate\.?$/i;
+const RE_HALAMAN_ARSIP = /(?:^|\/)page_(\d+)\.x?html?$/i;
+const RE_NOTICE_ARSIP = /(?:^|\/)notice\.x?html?$/i;
+const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const ALGORITMA_FONT = ['http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC']; // pengaburan font: bukan DRM atas teks
 
-/** EPUB -> kitab. Penanda halaman cetak EPUB (epub:type="pagebreak") dipakai bila ada; kalau tidak, halaman virtual. */
+/**
+ * EPUB hasil pindai Internet Archive: tiap berkas page_N.html dijadikan satu halaman bernomor N (nomor lembar pindai, bukan nomor cetak; lembar tanpa teks dilewati).
+ * Baris perkiraan akurasi OCR dari Internet Archive dibuang dari teks dan diringkas di `laporan.ocrAkurasi`. Seluruh halaman ditandai `ocr: true`, sumber `epub-ocr`.
+ */
+async function parseEpubArsip({ buffer, opfJalur, urutan, arsip, judulOpf, penulis }) {
+  const halaman = []; const judul = []; const akurasi = []; let kosong = 0; let babTakTerbaca = 0;
+  for (const it of urutan) {
+    const html = await bacaTeks(buffer, gabungJalur(opfJalur, it.href));
+    if (!html) { babTakTerbaca++; continue; }
+    let p = Array.from(paragrafDariHtml(html, { buangCatatan: true }));
+    const iAkurasi = p.findIndex((x) => RE_AKURASI_ARSIP.test(x.teks.trim()));
+    if (iAkurasi >= 0) { akurasi.push(+RE_AKURASI_ARSIP.exec(p[iAkurasi].teks.trim())[1]); p = p.filter((_, i) => i !== iAkurasi); }
+    if (!p.some((x) => normalArab(x.teks))) { kosong++; continue; }
+    for (const x of p) { const t = normalArab(x.teks); const gaya = x.tingkat >= 1 && x.tingkat <= 3; if (t && t.length <= 300 && (gaya || calonJudul(t))) judul.push({ judul: t, level: gaya ? x.tingkat : levelKata(t), seq: halaman.length + 1 }); }
+    halaman.push({ teks: p.map((x) => x.teks).join('\n'), hal: +RE_HALAMAN_ARSIP.exec(it.href)[1] });
+  }
+  if (!halaman.length) throw tanpaTeks('EPUB ini tidak memuat teks pada satu pun halaman.');
+  const bersih = (m) => (m ? normalArab(dekode(m[1].replace(/<[^>]+>/g, ''))) : '');
+  const hasil = susunHasil({ halaman, judul, namaJudul: bersih(judulOpf), pengarang: bersih(penulis), jenis: 'epub-ocr', rujukan: `archive.org/details/${arsip[1]}`, sesuaiCetak: false });
+  // Nomor lembar pindai melompat di lembar kosong yang dilewati: itu wajar, bukan anomali penomoran.
+  for (const h of hasil.halaman) { delete h.nomorAnomali; h.ocr = true; }
+  hasil.laporan.anomali = { duplikat: 0, mundur: 0, lompat: 0 }; hasil.laporan.daftarAnomali = [];
+  hasil.kitab.ocrHalaman = hasil.halaman.length;
+  hasil.laporan.babTakTerbaca = babTakTerbaca; hasil.laporan.halamanPindaiKosong = kosong;
+  hasil.laporan.ocrAkurasi = akurasi.length ? { bertanda: akurasi.length, median: +median(akurasi).toFixed(2), min: Math.min(...akurasi), maks: Math.max(...akurasi), rendah: akurasi.filter((a) => a < 70).length } : null;
+  return { ...hasil, format: 'epub-ocr' };
+}
+
+/**
+ * EPUB -> kitab. Penanda halaman cetak EPUB (epub:type="pagebreak" / role="doc-pagebreak", nomor Latin atau Arab-Hindi) dipakai bila ada; kalau tidak, halaman virtual.
+ * Catatan kaki EPUB3 (aside footnote/endnote) dibuang dan dihitung, sama dengan jalur Syamilah. Teks sebelum penanda halaman pertama (sampul, pengantar penerbit)
+ * tidak diimpor pada jalur penanda; jumlahnya dilaporkan (`laporan.teksSebelumPenanda`). Bab yang disebut di OPF tetapi tidak terbaca dilaporkan (`laporan.babTakTerbaca`).
+ */
 export async function parseEpub(buffer, { halAwal = 1, virtual = false } = {}) {
-  if (!namaBerkasZip(buffer).length) throw new ErrorSyamilah('EPUB_RUSAK', 'Berkas EPUB kosong atau rusak.');
+  const nama = namaBerkasZip(buffer);
+  if (!nama.length) throw new ErrorSyamilah('EPUB_RUSAK', 'Berkas EPUB kosong atau rusak.');
+  if (nama.includes('META-INF/encryption.xml')) {
+    const enk = (await bacaTeks(buffer, 'META-INF/encryption.xml')) || '';
+    const asing = (enk.match(/Algorithm\s*=\s*(?:"[^"]*"|'[^']*')/gi) || []).map((m) => m.replace(/^[^=]*=\s*["']|["']$/g, '')).filter((a) => !ALGORITMA_FONT.includes(a));
+    if (asing.length) throw new ErrorSyamilah('EPUB_DRM', 'EPUB ini terenkripsi (DRM) sehingga teksnya tidak bisa dibaca. Gunakan salinan tanpa DRM.');
+  }
   const wadah = await bacaTeks(buffer, 'META-INF/container.xml');
-  const opfPath = wadah && /full-path\s*=\s*"([^"]+)"/i.exec(wadah);
+  const opfPath = wadah && /full-path\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(wadah);
   if (!opfPath) throw new ErrorSyamilah('EPUB_RUSAK', 'EPUB tidak valid: container.xml tidak menunjuk berkas OPF.');
-  const opf = await bacaTeks(buffer, opfPath[1]);
+  const opfJalur = opfPath[1] || opfPath[2];
+  const opf = await bacaTeks(buffer, opfJalur);
   if (!opf) throw new ErrorSyamilah('EPUB_RUSAK', 'EPUB tidak valid: berkas OPF tidak ditemukan.');
   const manifest = new Map();
-  for (const m of opf.match(/<item\b[^>]*>/gi) || []) manifest.set(attr(m, 'id'), { href: attr(m, 'href'), tipe: attr(m, 'media-type') });
-  const urutan = (opf.match(/<itemref\b[^>]*>/gi) || []).map((m) => manifest.get(attr(m, 'idref'))).filter((x) => x && /x?html/i.test(x.tipe));
+  for (const m of opf.match(/<(?:[\w-]+:)?item\b[^>]*>/gi) || []) manifest.set(attr(m, 'id'), { href: attr(m, 'href'), tipe: attr(m, 'media-type'), sifat: attr(m, 'properties') });
+  const urutan = (opf.match(/<(?:[\w-]+:)?itemref\b[^>]*>/gi) || []).map((m) => manifest.get(attr(m, 'idref')))
+    .filter((x) => x && /x?html/i.test(x.tipe) && !/(^|\s)nav(\s|$)/.test(x.sifat)); // dokumen navigasi (daftar isi EPUB3) bukan isi kitab
   if (!urutan.length) throw new ErrorSyamilah('EPUB_RUSAK', 'EPUB tidak berisi bab yang bisa dibaca.');
   const judulOpf = /<dc:title\b[^>]*>([\s\S]*?)<\/dc:title>/i.exec(opf); const penulis = /<dc:creator\b[^>]*>([\s\S]*?)<\/dc:creator>/i.exec(opf);
-  let paragraf = []; let adaPagebreak = 0;
+  const arsip = /archive\.org\/details\/([A-Za-z0-9._-]+)/i.exec(opf);
+  const bukanNotice = urutan.filter((it) => !RE_NOTICE_ARSIP.test(it.href));
+  const modeArsip = !!arsip && bukanNotice.length >= 5 && bukanNotice.filter((it) => RE_HALAMAN_ARSIP.test(it.href)).length >= 0.8 * bukanNotice.length;
+  if (modeArsip) return parseEpubArsip({ buffer, opfJalur, urutan: bukanNotice, arsip, opf, judulOpf, penulis });
+  const paragraf = []; let adaPagebreak = 0; let catatanKaki = 0; let babTakTerbaca = 0;
   for (const it of urutan) {
-    const html = await bacaTeks(buffer, gabungJalur(opfPath[1], it.href)); if (!html) continue;
-    const p = paragrafDariHtml(html, { pagebreak: true }); adaPagebreak += p.adaPagebreak || 0; paragraf = paragraf.concat(p);
+    const jalur = gabungJalur(opfJalur, it.href);
+    const html = (await bacaTeks(buffer, jalur)) ?? (await bacaTeks(buffer, gabungJalur(opfJalur, it.href.replace(/%/g, '%25'))));
+    if (!html) { babTakTerbaca++; continue; }
+    const p = paragrafDariHtml(html, { pagebreak: true, buangCatatan: true }); adaPagebreak += p.adaPagebreak || 0; catatanKaki += p.catatanDibuang || 0;
+    for (const x of p) paragraf.push(x);
   }
-  if (!paragraf.length) throw tanpaTeks('EPUB tidak berisi teks.');
+  if (!paragraf.length) {
+    const adaGambar = nama.some((n) => /\.(jpe?g|png|gif|webp|svg)$/i.test(n));
+    throw tanpaTeks(adaGambar ? 'EPUB ini hanya berisi gambar halaman (hasil pindai), tanpa teks. Impor EPUB belum membaca gambar: ubah ke PDF lalu gunakan "Baca dengan OCR AI", atau cari salinan berteks.' : 'EPUB tidak berisi teks.');
+  }
   const meta = { namaJudul: judulOpf ? normalArab(dekode(judulOpf[1].replace(/<[^>]+>/g, ''))) : '', pengarang: penulis ? normalArab(dekode(penulis[1].replace(/<[^>]+>/g, ''))) : '' };
   let hasil;
   if (adaPagebreak > 0) {
     try { hasil = { ...parsePenandaSisip(paragraf, { jenis: 'epub' }), format: 'epub' }; } catch (e) { if (!(e instanceof ErrorSyamilah) || e.kode !== 'TANPA_PENANDA') throw e; }
   }
   if (!hasil && !virtual) throw new ErrorSyamilah('TANPA_PENANDA', 'EPUB ini tidak memuat penanda halaman cetak (pagebreak).');
+  let teksSebelumPenanda = 0;
   if (!hasil) hasil = { ...parseVirtual(paragraf, { jenis: 'epub', halAwal, ...meta }), format: 'epub-virtual' };
-  else { hasil.kitab.judul = meta.namaJudul || hasil.kitab.judul; hasil.kitab.pengarang = meta.pengarang || hasil.kitab.pengarang; hasil.kitab.sumber.jenis = 'epub'; }
+  else {
+    hasil.kitab.judul = meta.namaJudul || hasil.kitab.judul; hasil.kitab.pengarang = meta.pengarang || hasil.kitab.pengarang; hasil.kitab.sumber.jenis = 'epub';
+    const i = paragraf.findIndex((p) => /\[ص\s*\d/.test(p.teks));
+    teksSebelumPenanda = i > 0 ? paragraf.slice(0, i).filter((p) => !(p.tingkat > 0)).reduce((n, p) => n + p.teks.length, 0) : 0;
+  }
   if (!hasil.kitab.judul) hasil.kitab.judul = meta.namaJudul;
+  hasil.laporan.catatanKakiDibuang = (hasil.laporan.catatanKakiDibuang || 0) + catatanKaki;
+  hasil.laporan.babTakTerbaca = babTakTerbaca; hasil.laporan.teksSebelumPenanda = teksSebelumPenanda;
   return hasil;
 }
 

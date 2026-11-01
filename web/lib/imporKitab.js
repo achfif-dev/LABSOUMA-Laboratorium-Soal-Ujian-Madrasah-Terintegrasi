@@ -50,6 +50,7 @@ export function peringatanPratinjau(hasil, pilihan = null) {
   if (l.halamanDipecah && l.halamanDipecah.length) w.push({ tingkat: 'warn', teks: `${l.halamanDipecah.length} halaman cetak terlalu panjang dan dipecah di batas paragraf agar muat di Penyusunan Soal: ${l.halamanDipecah.slice(0, 6).map((x) => `hal. ${x.hal} (${x.panjang.toLocaleString('id-ID')} karakter jadi ${x.bagian} bagian)`).join(', ')}${l.halamanDipecah.length > 6 ? ', ...' : ''}. Nomor halamannya tetap, jadi rujukan soal tidak berubah.` });
   if (k.halamanVirtual) w.push({ tingkat: 'warn', teks: 'Halaman kitab ini dibagi otomatis menurut panjang teks, jadi nomornya BUKAN nomor cetak. Soal tetap bisa ditautkan balik ke halaman di perpustakaan, tetapi rujukan "hal." di soal harus dicocokkan dengan edisi cetak.' });
   else if (k.sumber && (k.sumber.jenis === 'pdf' || k.sumber.jenis === 'pdf-ocr')) w.push({ tingkat: 'warn', teks: 'Nomor halaman mengikuti urutan halaman PDF ditambah nomor awal yang Anda isi. Periksa satu halaman di pembaca: PDF sering memuat sampul dan pengantar sebelum halaman bernomor.' });
+  else if (k.sumber && k.sumber.jenis === 'epub-ocr') w.push({ tingkat: 'warn', teks: 'Nomor halaman = nomor lembar pindai di Internet Archive (berkas page_N), BUKAN nomor cetak; lembar tanpa teks dilewati. Rujukan "hal." di soal harus dicocokkan dengan lembar pindainya.' });
   else if (k.sumber && k.sumber.jenis === 'json' && !k.penomoranSesuaiCetak) w.push({ tingkat: 'warn', teks: 'Sebagian halaman di JSON tidak punya nomor "hal"; nomornya diisi berurutan, bukan nomor cetak.' });
   if (l.ocr) {
     const o = l.ocr;
@@ -57,9 +58,15 @@ export function peringatanPratinjau(hasil, pilihan = null) {
     if (o.gagal && o.gagal.length) w.push({ tingkat: 'warn', teks: `OCR gagal pada ${o.gagal.length} halaman PDF (urutan PDF: ${o.gagal.slice(0, 8).map((x) => x.indeks + 1).join(', ')}${o.gagal.length > 8 ? ', ...' : ''}); halaman itu kosong atau berteks lapisan PDF seadanya.${o.kuotaHabis ? ' Penyebab: batas OCR harian habis.' : ''}` });
     if (o.kosong) w.push({ tingkat: 'warn', teks: `${o.kosong} halaman PDF tidak memuat teks Arab yang terbaca (kosong, gambar, atau sampul) dan dibiarkan kosong.` });
   } else if (l.halamanPerluOcr && l.halamanPerluOcr.length) w.push({ tingkat: 'warn', teks: `${l.halamanPerluOcr.length} halaman PDF tanpa lapisan teks atau teksnya rusak (urutan PDF: ${l.halamanPerluOcr.slice(0, 8).map((i) => i + 1).join(', ')}${l.halamanPerluOcr.length > 8 ? ', ...' : ''}). Tombol \"Baca dengan OCR AI\" bisa membacanya.` });
+  if (l.ocrAkurasi) {
+    const o = l.ocrAkurasi;
+    w.push({ tingkat: 'warn', teks: `EPUB ini hasil OCR otomatis Internet Archive. ${o.bertanda} halaman mencantumkan perkiraan akurasi: median ${o.median}%, terendah ${o.min}%, tertinggi ${o.maks}%; ${o.rendah} di antaranya di bawah 70%.${o.median < 70 ? ' Teks seakurat ini tidak layak dijadikan rujukan soal atau kutipan (huruf salah, kata acak, harakat rusak). Gunakan sumber teks lain (Syamilah, Waqfeya) atau OCR ulang dari PDF-nya.' : ' Periksa beberapa halaman sebelum dipakai.'}` });
+  }
   if (l.halamanDuaKolom) w.push({ tingkat: 'warn', teks: `${l.halamanDuaKolom} halaman terdeteksi dua kolom dan dibaca per kolom (kolom awal-baca dulu). Bila isinya nazham/syair (tiap bait dua syatr), urutan bait bisa keliru: baca ulang tanpa deteksi dua kolom.` });
   if (l.ligaturDiperbaiki) w.push({ tingkat: 'warn', teks: `${l.ligaturDiperbaiki} ligatur (lafzh Allah atau shalawat) hilang dari PDF dan diganti otomatis menurut konteks (\"الله\" atau \"صلى الله عليه وسلم\"). Ini tebakan: periksa kutipan yang memuatnya sebelum dijadikan rujukan.` });
   if (l.judulSumber === 'penanda-buku') w.push({ tingkat: 'warn', teks: 'Daftar isi diambil dari penanda buku (bookmark) PDF. Periksa bahwa halaman tujuan tiap bab sesuai.' });
+  if (l.babTakTerbaca) w.push({ tingkat: 'warn', teks: `${l.babTakTerbaca} bab yang tercantum di EPUB tidak terbaca (berkas hilang atau rusak) dan tidak ikut diimpor.` });
+  if (l.teksSebelumPenanda >= 300) w.push({ tingkat: 'warn', teks: `${l.teksSebelumPenanda} karakter teks sebelum penanda halaman pertama (sampul, pengantar penerbit) tidak diimpor. Bila isinya dibutuhkan, impor ulang dengan halaman virtual.` });
   if (l.halamanKosong) w.push({ tingkat: 'warn', teks: `${l.halamanKosong} halaman tanpa teks.` });
   const a = l.anomali;
   if (a.duplikat + a.mundur + a.lompat) w.push({ tingkat: 'warn', teks: `Nomor halaman cetak tidak berurutan: ${a.duplikat} kembar, ${a.mundur} mundur, ${a.lompat} melompat. Aman: kunci halaman memakai urutan, bukan nomor cetak.` });
