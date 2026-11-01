@@ -63,17 +63,18 @@ export async function bukaPdf(buffer, { pustaka: lib = null } = {}) {
   if (doc.numPages > MAKS_HALAMAN_PDF) { try { doc.destroy(); } catch { /* abaikan */ } throw new ErrorSyamilah('PDF_TERLALU_BESAR', `PDF berisi ${doc.numPages} halaman (maksimal ${MAKS_HALAMAN_PDF}). Pecah per jilid lalu impor satu per satu.`); }
   return {
     jumlah: doc.numPages,
-    /** @returns {Promise<{teks:string[], judulUkuran:{teks:string,rasio:number}[][]}>} */
-    async teksSemua({ onProgres = () => {}, batal = () => false } = {}) {
-      const teks = []; const judulUkuran = [];
+    /** `kolom`: 'auto' mengenali halaman dua kolom prosa; `paragraf`: gabungkan baris visual menjadi paragraf (lihat sumberLain.js).
+     *  @returns {Promise<{teks:string[], judulUkuran:{teks:string,rasio:number}[][], halamanDuaKolom:number, barisDigabung:number}>} */
+    async teksSemua({ onProgres = () => {}, batal = () => false, kolom = 'tutup', paragraf = false } = {}) {
+      const teks = []; const judulUkuran = []; let halamanDuaKolom = 0; let barisDigabung = 0;
       for (let i = 1; i <= doc.numPages; i++) {
         if (batal()) throw dibatalkan();
         const hal = await doc.getPage(i);
-        try { const r = rincianHalamanPdf((await hal.getTextContent()).items); teks.push(r.teks); judulUkuran.push(r.judul); }
+        try { const r = rincianHalamanPdf((await hal.getTextContent()).items, { kolom, paragraf }); teks.push(r.teks); judulUkuran.push(r.judul); if (r.duaKolom) halamanDuaKolom++; barisDigabung += r.digabung; }
         finally { try { hal.cleanup(); } catch { /* abaikan */ } }
         onProgres(i, doc.numPages);
       }
-      return { teks, judulUkuran };
+      return { teks, judulUkuran, halamanDuaKolom, barisDigabung };
     },
     outline: () => bacaOutline(doc),
     async meta() { try { return bersihkanMeta((await doc.getMetadata()).info); } catch { return { judul: '', pengarang: '' }; } },

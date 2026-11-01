@@ -11,9 +11,10 @@ import { jalankanOcr, MAKS_HALAMAN_OCR } from './ocrPdf.js';
  * @param {Function} [o.bacaPdf]  antarmuka lama (uji/injeksi): ArrayBuffer -> string[] | { teks, outline?, judulUkuran?, meta? }. Tanpa OCR.
  * @param {Function} [o.bukaPdf]  pembuka sesi PDF (bawaan: web/lib/bacaPdf.js, dimuat malas)
  * @param {(p:{tahap:'teks'|'ocr', n:number, total:number})=>void} [o.onProgres] @param {()=>boolean} [o.batal]
+ * @param {'auto'|'tutup'} [o.kolom]  'auto' (bawaan) membaca halaman dua kolom prosa per kolom; 'tutup' = tetap per baris (mis. nazham). @param {boolean} [o.paragraf]  gabungkan baris visual menjadi paragraf (bawaan ya)
  * @param {{mode?:'perlu'|'semua', panggil:Function, konkuren?:number, tidur?:Function}|null} [o.ocr]  bila diisi, halaman bernilai kosong/rusak (atau semua, mode 'semua') dibaca dengan OCR AI
  */
-export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksplisit = false, bacaPdf = null, bukaPdf = null, onProgres = () => {}, batal = () => false, ocr = null }) {
+export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksplisit = false, bacaPdf = null, bukaPdf = null, onProgres = () => {}, batal = () => false, ocr = null, kolom = 'auto', paragraf = true }) {
   const dasar = { halAwal, halAwalEksplisit, namaBerkas: nama };
   if (bacaPdf) {
     const r = await bacaPdf(buffer); const d = Array.isArray(r) ? { teks: r } : (r || {});
@@ -22,7 +23,7 @@ export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksp
   const buka = bukaPdf || (await import('./bacaPdf.js')).bukaPdf;
   const sesi = await buka(buffer);
   try {
-    const { teks, judulUkuran } = await sesi.teksSemua({ onProgres: (n, total) => onProgres({ tahap: 'teks', n, total }), batal });
+    const { teks, judulUkuran, halamanDuaKolom, barisDigabung } = await sesi.teksSemua({ onProgres: (n, total) => onProgres({ tahap: 'teks', n, total }), batal, kolom, paragraf });
     const [outline, meta] = await Promise.all([sesi.outline(), sesi.meta()]);
     const dioCr = []; let laporanOcr = null;
     if (ocr) {
@@ -45,6 +46,7 @@ export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksp
       throw e;
     }
     if (laporanOcr) hasil.laporan.ocr = laporanOcr;
+    hasil.laporan.halamanDuaKolom = halamanDuaKolom || 0; hasil.laporan.barisDigabung = barisDigabung || 0;
     return hasil;
   } finally { sesi.tutup(); }
 }

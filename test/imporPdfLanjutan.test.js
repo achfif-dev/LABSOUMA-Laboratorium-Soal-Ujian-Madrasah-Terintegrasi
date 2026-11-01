@@ -25,7 +25,7 @@ test('rincianHalamanPdf: baris berhuruf lebih besar jadi calon judul; teks sama 
 test('rincianHalamanPdf: halaman pendek (sampul, < 3 baris) dan baris angka besar tidak jadi judul', () => {
   assert.deepEqual(rincianHalamanPdf([it('كتاب', 700, 30), it('الطهارة', 600, 12)]).judul, []);
   assert.deepEqual(rincianHalamanPdf([it('٣٤', 700, 30), it(ISI, 650), it(ISI, 630), it(ISI, 610)]).judul, []);
-  assert.deepEqual(rincianHalamanPdf([]), { teks: '', judul: [] });
+  assert.deepEqual(rincianHalamanPdf([]), { teks: '', judul: [], duaKolom: false, digabung: 0 });
 });
 
 /* ---------- penilaian per halaman ---------- */
@@ -182,4 +182,117 @@ test('server: aksiOcr memanggil pembaca foto kitab dan meringkas hasilnya; gamba
   const r = await aksiOcr({ gambar: gam }, { client });
   assert.deepEqual(r, { teks: ISI, kualitas: 'jelas', jumlahRagu: 1 }); assert.equal(dipanggil, 1);
   await assert.rejects(aksiOcr({}, { client }), { code: 'BAD_REQUEST' }); assert.equal(dipanggil, 1);
+});
+
+/* ================= tahap 2: dua kolom, paragraf, ligatur, OCR Latin/Pegon ================= */
+import { cariTalang, lipatBaris, perbaikiLigatur } from '../web/lib/sumberLain.js';
+
+const dua = (str, x, y, w, h = 12) => ({ str, transform: [h, 0, 0, h, x, y], width: w });
+// halaman dua kolom prosa: 20 baris, kolom kanan x 310-530, kolom kiri x 50-270, talang 40 satuan; ditambah judul selebar halaman
+function halamanDuaKolom() {
+  const items = [dua('باب الطهارة في بيان أحكام المياه والنجاسات وما يتعلق بهما', 50, 790, 480, 12)];
+  for (let i = 1; i <= 20; i++) { const y = 760 - i * 18; items.push(dua(`${ISI} R${i}`, 310, y, 220), dua(`${ISI} L${i}`, 50, y, 220)); }
+  return items;
+}
+test('dua kolom prosa: dibaca per kolom (kanan dulu untuk Arab), judul selebar halaman tetap di atas; mode tutup tetap per baris', () => {
+  const items = halamanDuaKolom();
+  assert.ok(cariTalang(items.map((u) => ({ s: u.str, x: u.transform[4], y: u.transform[5], h: u.transform[3], w: u.width }))) !== null);
+  const r = rincianHalamanPdf(items, { kolom: 'auto' });
+  assert.equal(r.duaKolom, true);
+  const t = r.teks; const pos = (k) => t.indexOf(k);
+  assert.ok(pos('باب الطهارة') < pos('R1')); assert.ok(pos('R1') < pos('R20')); assert.ok(pos('R20') < pos('L1')); assert.ok(pos('L1') < pos('L20'));
+  const lama = rincianHalamanPdf(items, { kolom: 'tutup' });
+  assert.equal(lama.duaKolom, false); assert.ok(lama.teks.indexOf('L1') < lama.teks.indexOf('R2')); // per baris: R1 L1 R2 L2 ...
+});
+test('nazham (dua syatr per baris, syatr pendek) TIDAK dibaca per kolom', () => {
+  const items = []; for (let i = 1; i <= 20; i++) { const y = 760 - i * 18; items.push(dua(`شطر أول ${i}`, 260, y, 190), dua(`شطر ثان ${i}`, 50, y, 190)); }
+  const r = rincianHalamanPdf(items, { kolom: 'auto' });
+  assert.equal(r.duaKolom, false); assert.ok(r.teks.indexOf('ثان 1') < r.teks.indexOf('أول 2'));
+});
+test('halaman satu kolom, atau terlalu sedikit baris, tidak dianggap dua kolom', () => {
+  const satu = []; for (let i = 1; i <= 30; i++) satu.push(dua(`${ISI} ${i}`, 50, 760 - i * 18, 480));
+  assert.equal(rincianHalamanPdf(satu, { kolom: 'auto' }).duaKolom, false);
+  const sedikit = []; for (let i = 1; i <= 6; i++) sedikit.push(dua(`${ISI} R${i}`, 310, 760 - i * 18, 220), dua(`${ISI} L${i}`, 50, 760 - i * 18, 220));
+  assert.equal(rincianHalamanPdf(sedikit, { kolom: 'auto' }).duaKolom, false);
+});
+
+const kata = (i) => `${'كلمة '.repeat(3)}${i}`;
+const baris14 = () => { // 14 baris Arab (tepi kanan x = 500); paragraf A = baris 2-6 (baris 6 pendek, mulai dari tepi kanan), paragraf B = baris 7-10 (baris 7 menjorok 30, baris 10 pendek)
+  const L = (i, w = 400, x = 100) => dua(kata(i), x, 760 - i * 18, w);
+  return [L(0), L(1), L(2), L(3), L(4), L(5), L(6, 150, 350), L(7, 370, 100), L(8), L(9), L(10, 100, 400), L(11), L(12), L(13)];
+};
+test('paragraf: baris terisi penuh digabung sampai baris pendek; menjorok memulai paragraf baru; dua baris awal dan akhir tak disentuh', () => {
+  const r = rincianHalamanPdf(baris14(), { paragraf: true });
+  const baris = r.teks.split('\n');
+  assert.equal(baris.length, 7); assert.equal(r.digabung, 7);
+  assert.ok(baris[2].includes('2') && baris[2].includes('6') && !baris[2].includes('7'));
+  assert.ok(baris[3].includes('7') && baris[3].includes('10'));
+  assert.ok(baris[0].endsWith('0') && baris[1].endsWith('1') && baris[6].endsWith('13'));
+  assert.equal(rincianHalamanPdf(baris14(), { paragraf: false }).teks.split('\n').length, 14);
+});
+test('paragraf: baris bercelah lebar (syair) dan baris judul tidak digabung', () => {
+  const syair = []; for (let i = 0; i < 14; i++) syair.push(dua(kata(i), 350, 760 - i * 18, 150), dua(kata(i), 100, 760 - i * 18, 150));
+  assert.equal(rincianHalamanPdf(syair, { paragraf: true }).teks.split('\n').length, 14);
+  const b = baris14(); b[5] = dua('فصل في الوضوء والغسل', 100, 760 - 5 * 18, 400);
+  const t = rincianHalamanPdf(b, { paragraf: true }).teks.split('\n');
+  assert.ok(t.some((x) => x.startsWith('فصل في الوضوء') && !x.includes('كلمة')));
+});
+test('paragraf Latin: kata terpotong tanda hubung disambung', () => {
+  const L = (s, i) => dua(s, 100, 760 - i * 18, 400);
+  const items = [L('Judul', 0), L('Pengantar', 1), L('Bab satu', 2), L('permulaan uraian tentang infor-', 3), L('masi yang sangat penting bagi kita', 4), L('baris kelima yang panjang sekali', 5), L('baris keenam', 6), L('baris ketujuh', 7), L('akhir satu', 8), L('akhir dua', 9)];
+  const t = rincianHalamanPdf(items, { paragraf: true }).teks;
+  assert.ok(t.includes('informasi yang sangat')); assert.ok(!t.includes('infor-'));
+});
+test('lipatBaris: halaman kurang dari 6 baris dibiarkan', () => {
+  const b = [{ teks: 'a b c d e f g', tinggi: 12, jeda: false, x0: 0, x1: 100, celahMaks: 0 }, { teks: 'h i j k l m n', tinggi: 12, jeda: false, x0: 0, x1: 100, celahMaks: 0 }];
+  assert.deepEqual(lipatBaris(b, true), { baris: b, digabung: 0 });
+});
+
+test('ligatur: NUL yang berdiri sendiri diganti menurut konteks; yang menempel pada huruf dibiarkan', () => {
+  assert.deepEqual(perbaikiLigatur('قال المصنف رحمه \u0000 تعالى'), { teks: 'قال المصنف رحمه الله تعالى', jumlah: 1 });
+  assert.equal(perbaikiLigatur('قال النبي \u0000 في الحديث').teks, 'قال النبي صلى الله عليه وسلم في الحديث');
+  assert.equal(perbaikiLigatur('قال رسول الله \u0000.').teks, 'قال رسول الله صلى الله عليه وسلم.');
+  assert.equal(perbaikiLigatur('محمدٍ \u0000').teks, 'محمدٍ صلى الله عليه وسلم');
+  const menempel = perbaikiLigatur('كلمة\u0000ما'); assert.equal(menempel.jumlah, 0); assert.ok(menempel.teks.includes('\u0000'));
+  assert.deepEqual(perbaikiLigatur('tanpa nul'), { teks: 'tanpa nul', jumlah: 0 });
+});
+test('parsePdf: ligatur diperbaiki dan dilaporkan', () => {
+  const hal = halamanTeks(8); hal[1] = `${ISI} رحمه \u0000 تعالى`; hal[5] = `${ISI} قال النبي \u0000 كذا`;
+  const h = parsePdf(hal, {});
+  assert.equal(h.laporan.ligaturDiperbaiki, 2); assert.ok(h.halaman.every((p) => !p.teks.includes('\u0000')));
+  assert.ok(h.halaman[5].teks.includes('صلى الله عليه وسلم'));
+});
+
+test('bukaPdf.teksSemua meneruskan opsi kolom dan paragraf dan menghitung halaman dua kolom', async () => {
+  const { lib } = pdfTiruan({ halaman: [halamanDuaKolom(), halamanDuaKolom()] });
+  const sesi = await bukaPdf(new ArrayBuffer(8), { pustaka: lib });
+  const a = await sesi.teksSemua({ kolom: 'auto' }); assert.equal(a.halamanDuaKolom, 2);
+  const b = await sesi.teksSemua({ kolom: 'tutup' }); assert.equal(b.halamanDuaKolom, 0);
+  const c = await bacaDokumenKitab({ nama: 'k.pdf', buffer: new ArrayBuffer(8), bukaPdf: async () => sesi, kolom: 'auto' });
+  assert.equal(c.laporan.halamanDuaKolom, 2);
+});
+
+/* ---------- OCR Latin dan Pegon ---------- */
+const LATIN = 'Pendidikan akhlak di madrasah dimulai dari keteladanan guru dan pembiasaan sehari-hari di lingkungan sekolah.';
+const PEGON = 'ڠاڤا ڤرڠكاسن سكولاه كڠ ديسوسون دادي ساتو بوكو ڤلاجرن اكلاق';
+const klien = (teks, kualitas = 'jelas') => { const panggilan = []; return { panggilan, messages: { create: async (r) => { panggilan.push(r); return { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'hasil_foto_kitab', input: { teks, kualitas, ragu: [] } }] }; } } }; };
+const GAM = { mime: 'image/jpeg', data: 'A'.repeat(200) };
+test('OCR Latin: petunjuk Latin dikirim ke AI dan hasil Latin diterima', async () => {
+  const c = klien(LATIN);
+  const r = await aksiOcr({ gambar: GAM, aksara: 'latin' }, { client: c });
+  assert.deepEqual(r, { teks: LATIN, kualitas: 'jelas', jumlahRagu: 0 });
+  assert.match(JSON.stringify(c.panggilan[0]), /berhuruf Latin/); assert.match(JSON.stringify(c.panggilan[0]), /image/);
+});
+test('OCR Pegon: petunjuk Pegon, tidak boleh dialihaksarakan; hasil beraksara Arab diterima', async () => {
+  const c = klien(PEGON);
+  const r = await aksiOcr({ gambar: GAM, aksara: 'pegon' }, { client: c });
+  assert.equal(r.teks, PEGON); assert.match(JSON.stringify(c.panggilan[0]), /Pegon/); assert.match(JSON.stringify(c.panggilan[0]), /mengalihaksarakan/);
+});
+test('OCR: aksara yang tidak cocok dengan hasil dianggap halaman tanpa teks (TEKS_TIDAK_MEMADAI); aksara tak dikenal ditolak sebelum AI', async () => {
+  await assert.rejects(aksiOcr({ gambar: GAM, aksara: 'latin' }, { client: klien(ISI) }), { code: 'TEKS_TIDAK_MEMADAI' });
+  await assert.rejects(aksiOcr({ gambar: GAM, aksara: 'pegon' }, { client: klien(LATIN) }), { code: 'TEKS_TIDAK_MEMADAI' });
+  await assert.rejects(aksiOcr({ gambar: GAM, aksara: 'latin' }, { client: klien('pendek') }), { code: 'TEKS_TIDAK_MEMADAI' });
+  const c = klien(LATIN);
+  await assert.rejects(aksiOcr({ gambar: GAM, aksara: 'cina' }, { client: c }), { code: 'OCR_AKSARA_INVALID' }); assert.equal(c.panggilan.length, 0);
+  await assert.rejects(aksiOcr({ aksara: 'latin' }, { client: c }), { code: 'BAD_REQUEST' }); assert.equal(c.panggilan.length, 0);
 });

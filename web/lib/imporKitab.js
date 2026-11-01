@@ -57,6 +57,8 @@ export function peringatanPratinjau(hasil, pilihan = null) {
     if (o.gagal && o.gagal.length) w.push({ tingkat: 'warn', teks: `OCR gagal pada ${o.gagal.length} halaman PDF (urutan PDF: ${o.gagal.slice(0, 8).map((x) => x.indeks + 1).join(', ')}${o.gagal.length > 8 ? ', ...' : ''}); halaman itu kosong atau berteks lapisan PDF seadanya.${o.kuotaHabis ? ' Penyebab: batas OCR harian habis.' : ''}` });
     if (o.kosong) w.push({ tingkat: 'warn', teks: `${o.kosong} halaman PDF tidak memuat teks Arab yang terbaca (kosong, gambar, atau sampul) dan dibiarkan kosong.` });
   } else if (l.halamanPerluOcr && l.halamanPerluOcr.length) w.push({ tingkat: 'warn', teks: `${l.halamanPerluOcr.length} halaman PDF tanpa lapisan teks atau teksnya rusak (urutan PDF: ${l.halamanPerluOcr.slice(0, 8).map((i) => i + 1).join(', ')}${l.halamanPerluOcr.length > 8 ? ', ...' : ''}). Tombol \"Baca dengan OCR AI\" bisa membacanya.` });
+  if (l.halamanDuaKolom) w.push({ tingkat: 'warn', teks: `${l.halamanDuaKolom} halaman terdeteksi dua kolom dan dibaca per kolom (kolom awal-baca dulu). Bila isinya nazham/syair (tiap bait dua syatr), urutan bait bisa keliru: baca ulang tanpa deteksi dua kolom.` });
+  if (l.ligaturDiperbaiki) w.push({ tingkat: 'warn', teks: `${l.ligaturDiperbaiki} ligatur (lafzh Allah atau shalawat) hilang dari PDF dan diganti otomatis menurut konteks (\"الله\" atau \"صلى الله عليه وسلم\"). Ini tebakan: periksa kutipan yang memuatnya sebelum dijadikan rujukan.` });
   if (l.judulSumber === 'penanda-buku') w.push({ tingkat: 'warn', teks: 'Daftar isi diambil dari penanda buku (bookmark) PDF. Periksa bahwa halaman tujuan tiap bab sesuai.' });
   if (l.halamanKosong) w.push({ tingkat: 'warn', teks: `${l.halamanKosong} halaman tanpa teks.` });
   const a = l.anomali;

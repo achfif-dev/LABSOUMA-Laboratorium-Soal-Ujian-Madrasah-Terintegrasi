@@ -10,6 +10,17 @@ import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
 const STATUS = { siap: 'Siap', mengimpor: 'Belum selesai' };
 const HAK = { 'belum-dicek': 'Hak cipta: belum dicek', 'domain-publik': 'Domain publik', izin: 'Berizin' };
 
+// Jenis tulisan halaman untuk OCR AI: menentukan petunjuk yang diberikan ke AI dan pemeriksaan hasilnya.
+function PilihAksaraOcr({ nilai, ubah }) {
+  return (
+    <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">Jenis tulisan halaman:
+      <select className="rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink" value={nilai} onChange={(e) => ubah(e.target.value)}>
+        <option value="arab">Arab (kitab kuning)</option><option value="latin">Latin (Indonesia, Jawa, Sunda, Melayu, Inggris)</option><option value="pegon">Pegon / Jawi (aksara Arab, bahasa daerah)</option>
+      </select>
+    </label>
+  );
+}
+
 export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [daftar, setDaftar] = useState(null);
   const [errDaftar, setErrDaftar] = useState(null);
@@ -28,6 +39,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [progresBaca, setProgresBaca] = useState(null);  // { tahap: 'teks' | 'ocr', n, total } selama PDF dibaca
   const [tawarOcr, setTawarOcr] = useState(null);        // jumlah halaman PDF tanpa teks bila seluruh PDF ternyata pindai
   const batalBacaRef = useRef(false);
+  const [aksaraOcr, setAksaraOcr] = useState('arab');   // jenis tulisan halaman yang dibaca OCR: arab | latin | pegon
   const [urutLihat, setUrutLihat] = useState(1);   // halaman yang ditampilkan di pratinjau (urutan, bukan nomor cetak)
   const sibuk = !!progres && progres.tahap !== 'gagal';
 
@@ -37,7 +49,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   };
   useEffect(() => { muatDaftar(); }, []);
 
-  const baca = async (f, { virtual = false, ocr = false } = {}) => {
+  const baca = async (f, { virtual = false, ocr = false, kolom = 'auto' } = {}) => {
     setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false); setTawarOcr(null);
     batalBacaRef.current = false; setProgresBaca(null);
     setMembaca(/\.pdf$/i.test(f.name) ? 'Membaca PDF...' : 'Membaca berkas...');
@@ -45,8 +57,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
       const n = parseInt(halAwal, 10);
       const h = await bacaDokumenKitab({
         nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1,
-        onProgres: setProgresBaca, batal: () => batalBacaRef.current,
-        ocr: ocr ? { mode: 'perlu', panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
+        onProgres: setProgresBaca, batal: () => batalBacaRef.current, kolom,
+        ocr: ocr ? { mode: 'perlu', panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
       });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
     } catch (er) {
@@ -137,7 +149,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
         {errParse && <p role="alert" className="mt-3 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{errParse}</p>}
         {tawarOcr !== null && berkasRef.current && !membaca && (
           <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
-            <p>PDF ini berupa gambar pindai{tawarOcr ? ` (${tawarOcr} halaman tanpa teks)` : ''}. OCR AI membaca tiap halaman sebagai gambar: <b>satu panggilan AI per halaman</b>, hanya untuk kitab berbahasa Arab, dan hasilnya bisa keliru pada huruf dan harakat. Pemeriksa kutipan memakai teks ini sebagai rujukan, jadi periksa beberapa halaman sebelum kitab dipakai.</p>
+            <p>PDF ini berupa gambar pindai{tawarOcr ? ` (${tawarOcr} halaman tanpa teks)` : ''}. OCR AI membaca tiap halaman sebagai gambar: <b>satu panggilan AI per halaman</b>, dan hasilnya bisa keliru pada huruf dan harakat. Pemeriksa kutipan memakai teks ini sebagai rujukan, jadi periksa beberapa halaman sebelum kitab dipakai.</p>
+            <PilihAksaraOcr nilai={aksaraOcr} ubah={setAksaraOcr} />
             <Btn kind="soft" className="mt-2 !text-xs" onClick={() => baca(berkasRef.current, { ocr: true })}>Baca dengan OCR AI{tawarOcr ? ` (${tawarOcr} halaman)` : ''}</Btn>
           </div>)}
         {tawarVirtual && berkasRef.current && (
@@ -160,7 +173,9 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                 .map(([a, b]) => <div key={a} className="rounded-xl bg-soft px-3 py-2"><dt className="text-xs text-mute">{a}</dt><dd className="font-semibold">{b}</dd></div>)}
             </dl>
             {l.halamanPerluOcr && l.halamanPerluOcr.length > 0 && berkasRef.current && (
-              <Btn kind="soft" className="!text-xs" onClick={() => baca(berkasRef.current, { ocr: true })} disabled={sibuk || !!membaca}>Baca {l.halamanPerluOcr.length} halaman bermasalah dengan OCR AI (membaca ulang seluruh PDF)</Btn>)}
+              <div className="space-y-2"><PilihAksaraOcr nilai={aksaraOcr} ubah={setAksaraOcr} /><Btn kind="soft" className="!text-xs" onClick={() => baca(berkasRef.current, { ocr: true })} disabled={sibuk || !!membaca}>Baca {l.halamanPerluOcr.length} halaman bermasalah dengan OCR AI (membaca ulang seluruh PDF)</Btn></div>)}
+            {l.halamanDuaKolom > 0 && berkasRef.current && (
+              <Btn kind="ghost" className="!text-xs" onClick={() => baca(berkasRef.current, { kolom: 'tutup' })} disabled={sibuk || !!membaca}>Baca ulang tanpa deteksi dua kolom (untuk nazham/syair)</Btn>)}
             {peringatan.map((p, i) => (
               <p key={i} role={p.tingkat === 'bad' ? 'alert' : undefined} className={`flex gap-2 rounded-xl px-4 py-3 text-sm ${p.tingkat === 'bad' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}`}><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span>{p.teks}</span></p>
             ))}

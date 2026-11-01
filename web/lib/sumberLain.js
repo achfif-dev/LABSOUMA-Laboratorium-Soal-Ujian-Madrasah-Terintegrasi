@@ -170,33 +170,129 @@ export function parseHtml(html, { halAwal = 1, virtual = false } = {}) {
 }
 
 /* ------------------------------------------------------------------ PDF */
-/** Item teks pdf.js ({ str, transform }) -> baris-baris halaman [{ teks, tinggi, jeda }] dari atas ke bawah. `jeda` = ada celah paragraf sebelum baris ini. */
-function susunBarisPdf(items) {
-  const unsur = (Array.isArray(items) ? items : []).filter((it) => it && typeof it.str === 'string' && it.str !== '' && Array.isArray(it.transform))
-    .map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5], h: Math.abs(it.transform[3]) || 12, w: Number.isFinite(it.width) ? it.width : 0 }));
-  if (!unsur.length) return [];
-  const arab = unsur.reduce((n, u) => n + (u.s.match(/[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/g) || []).length, 0) > unsur.reduce((n, u) => n + u.s.length, 0) * 0.4;
+const RE_ARAB_PDF = /[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/g;
+
+/** Item pdf.js dikelompokkan per baris menurut koordinat y (atas ke bawah). */
+function kelompokBaris(unsur) {
   const baris = [];
   for (const u of [...unsur].sort((a, b) => b.y - a.y)) {
     const b = baris.find((r) => Math.abs(r.y - u.y) <= Math.max(2, u.h * 0.4));
     if (b) b.item.push(u); else baris.push({ y: u.y, h: u.h, item: [u] });
   }
-  baris.sort((a, b) => b.y - a.y);
+  return baris.sort((a, b) => b.y - a.y);
+}
+
+/** Item satu kelompok -> baris [{ teks, tinggi, jeda, x0, x1, celahMaks }]. `celahMaks` = celah terlebar di dalam baris dalam satuan tinggi huruf (syair dua syatr: besar). */
+function barisDariUnsur(unsur, arab) {
   const keluar = []; let prevY = null; let prevH = 12;
-  for (const b of baris) {
+  for (const b of kelompokBaris(unsur)) {
     const urut = b.item.sort((p, q) => (arab ? q.x - p.x : p.x - q.x));
-    let t = '';
+    let t = ''; let celahMaks = 0;
     urut.forEach((u, i) => {
       if (i > 0) {
         const p = urut[i - 1]; const celah = arab ? (p.x - (u.x + u.w)) : (u.x - (p.x + p.w));
         if (celah > u.h * 0.15 || (!u.w && !p.w)) t += ' ';
+        if (u.w && p.w) celahMaks = Math.max(celahMaks, celah / u.h);
       }
       t += u.s;
     });
-    keluar.push({ teks: t.replace(/ {2,}/g, ' ').trim(), tinggi: Math.max(...b.item.map((u) => u.h)), jeda: prevY !== null && Math.abs(prevY - b.y) > prevH * 1.9 });
+    keluar.push({
+      teks: t.replace(/ {2,}/g, ' ').trim(), tinggi: Math.max(...b.item.map((u) => u.h)), jeda: prevY !== null && Math.abs(prevY - b.y) > prevH * 1.9,
+      x0: Math.min(...b.item.map((u) => u.x)), x1: Math.max(...b.item.map((u) => u.x + u.w)), celahMaks,
+    });
     prevY = b.y; prevH = b.h;
   }
   return keluar;
+}
+
+/**
+ * Cari talang (celah vertikal) di tengah halaman yang memisahkan dua kolom prosa. Konservatif: syair (nazham) tersusun dua syatr per baris sehingga
+ * secara geometri mirip dua kolom, dan membacanya per kolom akan mengacak urutan bait. Syarat: celah 1,2-6 em di sekitar tengah blok teks, tak ada
+ * item sempit yang melintasinya, >= 16 baris berisi di kedua sisi (>= 60% baris), dan tiap sisi median >= 30 karakter per baris (syatr nazham umumnya 18-25 karakter; syatr bahar panjang seperti thawil/basith bisa mendekati batas ini, karena itu ada tombol baca ulang tanpa deteksi kolom).
+ * @returns {number|null} koordinat x talang
+ */
+export function cariTalang(unsur) {
+  const ber = unsur.filter((u) => u.w > 0);
+  if (ber.length < 40) return null;
+  const hs = ber.map((u) => u.h).sort((a, b) => a - b); const med = hs[hs.length >> 1];
+  const minX = Math.min(...ber.map((u) => u.x)); const maxX = Math.max(...ber.map((u) => u.x + u.w)); const W = maxX - minX;
+  if (W < med * 20) return null;
+  const sempit = ber.filter((u) => u.w <= W * 0.55); // judul selebar halaman tidak ikut menentukan talang
+  if (sempit.length < 30) return null;
+  const urut = [...sempit].sort((a, b) => a.x - b.x); const gabung = [];
+  for (const u of urut) { const l = gabung[gabung.length - 1]; if (l && u.x <= l.akhir) l.akhir = Math.max(l.akhir, u.x + u.w); else gabung.push({ awal: u.x, akhir: u.x + u.w }); }
+  let talang = null; let lebarTerbaik = 0;
+  for (let i = 1; i < gabung.length; i++) {
+    const celah = gabung[i].awal - gabung[i - 1].akhir; const tengah = (gabung[i].awal + gabung[i - 1].akhir) / 2;
+    if (tengah >= minX + 0.35 * W && tengah <= minX + 0.65 * W && celah >= Math.max(1.2 * med, 0.02 * W) && celah <= Math.max(6 * med, 0.18 * W) && celah > lebarTerbaik) { talang = tengah; lebarTerbaik = celah; }
+  }
+  if (talang === null) return null;
+  let berisi = 0; let ganda = 0; const panjangKiri = []; const panjangKanan = [];
+  for (const r of kelompokBaris(sempit)) {
+    const ki = r.item.filter((u) => u.x + u.w / 2 < talang); const ka = r.item.filter((u) => u.x + u.w / 2 >= talang); berisi++;
+    if (ki.length && ka.length) { ganda++; panjangKiri.push(ki.reduce((n, u) => n + u.s.length, 0)); panjangKanan.push(ka.reduce((n, u) => n + u.s.length, 0)); }
+  }
+  const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1] || 0; };
+  if (ganda < 16 || ganda < berisi * 0.6 || median(panjangKiri) < 30 || median(panjangKanan) < 30) return null;
+  return talang;
+}
+
+/** Susun halaman dua kolom: per pita (antara baris selebar halaman) kolom awal-baca dulu (kanan bila Arab), lalu kolom lainnya. */
+function barisDuaKolom(unsur, arab, talang) {
+  const keluar = []; let pita = [];
+  const taruh = (b) => { if (b.length) { if (keluar.length) b[0].jeda = true; keluar.push(...b); } };
+  const alir = () => {
+    if (!pita.length) return;
+    const kiri = []; const kanan = [];
+    for (const r of pita) for (const u of r.item) (u.x + u.w / 2 < talang ? kiri : kanan).push(u);
+    for (const grup of (arab ? [kanan, kiri] : [kiri, kanan])) taruh(barisDariUnsur(grup, arab));
+    pita = [];
+  };
+  for (const r of kelompokBaris(unsur)) {
+    if (r.item.some((u) => u.w > 0 && u.x < talang && u.x + u.w > talang)) { alir(); taruh(barisDariUnsur(r.item, arab)); } else pita.push(r);
+  }
+  alir();
+  return keluar;
+}
+
+const RE_ANGKA_SAJA = /^[\s\-–—_.()[\]{}«»*•·0-9٠-٩۰-۹]*$/;
+/** Gabung baris visual menjadi paragraf. Baris digabung HANYA bila yang sebelumnya terisi penuh selebar blok, dan baris berikutnya tidak: menjorok, berceda
+ *  paragraf, bercelah lebar (syair), berhuruf judul, berawalan kata bab (juga bila baris sebelumnya judul), atau pendek/berupa angka. Dua baris pertama dan terakhir halaman tidak disentuh agar
+ *  pembersih judul berjalan dan nomor halaman (kualitasKitab.js) tetap mengenalinya. Kata terpotong tanda hubung (huruf Latin) disambung. */
+export function lipatBaris(baris, arab) {
+  const n = baris.length;
+  if (n < 6) return { baris, digabung: 0 };
+  const x0 = Math.min(...baris.map((b) => b.x0)); const x1 = Math.max(...baris.map((b) => b.x1)); const lebarBlok = x1 - x0;
+  const adaLebar = lebarBlok > 0 && baris.some((b) => b.x1 - b.x0 > 1);
+  const hs = baris.map((b) => ({ h: b.tinggi, n: b.teks.length })).sort((a, b) => a.h - b.h);
+  const total = hs.reduce((s, x) => s + x.n, 0); let acc = 0; let median = hs[0].h;
+  for (const x of hs) { acc += x.n; if (acc >= total / 2) { median = x.h; break; } }
+  const maksPanjang = Math.max(...baris.map((b) => b.teks.length));
+  const penuh = (b) => (adaLebar ? (b.x1 - b.x0) >= 0.9 * lebarBlok : b.teks.length >= 0.85 * maksPanjang);
+  const menjorok = (b) => adaLebar && Math.abs((arab ? b.x1 : b.x0) - (arab ? x1 : x0)) > 1.5 * b.tinggi;
+  const puisi = (b) => b.celahMaks >= 3; const judul = (b) => b.tinggi >= RASIO_JUDUL_UKURAN * median;
+  const keluar = []; let digabung = 0;
+  baris.forEach((b, i) => {
+    const p = baris[i - 1];
+    const boleh = i >= 3 && i <= n - 3 && !b.jeda && penuh(p) && !puisi(p) && !puisi(b) && !judul(p) && !judul(b) && !menjorok(b) && b.teks.length > 6 && !RE_ANGKA_SAJA.test(b.teks) && !calonJudul(b.teks) && !calonJudul(p.teks);
+    if (!boleh) { keluar.push({ ...b }); return; }
+    const l = keluar[keluar.length - 1]; digabung++;
+    l.teks = !arab && /\p{L}-$/u.test(l.teks) && /^\p{Ll}/u.test(b.teks) ? l.teks.slice(0, -1) + b.teks : `${l.teks} ${b.teks}`;
+  });
+  return { baris: keluar, digabung };
+}
+
+/** Item teks pdf.js ({ str, transform }) -> { baris, duaKolom }. `kolom: 'auto'` mengenali halaman dua kolom prosa; `paragraf: true` menggabung baris visual (lihat lipatBaris). */
+function susunBarisPdf(items, { kolom = 'tutup', paragraf = false } = {}) {
+  const unsur = (Array.isArray(items) ? items : []).filter((it) => it && typeof it.str === 'string' && it.str !== '' && Array.isArray(it.transform))
+    .map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5], h: Math.abs(it.transform[3]) || 12, w: Number.isFinite(it.width) ? it.width : 0 }));
+  if (!unsur.length) return { baris: [], duaKolom: false, digabung: 0 };
+  const arab = unsur.reduce((n, u) => n + (u.s.match(RE_ARAB_PDF) || []).length, 0) > unsur.reduce((n, u) => n + u.s.length, 0) * 0.4;
+  const talang = kolom === 'auto' ? cariTalang(unsur) : null;
+  let baris = talang !== null ? barisDuaKolom(unsur, arab, talang) : barisDariUnsur(unsur, arab);
+  let digabung = 0;
+  if (paragraf) ({ baris, digabung } = lipatBaris(baris, arab));
+  return { baris, duaKolom: talang !== null, digabung };
 }
 const gabungBaris = (baris) => normalArab(baris.flatMap((b) => (b.jeda ? ['', b.teks] : [b.teks])).join('\n'));
 
@@ -205,35 +301,58 @@ const gabungBaris = (baris) => normalArab(baris.flatMap((b) => (b.jeda ? ['', b.
  * (kanan ke kiri bila dominan Arab). Spasi disisipkan hanya bila ada celah.
  */
 export function teksHalamanPdf(items) {
-  const baris = susunBarisPdf(items);
+  const { baris } = susunBarisPdf(items);
   return baris.length ? gabungBaris(baris) : '';
 }
 
 /** Rasio tinggi huruf terhadap teks isi (median tertimbang panjang) agar baris berhuruf lebih besar dikenali sebagai calon judul. */
 export const RASIO_JUDUL_UKURAN = 1.25;
-const RE_ANGKA_SAJA = /^[\s\-–—_.()[\]{}«»*•·0-9٠-٩۰-۹]*$/;
 
 /**
  * Seperti teksHalamanPdf, tetapi juga mengembalikan calon judul menurut ukuran huruf: baris pendek berhuruf >= 1,25x ukuran isi halaman
- * (halaman bergaris < 3 baris, mis. sampul, tidak dipakai). @returns {{ teks:string, judul:{teks:string, rasio:number}[] }}
+ * (halaman bergaris < 3 baris, mis. sampul, tidak dipakai). Opsi `kolom` ('auto' | 'tutup') dan `paragraf` (boolean): lihat susunBarisPdf.
+ * @returns {{ teks:string, judul:{teks:string, rasio:number}[], duaKolom:boolean, digabung:number }}
  */
-export function rincianHalamanPdf(items) {
-  const baris = susunBarisPdf(items);
-  if (!baris.length) return { teks: '', judul: [] };
-  const teks = gabungBaris(baris);
+export function rincianHalamanPdf(items, opsi = {}) {
+  const { baris: asli, duaKolom } = susunBarisPdf(items, { kolom: opsi.kolom, paragraf: false });
+  if (!asli.length) return { teks: '', judul: [], duaKolom: false, digabung: 0 };
   const judul = [];
-  if (baris.length >= 3) {
-    const urut = baris.map((b) => ({ h: b.tinggi, n: b.teks.length })).sort((a, b) => a.h - b.h);
+  if (asli.length >= 3) {
+    const urut = asli.map((b) => ({ h: b.tinggi, n: b.teks.length })).sort((a, b) => a.h - b.h);
     const total = urut.reduce((s, x) => s + x.n, 0); let acc = 0; let median = urut[0].h;
     for (const x of urut) { acc += x.n; if (acc >= total / 2) { median = x.h; break; } }
-    for (const b of baris) {
+    for (const b of asli) {
       const t = normalArab(b.teks); const rasio = b.tinggi / median;
       if (rasio >= RASIO_JUDUL_UKURAN && t.length >= 3 && t.length <= 90 && !RE_ANGKA_SAJA.test(t) && !/[.؟!؛]$/.test(t)) judul.push({ teks: t, rasio: +rasio.toFixed(2) });
     }
   }
-  return { teks, judul };
+  const arab = asli.reduce((n, b) => n + (b.teks.match(RE_ARAB_PDF) || []).length, 0) > asli.reduce((n, b) => n + b.teks.length, 0) * 0.4;
+  const { baris, digabung } = opsi.paragraf ? lipatBaris(asli, arab) : { baris: asli, digabung: 0 };
+  return { teks: gabungBaris(baris), judul, duaKolom, digabung };
 }
 const levelUkuran = (rasio) => (rasio >= 1.7 ? 1 : rasio >= 1.4 ? 2 : 3);
+
+/* ---- ligatur yang hilang dari PDF ---- */
+const RE_NUL_SENDIRI = /(?<![\p{L}\p{M}\p{N}\u0000])\u0000(?![\p{L}\p{M}\p{N}\u0000])/gu;
+const HARAKAT_LEPAS = /[\u064B-\u0652\u0670\u0640]/g;
+const SEBELUM_SHALAWAT = new Set(['محمد', 'محمدا', 'النبي', 'نبينا', 'سيدنا', 'والنبي']);
+const sebelumToken = (teks, idx, ke = 1) => { const t = teks.slice(0, idx).split(/\s+/).filter(Boolean); return (t[t.length - ke] || '').replace(HARAKAT_LEPAS, ''); };
+/**
+ * Sebagian font tidak punya pemetaan Unicode untuk ligatur lafzh (ﷲ) dan shalawat (ﷺ); pdf.js mengeluarkan karakter NUL. Karakter itu TIDAK menyimpan
+ * ligatur aslinya, jadi ini TEBAKAN dari konteks: NUL yang berdiri sendiri diganti "الله", kecuali sesudah محمد/النبي/نبينا/سيدنا atau "رسول الله" (shalawat):
+ * "صلى الله عليه وسلم". NUL yang menempel pada huruf dibiarkan (tetap diperingatkan pemeriksa mutu).
+ * @returns {{teks:string, jumlah:number}}
+ */
+export function perbaikiLigatur(teks) {
+  const t = String(teks ?? ''); if (!t.includes('\u0000')) return { teks: t, jumlah: 0 };
+  let jumlah = 0;
+  const hasil = t.replace(RE_NUL_SENDIRI, (m, offset) => {
+    jumlah++;
+    const s1 = sebelumToken(t, offset); const s2 = sebelumToken(t, offset, 2);
+    return SEBELUM_SHALAWAT.has(s1) || (s1 === 'الله' && s2 === 'رسول') ? 'صلى الله عليه وسلم' : 'الله';
+  });
+  return { teks: hasil, jumlah };
+}
 
 /**
  * Halaman PDF (teks per halaman) -> kitab. `halAwal` = nomor cetak pada halaman PDF pertama (diisi admin; bawaan 1).
@@ -246,7 +365,8 @@ const levelUkuran = (rasio) => (rasio >= 1.7 ? 1 : rasio >= 1.4 ? 2 : 3);
  *  - `ocr` number[]  indeks halaman PDF (0-based) yang teksnya hasil OCR AI. Kitab ditandai sumber `pdf-ocr` dan halamannya `ocr: true`.
  */
 export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false, namaBerkas = '', outline = null, judulUkuran = null, meta = null, ocr = null } = {}) {
-  const mentah = (Array.isArray(teksPerHalaman) ? teksPerHalaman : []).map((t) => normalArab(t));
+  let ligatur = 0;
+  const mentah = (Array.isArray(teksPerHalaman) ? teksPerHalaman : []).map((t) => { const r = perbaikiLigatur(normalArab(t)); ligatur += r.jumlah; return r.teks; });
   if (!mentah.length) throw tanpaTeks('PDF tidak berisi halaman.');
   const rata = mentah.reduce((n, t) => n + t.length, 0) / mentah.length;
   const perluOcr = mentah.reduce((a, t, i) => (nilaiHalamanPdf(t) === 'teks' ? a : (a.push(i), a)), []);
@@ -283,6 +403,7 @@ export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false
   h.laporan.nomorTerdeteksiDiabaikan = !!bersih.nomor && !pakaiNomor ? bersih.nomor.offset : null;
   h.laporan.judulSumber = h.daftarIsi.length ? sumberJudul : '';
   h.laporan.halamanOcr = ocrSet.size;
+  h.laporan.ligaturDiperbaiki = ligatur;
   h.laporan.halamanPerluOcr = perluOcr.filter((i) => !ocrSet.has(i));
   return { ...h, format: ocrSet.size ? 'pdf-ocr' : 'pdf' };
 }
