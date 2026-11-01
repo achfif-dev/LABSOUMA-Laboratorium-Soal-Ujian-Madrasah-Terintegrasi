@@ -164,3 +164,26 @@ export function bersihkanEkorKepala(teksPerHalaman, opsi = {}) {
 
 /** Ringkasan temuan mutu untuk layar impor (format sama dengan peringatanPratinjau). */
 export const peringatanKualitas = (halaman, opsi) => periksaKualitasTeks(halaman, opsi).map(({ tingkat, teks }) => ({ tingkat, teks }));
+
+/* ------------------------------------------------------------------ penilaian satu halaman PDF */
+const RE_ISI_HALAMAN = /[\s0-9٠-٩۰-۹\-–—_.()[\]{}«»*•·]/g;
+/**
+ * Nilai teks SATU halaman hasil lapisan teks PDF: 'kosong' (praktis tanpa huruf: halaman pindai/gambar), 'rusak' (karakter pengganti, huruf terpisah-pisah,
+ * atau urutan huruf terbalik: pemetaan huruf PDF buruk), atau 'teks'. Halaman bukan 'teks' dan layak dicoba dibaca ulang dengan OCR.
+ * Berbeda dengan periksaKualitasTeks (menyisir seluruh kitab), ini murni per halaman dan ringan.
+ */
+export function nilaiHalamanPdf(teks) {
+  const t = String(teks || '');
+  const isi = t.replace(RE_ISI_HALAMAN, '');
+  if (isi.length < 15) return 'kosong';
+  const pengganti = hitung(t, /�/g) + hitung(t, PUA);
+  if (pengganti / isi.length > 0.02 || hitung(t, MOJIBAKE) >= 5) return 'rusak';
+  const kata = t.split(/\s+/).map((x) => x.replace(/[^\u0621-\u064A\u0671\u066E-\u06D3]/g, '')).filter(Boolean);
+  if (kata.length >= 30) {
+    if (kata.filter((x) => x.length === 1 && x !== 'و').length / kata.length > 0.3) return 'rusak';
+    let lurus = 0; let balik = 0;
+    for (const x of kata) { if (LURUS.has(x)) lurus++; else if (TERBALIK.has(x)) balik++; }
+    if (balik >= 4 && balik > lurus) return 'rusak';
+  }
+  return 'teks';
+}

@@ -56,7 +56,7 @@ Pastikan `git status` tidak menampilkan `.env` atau file kunci JSON. Repositori 
    | `GEMINI_API_KEY` | kunci dari langkah 2 |
    | `ADMIN_EMAILS` | email Google Anda (admin pertama), pisahkan dengan koma bila lebih dari satu |
 
-   Opsional: `ALLOWED_EMAIL_DOMAIN`, `AI_MODEL`, `LIMIT_*`.
+   Opsional: `ALLOWED_EMAIL_DOMAIN`, `AI_MODEL`, `LIMIT_*` (termasuk `LIMIT_OCR_PER_MINUTE` 20 dan `LIMIT_OCR_PER_DAY` 1500 untuk OCR PDF pindai saat impor kitab; lihat docs/AUDIT-01-NOV-2026-IMPOR-PDF.md).
 3. **Deploy.**
 4. **Izinkan domain Vercel di Firebase** (wajib, kalau tidak login Google ditolak): Firebase Console > Authentication > Settings > **Authorized domains** > Add domain > isi domain Vercel Anda (mis. `nama-proyek.vercel.app`, dan domain kustom bila ada).
 5. Buka situs, masuk dengan email admin. Akun itu otomatis menjadi admin. Guru lain yang masuk berstatus "Menunggu persetujuan" sampai Anda memberi peran di tab **Pengguna**.

@@ -222,7 +222,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
       {err && <div className={lebarLayar ? 'mx-2' : ''}><ErrorBox e={err} /></div>}
       {pesanVirtual && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman kitab ini dibagi otomatis saat diimpor, jadi nomor halamannya bukan nomor cetak. Rujukan soal ke kitab ini sebaiknya dicocokkan dengan edisi cetak.</p>}
-      {kitab && !pesanVirtual && kitab.sumberJenis === 'pdf' && <p role="note" className={`rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Kitab ini diimpor dari PDF: nomor halaman mengikuti urutan PDF ditambah nomor awal yang diisi admin ({labelSumberJenis(kitab.sumberJenis)}).</p>}
+      {kitab && kitab.sumberJenis === 'pdf-ocr' && halaman.some((x) => x.ocr) && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman ini dibaca dengan OCR AI dari PDF pindai: huruf dan harakat bisa keliru. Bandingkan dengan kitab cetak sebelum dijadikan rujukan soal.</p>}
+      {kitab && !pesanVirtual && (kitab.sumberJenis === 'pdf' || kitab.sumberJenis === 'pdf-ocr') && <p role="note" className={`rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Kitab ini diimpor dari PDF: nomor halaman mengikuti urutan PDF ditambah nomor awal yang diisi admin ({labelSumberJenis(kitab.sumberJenis)}).</p>}
       {kataSorot && hasilCari && hasilCari.total > 0 && halaman.length > 0 && (
         <p role="status" className={`flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>
           <b>Pencarian:</b> <span dir="auto" {...(arab ? { lang: 'ar' } : {})} className={`${arab ? 'ar ' : ''}text-sm`}>{hasilCari.q}</span> · {hasilCari.total.toLocaleString('id-ID')} halaman

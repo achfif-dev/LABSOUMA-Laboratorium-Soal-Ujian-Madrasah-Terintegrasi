@@ -9,7 +9,8 @@ import { parseSyamilah, ErrorSyamilah } from './syamilah.js';
 import { bacaDocx } from './docx.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { pecahHalamanPanjang } from './pecahHalaman.js';
-import { parsePdf, parseEpub, parseHtml, parseJson, parseTeksBebas, parseDocxBebas } from './sumberLain.js';
+import { parseEpub, parseHtml, parseJson, parseTeksBebas, parseDocxBebas } from './sumberLain.js';
+import { bacaPdfKitab } from './pdfKitab.js';
 import { aksaraDominan, tebakBahasa, aksaraBawaan } from './bahasa.js';
 
 export const FORMAT_LABEL = {
@@ -17,6 +18,7 @@ export const FORMAT_LABEL = {
   'docx-penanda-sisip': 'Dokumen Word (.docx) dengan penanda halaman [ص N]',
   'txt-penanda-sisip': 'Teks dengan penanda halaman [ص N]',
   pdf: 'PDF dengan lapisan teks (halaman PDF + nomor awal)',
+  'pdf-ocr': 'PDF dibaca dengan OCR AI (sebagian atau seluruh halaman)',
   epub: 'EPUB dengan penanda halaman cetak',
   'epub-virtual': 'EPUB tanpa penanda halaman (halaman virtual)',
   html: 'HTML dengan penanda halaman',
@@ -30,7 +32,8 @@ export const PESAN_TANPA_PENANDA = 'Penanda halaman tidak ditemukan. Format yang
 
 const tanpaPenanda = (e) => (e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA' ? new ErrorSyamilah('TANPA_PENANDA', PESAN_TANPA_PENANDA) : e);
 
-/** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string, virtual?:boolean, halAwal?:number, bacaPdf?:Function}} berkas  `buffer` untuk .docx/.pdf/.epub; teks/HTML/JSON boleh `teks` atau `buffer`. `halAwal` = nomor cetak halaman pertama (PDF, halaman virtual). */
+/** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string, virtual?:boolean, halAwal?:number, bacaPdf?:Function, bukaPdf?:Function, onProgres?:Function, batal?:()=>boolean, ocr?:object}} berkas  `buffer` untuk .docx/.pdf/.epub; teks/HTML/JSON boleh `teks` atau `buffer`. `halAwal` = nomor cetak halaman pertama (PDF, halaman virtual).
+ *  Khusus PDF: `onProgres({tahap,n,total})` dan `batal()` untuk pembacaan panjang; `ocr: { mode:'perlu'|'semua', panggil }` membaca halaman pindai/rusak dengan OCR AI (lihat pdfKitab.js). */
 export async function bacaDokumenKitab(berkas) { return tetapkanBahasa(pecahHalamanPanjang(await bacaMentah(berkas))); }
 
 /** Cuplikan teks untuk mendeteksi bahasa: 30 halaman pertama dan 30 halaman dari tengah (sampul/pengantar saja tidak menentukan). */
@@ -54,15 +57,15 @@ export { aksaraBawaan };
 /** Sama dengan bacaDokumenKitab, tetapi hasilnya bisa dipakai ulang: `err.kode === 'TANPA_PENANDA'` berarti berkas sah tetapi tanpa nomor halaman; ulangi dengan `{ virtual: true }`. */
 export const bolehVirtual = (e) => e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA';
 
-async function bacaMentah({ nama = '', buffer, teks, virtual = false, halAwal = 1, bacaPdf = null }) {
+async function bacaMentah({ nama = '', buffer, teks, virtual = false, halAwal = 1, bacaPdf = null, bukaPdf = null, onProgres, batal, ocr = null }) {
   const ada = (re) => re.test(nama);
   const awal = Number.isInteger(halAwal) && halAwal >= 0 && halAwal <= 99999 ? halAwal : 1;
   const halAwalEksplisit = awal !== 1; // nilai bawaan 1 = admin tidak mengisi: nomor cetak boleh dibaca dari isi PDF (parsePdf)
   const teksBerkas = () => teks ?? new TextDecoder('utf-8').decode(buffer);
   if (ada(/\.pdf$/i)) {
     if (!buffer) throw new ErrorSyamilah('PDF_RUSAK', 'Isi berkas PDF tidak terbaca.');
-    const per = bacaPdf || (await import('./bacaPdf.js')).teksPerHalamanPdf;
-    return { ...parsePdf(await per(buffer), { halAwal: awal, halAwalEksplisit, namaBerkas: nama }), format: 'pdf' };
+    const h = await bacaPdfKitab({ nama, buffer, halAwal: awal, halAwalEksplisit, bacaPdf, bukaPdf, onProgres, batal, ocr });
+    return h; // h.format = 'pdf' atau 'pdf-ocr'
   }
   if (ada(/\.epub$/i)) {
     if (!buffer) throw new ErrorSyamilah('EPUB_RUSAK', 'Isi berkas EPUB tidak terbaca.');

@@ -25,6 +25,9 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [halAwal, setHalAwal] = useState('1');
   const [tawarVirtual, setTawarVirtual] = useState(false);
   const [membaca, setMembaca] = useState('');
+  const [progresBaca, setProgresBaca] = useState(null);  // { tahap: 'teks' | 'ocr', n, total } selama PDF dibaca
+  const [tawarOcr, setTawarOcr] = useState(null);        // jumlah halaman PDF tanpa teks bila seluruh PDF ternyata pindai
+  const batalBacaRef = useRef(false);
   const [urutLihat, setUrutLihat] = useState(1);   // halaman yang ditampilkan di pratinjau (urutan, bukan nomor cetak)
   const sibuk = !!progres && progres.tahap !== 'gagal';
 
@@ -34,15 +37,23 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   };
   useEffect(() => { muatDaftar(); }, []);
 
-  const baca = async (f, { virtual = false } = {}) => {
-    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false);
+  const baca = async (f, { virtual = false, ocr = false } = {}) => {
+    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false); setTawarOcr(null);
+    batalBacaRef.current = false; setProgresBaca(null);
     setMembaca(/\.pdf$/i.test(f.name) ? 'Membaca PDF...' : 'Membaca berkas...');
     try {
       const n = parseInt(halAwal, 10);
-      const h = await bacaDokumenKitab({ nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1 });
+      const h = await bacaDokumenKitab({
+        nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1,
+        onProgres: setProgresBaca, batal: () => batalBacaRef.current,
+        ocr: ocr ? { mode: 'perlu', panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
+      });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
-    } catch (er) { setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er)); }
-    finally { setMembaca(''); }
+    } catch (er) {
+      setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er));
+      setTawarOcr(er && er.kode === 'PDF_TANPA_TEKS' ? (er.halamanPerluOcr || 0) : null);
+    }
+    finally { setMembaca(''); setProgresBaca(null); }
   };
   const pilihBerkas = async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -117,8 +128,18 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
           <input id="ki-awal" type="number" min="0" max="99999" inputMode="numeric" className="field !w-24 !py-1.5" value={halAwal} onChange={(e) => setHalAwal(e.target.value)} disabled={sibuk || !!membaca} />
           {berkasRef.current && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => baca(berkasRef.current)} disabled={sibuk || !!membaca}><RefreshCw size={13} />Baca ulang</Btn>}
         </div>
-        {membaca && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={15} className="spin" />{membaca}</p>}
+        {membaca && (
+          <div role="status" className="mt-3 space-y-1 text-sm text-mute">
+            <p className="flex items-center gap-2"><Loader2 size={15} className="spin" />{progresBaca ? (progresBaca.tahap === 'ocr' ? `OCR AI: ${progresBaca.n} dari ${progresBaca.total} halaman` : `Membaca teks PDF: halaman ${progresBaca.n} dari ${progresBaca.total}`) : membaca}</p>
+            {progresBaca && progresBaca.total > 0 && <div className="h-2 overflow-hidden rounded-full bg-soft"><div className="h-full bg-brand transition-all" style={{ width: `${Math.round((progresBaca.n / progresBaca.total) * 100)}%` }} /></div>}
+            {progresBaca && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { batalBacaRef.current = true; }}>Batalkan</Btn>}
+          </div>)}
         {errParse && <p role="alert" className="mt-3 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{errParse}</p>}
+        {tawarOcr !== null && berkasRef.current && !membaca && (
+          <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+            <p>PDF ini berupa gambar pindai{tawarOcr ? ` (${tawarOcr} halaman tanpa teks)` : ''}. OCR AI membaca tiap halaman sebagai gambar: <b>satu panggilan AI per halaman</b>, hanya untuk kitab berbahasa Arab, dan hasilnya bisa keliru pada huruf dan harakat. Pemeriksa kutipan memakai teks ini sebagai rujukan, jadi periksa beberapa halaman sebelum kitab dipakai.</p>
+            <Btn kind="soft" className="mt-2 !text-xs" onClick={() => baca(berkasRef.current, { ocr: true })}>Baca dengan OCR AI{tawarOcr ? ` (${tawarOcr} halaman)` : ''}</Btn>
+          </div>)}
         {tawarVirtual && berkasRef.current && (
           <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
             <p>Berkas ini tidak memuat nomor halaman cetak. Halaman bisa dibagi otomatis menurut panjang teks; nomornya <b>bukan</b> nomor cetak, jadi rujukan soal ke kitab ini harus dicocokkan dengan edisi cetak.</p>
@@ -138,6 +159,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                 ...(isian.aksara === 'arab' ? [['Berharakat', hasil.kitab.berharakat ? 'ya' : 'tidak'], ['Matn terpisah', hasil.kitab.bentukMatn === 'pemisah-tatwil' ? 'ya' : 'tidak']] : [])]
                 .map(([a, b]) => <div key={a} className="rounded-xl bg-soft px-3 py-2"><dt className="text-xs text-mute">{a}</dt><dd className="font-semibold">{b}</dd></div>)}
             </dl>
+            {l.halamanPerluOcr && l.halamanPerluOcr.length > 0 && berkasRef.current && (
+              <Btn kind="soft" className="!text-xs" onClick={() => baca(berkasRef.current, { ocr: true })} disabled={sibuk || !!membaca}>Baca {l.halamanPerluOcr.length} halaman bermasalah dengan OCR AI (membaca ulang seluruh PDF)</Btn>)}
             {peringatan.map((p, i) => (
               <p key={i} role={p.tingkat === 'bad' ? 'alert' : undefined} className={`flex gap-2 rounded-xl px-4 py-3 text-sm ${p.tingkat === 'bad' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}`}><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span>{p.teks}</span></p>
             ))}

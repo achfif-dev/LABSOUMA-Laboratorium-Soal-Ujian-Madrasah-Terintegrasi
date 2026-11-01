@@ -10,7 +10,7 @@ import { ErrorSyamilah, HARAKAT, HURUF, KATA_KUNCI_BAB, levelKata } from './syam
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { potongTeks } from './pecahHalaman.js';
 import { bacaBerkasZip, namaBerkasZip } from './docx.js';
-import { bersihkanEkorKepala } from './kualitasKitab.js';
+import { bersihkanEkorKepala, nilaiHalamanPdf } from './kualitasKitab.js';
 
 export const FORMAT_VERSI_LAIN = 2;
 export const TARGET_HALAMAN_VIRTUAL = 2200; // karakter per halaman virtual; di bawah batas Penyusunan Soal (6.000) sehingga 2-3 halaman muat sekaligus
@@ -170,14 +170,11 @@ export function parseHtml(html, { halAwal = 1, virtual = false } = {}) {
 }
 
 /* ------------------------------------------------------------------ PDF */
-/**
- * Item teks pdf.js ({ str, transform }) -> teks satu halaman. Item dikelompokkan per baris menurut koordinat y, lalu diurut menurut x
- * (kanan ke kiri bila dominan Arab). Spasi disisipkan hanya bila ada celah.
- */
-export function teksHalamanPdf(items) {
+/** Item teks pdf.js ({ str, transform }) -> baris-baris halaman [{ teks, tinggi, jeda }] dari atas ke bawah. `jeda` = ada celah paragraf sebelum baris ini. */
+function susunBarisPdf(items) {
   const unsur = (Array.isArray(items) ? items : []).filter((it) => it && typeof it.str === 'string' && it.str !== '' && Array.isArray(it.transform))
     .map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5], h: Math.abs(it.transform[3]) || 12, w: Number.isFinite(it.width) ? it.width : 0 }));
-  if (!unsur.length) return '';
+  if (!unsur.length) return [];
   const arab = unsur.reduce((n, u) => n + (u.s.match(/[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/g) || []).length, 0) > unsur.reduce((n, u) => n + u.s.length, 0) * 0.4;
   const baris = [];
   for (const u of [...unsur].sort((a, b) => b.y - a.y)) {
@@ -196,34 +193,98 @@ export function teksHalamanPdf(items) {
       }
       t += u.s;
     });
-    if (prevY !== null && Math.abs(prevY - b.y) > prevH * 1.9) keluar.push('');
-    keluar.push(t.replace(/ {2,}/g, ' ').trim()); prevY = b.y; prevH = b.h;
+    keluar.push({ teks: t.replace(/ {2,}/g, ' ').trim(), tinggi: Math.max(...b.item.map((u) => u.h)), jeda: prevY !== null && Math.abs(prevY - b.y) > prevH * 1.9 });
+    prevY = b.y; prevH = b.h;
   }
-  return normalArab(keluar.join('\n'));
+  return keluar;
 }
+const gabungBaris = (baris) => normalArab(baris.flatMap((b) => (b.jeda ? ['', b.teks] : [b.teks])).join('\n'));
+
+/**
+ * Item teks pdf.js ({ str, transform }) -> teks satu halaman. Item dikelompokkan per baris menurut koordinat y, lalu diurut menurut x
+ * (kanan ke kiri bila dominan Arab). Spasi disisipkan hanya bila ada celah.
+ */
+export function teksHalamanPdf(items) {
+  const baris = susunBarisPdf(items);
+  return baris.length ? gabungBaris(baris) : '';
+}
+
+/** Rasio tinggi huruf terhadap teks isi (median tertimbang panjang) agar baris berhuruf lebih besar dikenali sebagai calon judul. */
+export const RASIO_JUDUL_UKURAN = 1.25;
+const RE_ANGKA_SAJA = /^[\s\-–—_.()[\]{}«»*•·0-9٠-٩۰-۹]*$/;
+
+/**
+ * Seperti teksHalamanPdf, tetapi juga mengembalikan calon judul menurut ukuran huruf: baris pendek berhuruf >= 1,25x ukuran isi halaman
+ * (halaman bergaris < 3 baris, mis. sampul, tidak dipakai). @returns {{ teks:string, judul:{teks:string, rasio:number}[] }}
+ */
+export function rincianHalamanPdf(items) {
+  const baris = susunBarisPdf(items);
+  if (!baris.length) return { teks: '', judul: [] };
+  const teks = gabungBaris(baris);
+  const judul = [];
+  if (baris.length >= 3) {
+    const urut = baris.map((b) => ({ h: b.tinggi, n: b.teks.length })).sort((a, b) => a.h - b.h);
+    const total = urut.reduce((s, x) => s + x.n, 0); let acc = 0; let median = urut[0].h;
+    for (const x of urut) { acc += x.n; if (acc >= total / 2) { median = x.h; break; } }
+    for (const b of baris) {
+      const t = normalArab(b.teks); const rasio = b.tinggi / median;
+      if (rasio >= RASIO_JUDUL_UKURAN && t.length >= 3 && t.length <= 90 && !RE_ANGKA_SAJA.test(t) && !/[.؟!؛]$/.test(t)) judul.push({ teks: t, rasio: +rasio.toFixed(2) });
+    }
+  }
+  return { teks, judul };
+}
+const levelUkuran = (rasio) => (rasio >= 1.7 ? 1 : rasio >= 1.4 ? 2 : 3);
 
 /**
  * Halaman PDF (teks per halaman) -> kitab. `halAwal` = nomor cetak pada halaman PDF pertama (diisi admin; bawaan 1).
  * Judul berjalan dan nomor halaman di awal/akhir halaman dibuang (web/lib/kualitasKitab.js). Bila nomor itu konsisten dan admin tidak mengisi nomor awal
  * sendiri (`halAwalEksplisit` false), nomor cetak dipakai dari sana: lebih benar daripada menebak dari urutan halaman PDF (sampul dan pengantar bergeser).
+ * Opsi tambahan (semuanya opsional; tanpa itu perilaku lama tetap):
+ *  - `outline`  [{ judul, level, indeks }]  penanda buku (bookmark) PDF; bila >= 3 entri sah, dipakai sebagai daftar isi (lebih tepat daripada menebak dari teks).
+ *  - `judulUkuran` string[][]  calon judul per halaman menurut ukuran huruf ({ teks, rasio }[] dari rincianHalamanPdf).
+ *  - `meta` { judul, pengarang }  metadata dokumen PDF, dipakai sebagai nama awal.
+ *  - `ocr` number[]  indeks halaman PDF (0-based) yang teksnya hasil OCR AI. Kitab ditandai sumber `pdf-ocr` dan halamannya `ocr: true`.
  */
-export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false, namaBerkas = '' } = {}) {
+export function parsePdf(teksPerHalaman, { halAwal = 1, halAwalEksplisit = false, namaBerkas = '', outline = null, judulUkuran = null, meta = null, ocr = null } = {}) {
   const mentah = (Array.isArray(teksPerHalaman) ? teksPerHalaman : []).map((t) => normalArab(t));
   if (!mentah.length) throw tanpaTeks('PDF tidak berisi halaman.');
   const rata = mentah.reduce((n, t) => n + t.length, 0) / mentah.length;
-  if (rata < MINIMAL_TEKS_PER_HALAMAN_PDF) throw new ErrorSyamilah('PDF_TANPA_TEKS', 'PDF ini tidak punya lapisan teks (kemungkinan hasil pindai/gambar). Impor butuh PDF yang teksnya bisa diblok dan disalin. Untuk PDF pindai, ubah dulu ke teks (OCR) atau Word, lalu impor hasilnya.');
+  const perluOcr = mentah.reduce((a, t, i) => (nilaiHalamanPdf(t) === 'teks' ? a : (a.push(i), a)), []);
+  if (rata < MINIMAL_TEKS_PER_HALAMAN_PDF) {
+    const e = new ErrorSyamilah('PDF_TANPA_TEKS', 'PDF ini tidak punya lapisan teks (kemungkinan hasil pindai/gambar). Impor butuh teks yang bisa diblok dan disalin. Untuk PDF pindai, gunakan \"Baca dengan OCR AI\", atau ubah dulu ke teks (OCR) atau Word lalu impor hasilnya.');
+    e.halamanPerluOcr = perluOcr.length; throw e;
+  }
   const bersih = bersihkanEkorKepala(mentah);
   const hal = bersih.halaman;
   const pakaiNomor = !!bersih.nomor && !halAwalEksplisit;
   const paragraf = hal.flatMap((t) => t.split('\n').map((x) => ({ teks: x, tingkat: 0, tebal: false })));
-  const judul = [];
-  hal.forEach((t, i) => { for (const baris of t.split('\n')) if (calonJudul(baris)) judul.push({ judul: baris.trim(), level: levelKata(baris.trim()), seq: i + 1 }); });
+  const judul = []; let sumberJudul = 'kata-kunci';
+  const outlineSah = (Array.isArray(outline) ? outline : []).filter((o) => o && typeof o.judul === 'string' && o.judul.trim() && Number.isInteger(o.indeks) && o.indeks >= 0 && o.indeks < hal.length);
+  if (outlineSah.length >= 3) {
+    sumberJudul = 'penanda-buku';
+    for (const o of outlineSah) judul.push({ judul: o.judul.trim(), level: Math.min(3, Math.max(1, o.level || 3)), seq: o.indeks + 1 });
+  } else {
+    const sudah = new Set();
+    const tambah = (j, level, seq) => { const k = `${seq}|${j}`; if (!sudah.has(k)) { sudah.add(k); judul.push({ judul: j, level, seq }); } };
+    hal.forEach((t, i) => {
+      const barisHal = t.split('\n');
+      for (const u of (Array.isArray(judulUkuran) && Array.isArray(judulUkuran[i]) ? judulUkuran[i] : [])) if (u && barisHal.includes(u.teks)) { tambah(u.teks, levelUkuran(u.rasio), i + 1); sumberJudul = 'ukuran-huruf'; }
+      for (const baris of barisHal) if (calonJudul(baris)) tambah(baris.trim(), levelKata(baris.trim()), i + 1);
+    });
+  }
+  const ocrSet = new Set((Array.isArray(ocr) ? ocr : []).filter((i) => Number.isInteger(i) && i >= 0 && i < hal.length));
   const halaman = hal.map((teks, i) => ({ teks, ...(pakaiNomor ? { hal: Math.max(0, bersih.nomor.offset + i) } : {}) }));
-  const h = susunHasil({ halaman, judul, namaJudul: namaBerkas.replace(/\.pdf$/i, '') || judulDariBaris(paragraf), jenis: 'pdf', halAwal, sesuaiCetak: pakaiNomor });
+  const namaJudul = (meta && typeof meta.judul === 'string' && meta.judul.trim()) || namaBerkas.replace(/\.pdf$/i, '') || judulDariBaris(paragraf);
+  const h = susunHasil({ halaman, judul, namaJudul, pengarang: (meta && meta.pengarang) || '', jenis: ocrSet.size ? 'pdf-ocr' : 'pdf', sesuaiCetak: pakaiNomor, halAwal });
+  h.halaman.forEach((p, i) => { if (ocrSet.has(i)) p.ocr = true; });
+  h.kitab.ocrHalaman = ocrSet.size;
   h.laporan.barisBerulangDibuang = bersih.dibuang; h.laporan.contohBarisBerulang = bersih.contoh;
   h.laporan.nomorDariPdf = pakaiNomor ? { ...bersih.nomor } : null;
   h.laporan.nomorTerdeteksiDiabaikan = !!bersih.nomor && !pakaiNomor ? bersih.nomor.offset : null;
-  return { ...h, format: 'pdf' };
+  h.laporan.judulSumber = h.daftarIsi.length ? sumberJudul : '';
+  h.laporan.halamanOcr = ocrSet.size;
+  h.laporan.halamanPerluOcr = perluOcr.filter((i) => !ocrSet.has(i));
+  return { ...h, format: ocrSet.size ? 'pdf-ocr' : 'pdf' };
 }
 
 /* ------------------------------------------------------------------ EPUB */
