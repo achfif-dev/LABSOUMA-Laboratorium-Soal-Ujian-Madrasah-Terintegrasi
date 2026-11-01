@@ -16,7 +16,7 @@ export const MAZHAB = ['', 'syafii', 'hanafi', 'maliki', 'hanbali'];
 export const STATUS_HAK_CIPTA = ['belum-dicek', 'domain-publik', 'izin'];
 const BENTUK_MATN = ['pemisah-tatwil', 'tanpa-pemisah'];
 const ANOMALI = ['duplikat', 'mundur', 'lompat'];
-export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'epub', 'html', 'json', 'teks-virtual'];
+export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'pdf-ocr', 'epub', 'html', 'json', 'teks-virtual'];
 const RE_ID = /^[a-z0-9][a-z0-9-]{1,59}$/;
 
 const tolak = (kode, pesan, status = 422) => { throw new ApiError(status, kode, pesan); };
@@ -71,6 +71,7 @@ export function validasiKitab(k) {
     jumlahHalaman: bil(k.jumlahHalaman, 1, MAKS_HALAMAN_KITAB, 'Jumlah halaman'),
     jumlahJuz: bil(k.jumlahJuz, 1, 99, 'Jumlah juz'),
     penomoranSesuaiCetak: k.penomoranSesuaiCetak === true,
+    ocrHalaman: bil(k.ocrHalaman ?? 0, 0, MAKS_HALAMAN_KITAB, 'Jumlah halaman OCR'), // halaman yang teksnya hasil OCR AI (PDF pindai); 0 = tidak ada
     halamanVirtual: k.halamanVirtual === true, // nomor halaman dibagi otomatis saat impor (bukan nomor cetak); pembaca menampilkan peringatan
     bentukMatn: bentuk,
     bahasa, aksara,
@@ -99,6 +100,7 @@ export function validasiHalaman(h, jumlahHalaman) {
   if (teks.length > MAKS_TEKS_HALAMAN) tolak('KITAB_INVALID', `Teks halaman ${seq} melebihi ${MAKS_TEKS_HALAMAN} karakter.`);
   const doc = { seq, juz: bil(h.juz, 1, 99, 'Juz'), hal: bil(h.hal, 0, 99999, 'Halaman'), teks, batasMatn: bil(h.batasMatn ?? null, 0, teks.length, 'Batas matn', { boleh_null: true }) };
   if (h.bab !== undefined && h.bab !== '') doc.bab = str(h.bab, 300, 'Bab');
+  if (h.ocr === true) doc.ocr = true; // teks halaman ini hasil OCR AI: bisa keliru pada huruf dan harakat
   if (h.potongan !== undefined) { // halaman cetak yang dipecah: bagian ke-`ke` dari `dari`
     const p = h.potongan && typeof h.potongan === 'object' ? h.potongan : tolak('KITAB_INVALID', `Potongan halaman ${seq} tidak valid.`);
     const dari = bil(p.dari, 2, 99, 'Jumlah bagian'); doc.potongan = { ke: bil(p.ke, 1, dari, 'Bagian ke'), dari };

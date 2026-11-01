@@ -13,12 +13,12 @@ const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan)
 const ringkas = (id, d) => ({
   id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang || '', fan: d.fan || '', mazhab: d.mazhab || '',
   jumlahHalaman: d.jumlahHalaman, jumlahJuz: d.jumlahJuz || 1, bentukMatn: d.bentukMatn, berharakat: d.berharakat === true,
-  halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '',
+  halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '', ocrHalaman: d.ocrHalaman || 0,
   bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab', // kitab lama (sebelum impor non-Arab) tidak punya bidang ini: Arab
 });
 const dokHalaman = (d) => ({
   id: idHalaman(d.seq), seq: d.seq, juz: d.juz, hal: d.hal, teks: d.teks, batasMatn: d.batasMatn ?? null,
-  ...(d.bab ? { bab: d.bab } : {}), ...(d.nomorAnomali ? { nomorAnomali: d.nomorAnomali } : {}), ...(d.potongan ? { potongan: d.potongan } : {}),
+  ...(d.bab ? { bab: d.bab } : {}), ...(d.nomorAnomali ? { nomorAnomali: d.nomorAnomali } : {}), ...(d.potongan ? { potongan: d.potongan } : {}), ...(d.ocr === true ? { ocr: true } : {}),
 });
 const bulat = (v, min, maks, nama) => {
   if (!Number.isInteger(v) || v < min || v > maks) tolak(422, 'PERPUS_INVALID', `${nama} harus bilangan bulat ${min}-${maks}.`);
