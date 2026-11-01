@@ -1,18 +1,28 @@
 // POST /api/kitab:
 //  - tanpa `aksi`: mengambil satu halaman teks kitab dari situs perpustakaan online yang diizinkan (semua peran pemakai alat).
 //  - `aksi` berawalan "impor-": impor perpustakaan kitab dari ekspor Syamilah. Khusus admin (src/kitabImpor.js).
+//  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
 // Impor sengaja ada di sini, bukan berkas api/ baru: jumlah fungsi Vercel Hobby dibatasi 12 dan api/ sudah berisi 11.
-import { route, authenticateAuthor, authenticateAdmin, enforceRate, kitabLimitsFor } from '../src/platform.js';
+import { route, authenticateAuthor, authenticateAdmin, enforceRate, kitabLimitsFor, num } from '../src/platform.js';
 import { fetchKitab, DEFAULT_HOSTS } from '../src/kitabFetch.js';
 import { aksiImpor } from '../src/kitabImpor.js';
 import { aksiBaca } from '../src/kitabBaca.js';
+import { aksiOcr, validateFoto } from '../src/kitabOcr.js';
+import { loadAiConfig } from '../src/aiConfig.js';
 import { parseList } from '../src/access.js';
 
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 
 export default route(async (req) => {
   const aksi = req.body && typeof req.body === 'object' ? req.body.aksi : undefined;
+  if (aksi === 'impor-ocr') {
+    const u = await authenticateAdmin(req);
+    validateFoto(req.body); // tolak gambar cacat sebelum menghitung batas laju
+    await enforceRate(`${u.uid}_kitabocr`, { perMinute: num('LIMIT_OCR_PER_MINUTE', 20), perDay: num('LIMIT_OCR_PER_DAY', 1500) }, { pesanHarian: 'Batas OCR harian tercapai. Lanjutkan besok, atau naikkan LIMIT_OCR_PER_DAY di pengaturan server.' });
+    await loadAiConfig(); // kunci, model, dan penyedia AI dari Konfigurasi admin
+    return aksiOcr(req.body);
+  }
   if (typeof aksi === 'string' && aksi.startsWith('impor-')) {
     const u = await authenticateAdmin(req);
     await enforceRate(`${u.uid}_kitabimpor`, LIMIT_IMPOR);

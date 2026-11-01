@@ -63,7 +63,7 @@ Berkas **tanpa** penanda halaman (mis. hasil convert PDF biasa) tetap ditolak de
 Bila mengonversi PDF ke Word memakai AI, minta penanda `[ص N]` ditulis di awal setiap halaman sesuai nomor cetak.
 Dasar rancangan format `[ص N]`: Hasyiyah ad-Dasuqi 'ala Umm al-Barahin (.docx, Syamilah #8703): 261 halaman (hal. 5-265), 51 judul, 233 label lapisan dibuang.
 Pada kitab berlapis (syarah + hasyiyah) label pemisah lapisan dibuang dan teks dibiarkan mengalir (`batasMatn: null`), karena kalimat hasyiyah melintasi label.
-`sumber.jenis`: `syamilah-txt` | `syamilah-docx` | `teks-penanda`; `sumber.rujukan` memuat "Syamilah #id" bila terbaca.
+`sumber.jenis`: `syamilah-txt` | `syamilah-docx` | `teks-penanda` | `pdf` | `pdf-ocr` (PDF yang sebagian/seluruh halamannya dibaca OCR AI; kitab memuat `ocrHalaman`, halaman memuat `ocr: true`) | `epub` | `html` | `json` | `teks-virtual`; `sumber.rujukan` memuat "Syamilah #id" bila terbaca.
 
 ## Impor (sudah dikodekan: `src/kitabImpor.js`, `api/kitab.js`, `web/KitabImpor.jsx`)
 Menu: **Kelola > Perpustakaan** (admin saja).
