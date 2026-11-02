@@ -71,7 +71,8 @@ Menu: **Kelola > Perpustakaan** (admin saja).
 2. `impor-mulai`: server memvalidasi ulang metadata dan daftar isi dari daftar putih, menulis `kitab/{id}` dengan `status: "mengimpor"`, `aktif: false`, dan `daftar/isi` (`{ entri, jumlah, revisi }`).
 3. `impor-halaman`: maksimal 100 halaman per panggilan (muatan nyata terbesar 158 KB). ID dokumen harus sama dengan `p`+urutan; klien tidak bisa memilih kunci lain.
 4. `impor-selesai`: server menghitung ulang halaman tersimpan. Hanya bila sama dengan `jumlahHalaman`, kitab menjadi `status: "siap"`, `aktif: true`. Bila beda: 409 `KITAB_JUMLAH_BEDA`, kitab tetap tidak aktif.
-5. Impor ulang ID yang sama ditolak (409 `KITAB_SUDAH_ADA`) kecuali "timpa": halaman lama dihapus dulu, `revisi` naik, kitab nonaktif sampai selesai.
+5. Impor ulang ID yang sama ditolak (409 `KITAB_SUDAH_ADA`) kecuali "timpa". Kitab yang sudah `siap` diimpor ulang BERTAHAP: isi baru ditulis ke ruang baru (`halaman_r{revisi}`, `cari_r{revisi}`, `daftar/isi_r{revisi}`, metadata run di `impor/berjalan`) sementara kitab lama tetap aktif dan terbaca; `impor-selesai` mengalihkan `meta.ruang` dalam SATU penulisan dokumen lalu menghapus ruang lama. Kitab lama (tanpa `ruang`) memakai `halaman`, `cari`, `daftar/isi`. Semua pembaca wajib memakai `koleksiHalaman/koleksiCari/dokDaftarIsi` (src/kitabImpor.js).
+6. Impor yang terputus bisa dilanjutkan (`lanjut:true` + `sidik` isi berkas pada `impor-mulai`): server mengembalikan urutan halaman yang sudah tertulis, klien hanya mengirim sisanya. Sidik atau jumlah halaman berbeda ditolak 409 `KITAB_SIDIK_BEDA`.
 6. `impor-daftar` dan `impor-aktif` (sembunyikan atau tampilkan kitab yang sudah siap).
 
 Biaya per impor 673 halaman (Fathul Mu'in): 675 tulis (3,4% kuota tulis harian Spark, per angka di atas yang berasal dari ingatan). Dengan "timpa" ditambah 673 baca dan 673 hapus.
