@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
 import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
+import { bukaSimpananOcr, kunciBerkas } from './lib/simpananOcr.js';
 import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
 import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
 
@@ -35,6 +36,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const berkasRef = useRef(null);            // berkas terakhir dipilih, supaya bisa dibaca ulang (nomor awal diganti, atau mode halaman virtual)
   const [halAwal, setHalAwal] = useState('1');
   const [tawarVirtual, setTawarVirtual] = useState(false);
+  const simpananRef = useRef(null); // titik simpan OCR berkas yang sedang diproses
   const [tawarHalamanWord, setTawarHalamanWord] = useState(0);   // jumlah pemisah halaman Word bila .docx tanpa penanda tetapi berhalaman
   const [membaca, setMembaca] = useState('');
   const [progresBaca, setProgresBaca] = useState(null);  // { tahap: 'teks' | 'ocr', n, total } selama PDF dibaca
@@ -56,10 +58,12 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     setMembaca(/\.pdf$/i.test(f.name) ? 'Membaca PDF...' : 'Membaca berkas...');
     try {
       const n = parseInt(halAwal, 10);
+      const simpanan = ocr ? await bukaSimpananOcr(kunciBerkas(f, aksaraOcr)) : null; // titik simpan OCR: tab mati atau kuota habis tidak menghanguskan halaman yang sudah terbaca
+      simpananRef.current = simpanan;
       const h = await bacaDokumenKitab({
         nama: f.name, buffer: await f.arrayBuffer(), virtual, halamanWord, halAwal: Number.isInteger(n) ? n : 1,
         onProgres: setProgresBaca, batal: () => batalBacaRef.current, kolom,
-        ocr: ocr ? { mode: 'perlu', panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
+        ocr: ocr ? { mode: 'perlu', simpanan, panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
       });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
     } catch (er) {
@@ -86,8 +90,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     batalRef.current = false; setErrImpor(null); setProgres({ tahap: 'mulai', tertulis: 0, total: hasil.halaman.length });
     try {
       const r = await jalankanImpor({ panggil: (b) => callApi('/api/kitab', b), hasil, isian, onProgres: setProgres, batal: () => batalRef.current });
-      if (r.dibatalkan) { setProgres(null); toast(`Dibatalkan setelah ${r.tertulis} halaman. Kitab belum aktif; ulangi dengan "timpa".`); }
-      else { setProgres(null); setHasil(null); setIsian(null); setBerkas(''); toast(`Selesai: ${r.selesai.jumlah} halaman diimpor dan kitab aktif.`); }
+      if (r.dibatalkan) { setProgres(null); toast(`Dibatalkan setelah ${r.tertulis} halaman. Pilih berkas yang sama lagi dan centang "lanjutkan" untuk meneruskan (kitab yang sudah siap tidak berubah).`); }
+      else { setProgres(null); setHasil(null); setIsian(null); setBerkas(''); if (simpananRef.current) { simpananRef.current.hapus(); simpananRef.current = null; } toast(`Selesai: ${r.selesai.jumlah} halaman diimpor dan kitab aktif.`); }
     } catch (e) { setProgres({ tahap: 'gagal' }); setErrImpor(apiErr(e)); }
     muatDaftar();
   };

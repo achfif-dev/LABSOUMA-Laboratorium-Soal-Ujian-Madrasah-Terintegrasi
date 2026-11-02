@@ -16,3 +16,9 @@ Menindaklanjuti audit impor kitab (temuan 1 dan 4).
 
 ## Tes
 test/docxAman.test.js (baru), test/kitabImpor.test.js dan test/cariKitab.test.js (disesuaikan, ditambah skenario bertahap dan lanjutkan). Seluruh suite lulus.
+
+## 3. Titik simpan OCR (tambahan)
+- Hasil OCR AI tiap halaman disimpan di IndexedDB peramban (web/lib/simpananOcr.js), dengan kunci nama+ukuran+waktu ubah berkas+aksara. Tab mati, layar terkunci, atau kuota harian habis tidak lagi menghanguskan halaman yang sudah terbaca: baca ulang berkas yang sama hanya memanggil AI untuk halaman yang belum ada.
+- Hanya hasil berhasil yang disimpan (termasuk halaman kosong sah); halaman gagal dicoba ulang. Simpanan dihapus setelah impor berhasil dan otomatis kedaluwarsa setelah 14 hari. Galat penyimpanan tidak pernah menggagalkan OCR.
+- Karena hasil lama dipakai apa adanya, sidik berkas OCR menjadi stabil, sehingga "Lanjutkan impor yang terputus" juga bekerja untuk impor OCR.
+- Batas: simpanan ada per perangkat dan peramban; berpindah ponsel atau mode privat berarti mulai dari awal. Tes: test/simpananOcr.test.js (IndexedDB asli tidak bisa diuji di Node, hanya logika dan penanganan galatnya).
