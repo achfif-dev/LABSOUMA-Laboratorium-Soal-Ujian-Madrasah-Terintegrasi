@@ -9,7 +9,7 @@ import { parseSyamilah, ErrorSyamilah } from './syamilah.js';
 import { bacaDocx } from './docx.js';
 import { parsePenandaSisip, paragrafDariTeks } from './penandaSisip.js';
 import { pecahHalamanPanjang } from './pecahHalaman.js';
-import { parseEpub, parseHtml, parseJson, parseTeksBebas, parseDocxBebas } from './sumberLain.js';
+import { parseEpub, parseHtml, parseJson, parseTeksBebas, parseDocxBebas, parseDocxHalaman, jumlahJedaHalaman } from './sumberLain.js';
 import { bacaPdfKitab } from './pdfKitab.js';
 import { aksaraDominan, tebakBahasa, aksaraBawaan } from './bahasa.js';
 
@@ -26,6 +26,7 @@ export const FORMAT_LABEL = {
   'html-virtual': 'HTML tanpa penanda halaman (halaman virtual)',
   json: 'JSON halaman',
   'docx-virtual': 'Dokumen Word tanpa penanda halaman (halaman virtual)',
+  'docx-halaman': 'Dokumen Word dengan pemisah halaman Word (halaman Word = halaman kitab)',
   'teks-virtual': 'Teks tanpa penanda halaman (halaman virtual)',
 };
 export const EKSTENSI_DIKENAL = ['.txt', '.docx', '.pdf', '.epub', '.html', '.htm', '.xhtml', '.json'];
@@ -33,7 +34,7 @@ export const PESAN_TANPA_PENANDA = 'Penanda halaman tidak ditemukan. Format yang
 
 const tanpaPenanda = (e) => (e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA' ? new ErrorSyamilah('TANPA_PENANDA', PESAN_TANPA_PENANDA) : e);
 
-/** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string, virtual?:boolean, halAwal?:number, bacaPdf?:Function, bukaPdf?:Function, onProgres?:Function, batal?:()=>boolean, ocr?:object, kolom?:'auto'|'tutup', paragraf?:boolean}} berkas  `buffer` untuk .docx/.pdf/.epub; teks/HTML/JSON boleh `teks` atau `buffer`. `halAwal` = nomor cetak halaman pertama (PDF, halaman virtual).
+/** @param {{nama?:string, buffer?:ArrayBuffer, teks?:string, virtual?:boolean, halamanWord?:boolean, halAwal?:number, bacaPdf?:Function, bukaPdf?:Function, onProgres?:Function, batal?:()=>boolean, ocr?:object, kolom?:'auto'|'tutup', paragraf?:boolean}} berkas  `buffer` untuk .docx/.pdf/.epub; teks/HTML/JSON boleh `teks` atau `buffer`. `halAwal` = nomor cetak halaman pertama (PDF, halaman virtual).
  *  Khusus PDF: `onProgres({tahap,n,total})` dan `batal()` untuk pembacaan panjang; `ocr: { mode:'perlu'|'semua', panggil }` membaca halaman pindai/rusak dengan OCR AI (lihat pdfKitab.js). */
 export async function bacaDokumenKitab(berkas) { return tetapkanBahasa(pecahHalamanPanjang(await bacaMentah(berkas))); }
 
@@ -58,7 +59,7 @@ export { aksaraBawaan };
 /** Sama dengan bacaDokumenKitab, tetapi hasilnya bisa dipakai ulang: `err.kode === 'TANPA_PENANDA'` berarti berkas sah tetapi tanpa nomor halaman; ulangi dengan `{ virtual: true }`. */
 export const bolehVirtual = (e) => e instanceof ErrorSyamilah && e.kode === 'TANPA_PENANDA';
 
-async function bacaMentah({ nama = '', buffer, teks, virtual = false, halAwal = 1, bacaPdf = null, bukaPdf = null, onProgres, batal, ocr = null, kolom, paragraf }) {
+async function bacaMentah({ nama = '', buffer, teks, virtual = false, halamanWord = false, halAwal = 1, bacaPdf = null, bukaPdf = null, onProgres, batal, ocr = null, kolom, paragraf }) {
   const ada = (re) => re.test(nama);
   const awal = Number.isInteger(halAwal) && halAwal >= 0 && halAwal <= 99999 ? halAwal : 1;
   const halAwalEksplisit = awal !== 1; // nilai bawaan 1 = admin tidak mengisi: nomor cetak boleh dibaca dari isi PDF (parsePdf)
@@ -78,7 +79,13 @@ async function bacaMentah({ nama = '', buffer, teks, virtual = false, halAwal = 
     if (!buffer) throw new ErrorSyamilah('DOCX_RUSAK', 'Isi berkas .docx tidak terbaca.');
     const paragraf = await bacaDocx(buffer);
     try { return { ...parsePenandaSisip(paragraf, { jenis: 'syamilah-docx' }), format: 'docx-penanda-sisip' }; }
-    catch (e) { if (virtual && bolehVirtual(e)) return parseDocxBebas(paragraf, { virtual: true, halAwal: awal }); throw tanpaPenanda(e); }
+    catch (e) {
+      if (bolehVirtual(e) && halamanWord && jumlahJedaHalaman(paragraf) >= 1) return parseDocxHalaman(paragraf, { halAwal: awal });
+      if (virtual && bolehVirtual(e)) return parseDocxBebas(paragraf, { virtual: true, halAwal: awal });
+      const er = tanpaPenanda(e);
+      if (bolehVirtual(e)) er.jedaHalaman = jumlahJedaHalaman(paragraf); // UI menawarkan "pakai pemisah halaman Word" bila >= 2
+      throw er;
+    }
   }
   const isi = teksBerkas();
   try { return { ...parseSyamilah(isi), format: 'txt-syamilah' }; } catch (e) { if (!(e instanceof ErrorSyamilah) || e.kode !== 'TANPA_PENANDA') throw e; }

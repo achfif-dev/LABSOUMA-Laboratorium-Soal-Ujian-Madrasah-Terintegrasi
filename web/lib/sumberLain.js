@@ -165,6 +165,32 @@ function penandaAtauVirtual(paragraf, opsi) {
   return { ...parseVirtual(paragraf, { jenis: opsi.jenisVirtual, halAwal: opsi.halAwal, rujukan: opsi.rujukan }), format: opsi.formatVirtual };
 }
 
+/**
+ * .docx tanpa penanda "[ص N]" tetapi dengan pemisah halaman Word asli (umumnya hasil konversi PDF ke Word): satu halaman Word = satu halaman kitab.
+ * Nomor = `halAwal` + urutan (BUKAN nomor cetak; sampul dan pengantar ikut terhitung), sama seperti PDF. Halaman kosong di tengah dipertahankan agar urutan
+ * tetap sejajar dengan dokumen; halaman kosong di ujung dibuang.
+ */
+export function parseDocxHalaman(paragraf, { halAwal = 1 } = {}) {
+  const halaman = []; let cur = [];
+  for (const p of paragraf) {
+    if (p.jeda) { halaman.push(cur); cur = []; continue; }
+    const t = normalArab(p.teks); if (t) cur.push({ t, p });
+  }
+  halaman.push(cur);
+  while (halaman.length && !halaman[halaman.length - 1].length) halaman.pop();
+  if (!halaman.length) throw tanpaTeks('Berkas tidak berisi teks yang bisa dibaca.');
+  const judul = [];
+  halaman.forEach((h, i) => h.forEach(({ t, p }) => {
+    const penting = (p.tingkat >= 1 && p.tingkat <= 3) || calonJudul(t);
+    if (penting && t.length <= 300) judul.push({ judul: t.slice(0, 300), level: p.tingkat >= 1 && p.tingkat <= 3 ? Math.min(3, p.tingkat) : levelKata(t), seq: i + 1 });
+  }));
+  const hasil = susunHasil({ halaman: halaman.map((h) => ({ teks: h.map((x) => x.t).join('\n') })), judul, namaJudul: judulDariBaris(paragraf), jenis: 'docx-halaman', halAwal });
+  return { ...hasil, format: 'docx-halaman' };
+}
+
+/** Jumlah pemisah halaman Word pada paragraf hasil bacaDocx (0 = dokumen tidak berhalaman). */
+export const jumlahJedaHalaman = (paragraf) => (Array.isArray(paragraf) ? paragraf.filter((p) => p && p.jeda).length : 0);
+
 /** .txt/.docx tanpa penanda Syamilah: penanda "[ص N]" bila ada, kalau tidak halaman virtual. */
 export const parseTeksBebas = (paragraf, { halAwal = 1, virtual = false } = {}) => penandaAtauVirtual(paragraf, { jenisPenanda: 'teks-penanda', formatPenanda: 'txt-penanda-sisip', jenisVirtual: 'teks-virtual', formatVirtual: 'teks-virtual', halAwal, virtual });
 export const parseDocxBebas = (paragraf, { halAwal = 1, virtual = false } = {}) => penandaAtauVirtual(paragraf, { jenisPenanda: 'syamilah-docx', formatPenanda: 'docx-penanda-sisip', jenisVirtual: 'teks-virtual', formatVirtual: 'docx-virtual', halAwal, virtual });

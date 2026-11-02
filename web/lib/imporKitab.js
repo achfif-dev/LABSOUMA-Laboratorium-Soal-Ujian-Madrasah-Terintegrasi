@@ -5,6 +5,18 @@ import { aksaraBawaan, LABEL_BAHASA } from './bahasa.js';
 
 export const UKURAN_BATCH = 100;
 
+/**
+ * Sidik isi hasil baca (FNV-1a 32-bit atas urutan, nomor, dan teks tiap halaman). Dikirim saat impor-mulai: server hanya mau MELANJUTKAN impor yang terputus
+ * bila sidiknya sama, sehingga halaman lama dan halaman baru tidak pernah tercampur dari dua berkas yang berbeda.
+ */
+export function sidikHasil(hasil) {
+  let h = 0x811c9dc5; const campur = (c) => { h ^= c; h = Math.imul(h, 0x01000193) >>> 0; };
+  const teksKe = (t) => { for (let i = 0; i < t.length; i++) campur(t.charCodeAt(i)); campur(10); };
+  let karakter = 0;
+  for (const p of hasil.halaman) { teksKe(`${p.seq}|${p.juz}|${p.hal}|`); teksKe(p.teks); karakter += p.teks.length; }
+  return `f1-${h.toString(16).padStart(8, '0')}-${hasil.halaman.length}-${karakter}`.slice(0, 40);
+}
+
 /** "Fathul Mu'in" -> "fathul-muin". Kosong bila tidak ada huruf/angka Latin. */
 export function slugKitab(s) {
   return String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/['’ʼ`]/g, '')
@@ -36,7 +48,7 @@ export function isianAwal(hasil) {
   const k = hasil.kitab;
   const aksara = k.aksara || 'arab'; const bahasa = k.bahasa || (aksara === 'arab' ? 'ar' : 'id');
   const judulLatin = aksara === 'arab' ? '' : String(k.judul || '').trim().slice(0, 150);
-  return { judulLatin, kitabId: judulLatin ? slugKitab(judulLatin) : '', bahasa, aksara, mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false };
+  return { judulLatin, kitabId: judulLatin ? slugKitab(judulLatin) : '', bahasa, aksara, mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false, lanjut: false };
 }
 
 /** Peringatan untuk admin sebelum impor. `tingkat`: 'bad' menghalangi, 'warn' memberi tahu. */
@@ -49,6 +61,7 @@ export function peringatanPratinjau(hasil, pilihan = null) {
   else if (l.halamanMelebihiBatas.length) w.push({ tingkat: 'bad', teks: `${l.halamanMelebihiBatas.length} halaman melebihi 12.000 karakter; server akan menolak.` });
   if (l.halamanDipecah && l.halamanDipecah.length) w.push({ tingkat: 'warn', teks: `${l.halamanDipecah.length} halaman cetak terlalu panjang dan dipecah di batas paragraf agar muat di Penyusunan Soal: ${l.halamanDipecah.slice(0, 6).map((x) => `hal. ${x.hal} (${x.panjang.toLocaleString('id-ID')} karakter jadi ${x.bagian} bagian)`).join(', ')}${l.halamanDipecah.length > 6 ? ', ...' : ''}. Nomor halamannya tetap, jadi rujukan soal tidak berubah.` });
   if (k.halamanVirtual) w.push({ tingkat: 'warn', teks: 'Halaman kitab ini dibagi otomatis menurut panjang teks, jadi nomornya BUKAN nomor cetak. Soal tetap bisa ditautkan balik ke halaman di perpustakaan, tetapi rujukan "hal." di soal harus dicocokkan dengan edisi cetak.' });
+  else if (k.sumber && k.sumber.jenis === 'docx-halaman') w.push({ tingkat: 'warn', teks: 'Halaman kitab ini mengikuti pemisah halaman dokumen Word, BUKAN nomor cetak. Sampul dan pengantar ikut terhitung (nomor awal bisa diatur), dan satu halaman Word bisa tidak sama dengan satu halaman cetak bila hasil konversi PDF ke Word menggeser teks. Periksa beberapa halaman di pratinjau dan cocokkan dengan edisi cetak.' });
   else if (k.sumber && (k.sumber.jenis === 'pdf' || k.sumber.jenis === 'pdf-ocr')) w.push({ tingkat: 'warn', teks: 'Nomor halaman mengikuti urutan halaman PDF ditambah nomor awal yang Anda isi. Periksa satu halaman di pembaca: PDF sering memuat sampul dan pengantar sebelum halaman bernomor.' });
   else if (k.sumber && k.sumber.jenis === 'epub-ocr') w.push({ tingkat: 'warn', teks: 'Nomor halaman = nomor lembar pindai di Internet Archive (berkas page_N), BUKAN nomor cetak; lembar tanpa teks dilewati. Rujukan "hal." di soal harus dicocokkan dengan lembar pindainya.' });
   else if (k.sumber && k.sumber.jenis === 'json' && !k.penomoranSesuaiCetak) w.push({ tingkat: 'warn', teks: 'Sebagian halaman di JSON tidak punya nomor "hal"; nomornya diisi berurutan, bukan nomor cetak.' });
@@ -90,7 +103,12 @@ export function peringatanPratinjau(hasil, pilihan = null) {
 export function peringatanDuplikat(hasil, isian, daftar) {
   const w = []; const ada = Array.isArray(daftar) ? daftar : [];
   const sama = ada.find((k) => k.id === isian.kitabId);
-  if (sama) w.push({ tingkat: isian.timpa ? 'warn' : 'bad', teks: isian.timpa ? `Kitab "${sama.judulLatin}" (ID ${sama.id}, rev. ${sama.revisi}, ${sama.jumlahHalaman} halaman) akan DITIMPA: halaman lamanya dihapus. Soal yang sudah bertaut ke halaman lama tetap menyimpan salinan teksnya, tetapi tautan "Buka di kitab" bisa menunjuk halaman yang berbeda bila urutannya berubah.` : `ID "${sama.id}" sudah dipakai kitab "${sama.judulLatin}" (${sama.jumlahHalaman} halaman). Centang "timpa" bila ingin menggantinya, atau pakai ID lain.` });
+  if (sama) {
+    const terputus = sama.status === 'mengimpor';
+    if (isian.timpa) w.push({ tingkat: 'warn', teks: terputus ? `Impor kitab \"${sama.judulLatin}\" (ID ${sama.id}) sebelumnya belum selesai. Halaman yang sudah tertulis akan DITIMPA dan impor dimulai dari awal, kecuali Anda mencentang \"lanjutkan\" dan memilih berkas yang sama persis.` : `Kitab \"${sama.judulLatin}\" (ID ${sama.id}, rev. ${sama.revisi}, ${sama.jumlahHalaman} halaman) akan DITIMPA. Kitab lama tetap aktif dan terbaca sampai impor baru selesai; sesudah itu halaman lamanya dihapus. Soal yang sudah bertaut ke halaman lama tetap menyimpan salinan teksnya, tetapi tautan \"Buka di kitab\" bisa menunjuk halaman yang berbeda bila urutannya berubah.` });
+    else if (isian.lanjut && terputus) w.push({ tingkat: 'warn', teks: `Impor kitab \"${sama.judulLatin}\" (ID ${sama.id}) akan dilanjutkan dari halaman yang sudah tertulis. Hanya berhasil bila berkas dan pengaturan bacanya sama persis dengan impor sebelumnya.` });
+    else w.push({ tingkat: 'bad', teks: `ID \"${sama.id}\" sudah dipakai kitab \"${sama.judulLatin}\" (${sama.jumlahHalaman} halaman). Centang \"timpa\" bila ingin menggantinya${terputus ? ', atau \"lanjutkan\" bila impor sebelumnya terputus' : ''}, atau pakai ID lain.` });
+  }
   const norm = (s) => String(s || '').replace(/[\u064B-\u0652\u0670\u0640\s]+/g, '').toLowerCase();
   const judul = norm(hasil && hasil.kitab && hasil.kitab.judul);
   const kembar = judul ? ada.find((k) => k.id !== isian.kitabId && norm(k.judul) === judul) : null;
@@ -103,7 +121,7 @@ export const isianSiap = (isian) => !!isian.judulLatin.trim() && /^[a-z0-9][a-z0
 export function muatanMulai(hasil, isian) {
   const { kitab, daftarIsi } = hasil;
   return {
-    aksi: 'impor-mulai', kitabId: isian.kitabId, timpa: !!isian.timpa, daftarIsi,
+    aksi: 'impor-mulai', kitabId: isian.kitabId, timpa: !!isian.timpa, lanjut: !!isian.lanjut, sidik: sidikHasil(hasil), daftarIsi,
     kitab: { ...kitab, judul: kitab.judul || isian.judulLatin.trim(), judulLatin: isian.judulLatin.trim(), bahasa: isian.bahasa, aksara: isian.aksara, mazhab: isian.mazhab, hakCipta: { status: isian.hakCipta, catatan: isian.catatanHak } },
   };
 }
@@ -117,9 +135,11 @@ export async function jalankanImpor({ panggil, hasil, isian, onProgres = () => {
   const total = hasil.halaman.length;
   let tertulis = 0;
   onProgres({ tahap: 'mulai', tertulis, total });
-  await panggil(muatanMulai(hasil, isian));
+  const mulai = await panggil(muatanMulai(hasil, isian));
+  const sudah = new Set(Array.isArray(mulai && mulai.sudah) ? mulai.sudah : []); // melanjutkan: batch yang seluruh halamannya sudah tertulis dilewati
   for (const grup of bagiBatch(hasil.halaman, ukuranBatch)) {
     if (batal()) return { dibatalkan: true, tertulis };
+    if (sudah.size && grup.every((h) => sudah.has(h.seq))) { tertulis += grup.length; onProgres({ tahap: 'halaman', tertulis, total }); continue; }
     let sisa = ulang;
     for (;;) {
       try { await panggil({ aksi: 'impor-halaman', kitabId: isian.kitabId, halaman: grup }); break; }

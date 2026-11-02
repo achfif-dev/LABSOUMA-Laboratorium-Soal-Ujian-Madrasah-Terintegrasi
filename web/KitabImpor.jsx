@@ -35,6 +35,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const berkasRef = useRef(null);            // berkas terakhir dipilih, supaya bisa dibaca ulang (nomor awal diganti, atau mode halaman virtual)
   const [halAwal, setHalAwal] = useState('1');
   const [tawarVirtual, setTawarVirtual] = useState(false);
+  const [tawarHalamanWord, setTawarHalamanWord] = useState(0);   // jumlah pemisah halaman Word bila .docx tanpa penanda tetapi berhalaman
   const [membaca, setMembaca] = useState('');
   const [progresBaca, setProgresBaca] = useState(null);  // { tahap: 'teks' | 'ocr', n, total } selama PDF dibaca
   const [tawarOcr, setTawarOcr] = useState(null);        // jumlah halaman PDF tanpa teks bila seluruh PDF ternyata pindai
@@ -49,20 +50,20 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   };
   useEffect(() => { muatDaftar(); }, []);
 
-  const baca = async (f, { virtual = false, ocr = false, kolom = 'auto' } = {}) => {
-    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false); setTawarOcr(null);
+  const baca = async (f, { virtual = false, ocr = false, kolom = 'auto', halamanWord = false } = {}) => {
+    setErrParse(''); setHasil(null); setIsian(null); setProgres(null); setErrImpor(null); setIdManual(false); setTawarVirtual(false); setTawarHalamanWord(0); setTawarOcr(null);
     batalBacaRef.current = false; setProgresBaca(null);
     setMembaca(/\.pdf$/i.test(f.name) ? 'Membaca PDF...' : 'Membaca berkas...');
     try {
       const n = parseInt(halAwal, 10);
       const h = await bacaDokumenKitab({
-        nama: f.name, buffer: await f.arrayBuffer(), virtual, halAwal: Number.isInteger(n) ? n : 1,
+        nama: f.name, buffer: await f.arrayBuffer(), virtual, halamanWord, halAwal: Number.isInteger(n) ? n : 1,
         onProgres: setProgresBaca, batal: () => batalBacaRef.current, kolom,
         ocr: ocr ? { mode: 'perlu', panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
       });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
     } catch (er) {
-      setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er));
+      setErrParse(er && er.message ? er.message : 'Berkas tidak bisa dibaca.'); setTawarVirtual(bolehVirtual(er)); setTawarHalamanWord(er && er.jedaHalaman >= 2 ? er.jedaHalaman + 1 : 0);
       setTawarOcr(er && er.kode === 'PDF_TANPA_TEKS' ? (er.halamanPerluOcr || 0) : null);
     }
     finally { setMembaca(''); setProgresBaca(null); }
@@ -153,6 +154,11 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
             <PilihAksaraOcr nilai={aksaraOcr} ubah={setAksaraOcr} />
             <Btn kind="soft" className="mt-2 !text-xs" onClick={() => baca(berkasRef.current, { ocr: true })}>Baca dengan OCR AI{tawarOcr ? ` (${tawarOcr} halaman)` : ''}</Btn>
           </div>)}
+        {tawarHalamanWord > 0 && berkasRef.current && !membaca && (
+          <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+            <p>Dokumen Word ini tidak memuat penanda [ص N], tetapi punya sekitar <b>{tawarHalamanWord} halaman</b> menurut pemisah halaman Word (biasanya hasil konversi PDF ke Word). Satu halaman Word bisa dipakai sebagai satu halaman kitab; nomornya mengikuti urutan ditambah nomor awal di atas, bukan nomor cetak.</p>
+            <Btn kind="soft" className="mt-2 !text-xs" onClick={() => baca(berkasRef.current, { halamanWord: true })} disabled={!!membaca}>Pakai pemisah halaman Word</Btn>
+          </div>)}
         {tawarVirtual && berkasRef.current && (
           <div className="mt-2 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
             <p>Berkas ini tidak memuat nomor halaman cetak. Halaman bisa dibagi otomatis menurut panjang teks; nomornya <b>bukan</b> nomor cetak, jadi rujukan soal ke kitab ini harus dicocokkan dengan edisi cetak.</p>
@@ -219,6 +225,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                   <option value="belum-dicek">Belum dicek</option><option value="domain-publik">Domain publik</option><option value="izin">Berizin</option></select></label>
             </div>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isian.timpa} onChange={(e) => ubah({ timpa: e.target.checked })} />Timpa bila kitab dengan ID ini sudah ada (halaman lama dihapus lebih dulu)</label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!isian.lanjut} onChange={(e) => ubah({ lanjut: e.target.checked })} /><span>Lanjutkan impor yang terputus (berkas dan pengaturan baca harus sama persis; halaman yang sudah tertulis dilewati). Untuk kitab yang sudah siap, centang juga \"timpa\".</span></label>
 
             {progres && progres.tahap !== 'gagal' && (
               <div role="status" className="space-y-1">
