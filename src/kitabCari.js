@@ -22,7 +22,7 @@ export const kosongkanSimpananCari = () => simpanan.clear();
 
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
 const metaRef = (db, kid, m) => db.doc(`${koleksiCari(kid, m)}/meta`);
-const kunci = (kid, m) => `${kid}:${m.revisi || 1}:${VERSI_INDEKS}`;
+const kunci = (kid, m) => `${kid}:${m.revisi || 1}:${VERSI_INDEKS}:${m.jumlahHalaman}`; // jumlah halaman ikut: kitab yang ditambah jilid tidak boleh memakai simpanan lama
 const metaSiap = (cm, m) => !!cm && cm.status === 'siap' && cm.versi === VERSI_INDEKS && cm.revisi === (m.revisi || 1);
 
 /** Membangun satu panggilan: grup halaman mulai `cm.berikutnya` sampai anggaran waktu habis. Mengembalikan meta indeks terbaru. */
