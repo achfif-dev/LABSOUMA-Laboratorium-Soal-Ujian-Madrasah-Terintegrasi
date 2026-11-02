@@ -4,7 +4,7 @@
 // (menggerus kuota tulis Spark); gantinya, setiap panggilan dibatasi 10 halaman dan klien menyimpan hasilnya di memori.
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
-import { validasiKitabId, idHalaman } from './kitabImpor.js';
+import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
 
 export const MAKS_HALAMAN_BACA = 10;
@@ -42,7 +42,7 @@ export async function aksiBaca(body) {
   const m = meta.data();
 
   if (b.aksi === 'perpus-isi') {
-    const isi = await db.doc(`kitab/${kid}/daftar/isi`).get();
+    const isi = await db.doc(dokDaftarIsi(kid, m)).get();
     return { kitab: ringkas(kid, m), entri: isi.exists ? isi.data().entri || [] : [] };
   }
 
@@ -52,14 +52,14 @@ export async function aksiBaca(body) {
     let docs = [];
     if (b.hal !== undefined) { // cari menurut nomor halaman cetak (bisa lebih dari satu: nomor cetak tidak unik)
       const hal = bulat(b.hal, 0, 99999, 'Nomor halaman');
-      const snap = await db.collection(`kitab/${kid}/halaman`).where('hal', '==', hal).limit(MAKS_HALAMAN_BACA).get();
+      const snap = await db.collection(koleksiHalaman(kid, m)).where('hal', '==', hal).limit(MAKS_HALAMAN_BACA).get();
       docs = snap.docs.map((d) => d.data());
       if (b.juz !== undefined) docs = docs.filter((d) => d.juz === b.juz);
     } else {
       const dari = bulat(b.dariSeq, 1, m.jumlahHalaman, 'Urutan awal');
       const sampai = b.sampaiSeq === undefined ? dari : bulat(b.sampaiSeq, dari, dari + MAKS_HALAMAN_BACA - 1, 'Urutan akhir');
       const ids = []; for (let s = dari; s <= Math.min(sampai, m.jumlahHalaman); s++) ids.push(idHalaman(s));
-      const snaps = await Promise.all(ids.map((id) => db.doc(`kitab/${kid}/halaman/${id}`).get()));
+      const snaps = await Promise.all(ids.map((id) => db.doc(`${koleksiHalaman(kid, m)}/${id}`).get()));
       docs = snaps.filter((s) => s.exists).map((s) => s.data());
     }
     docs.sort((x, y) => x.seq - y.seq);

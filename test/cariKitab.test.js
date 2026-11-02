@@ -144,7 +144,9 @@ test('impor ulang (timpa) membuang indeks lama dan mengganti isinya', async () =
     await imp(buat('البيع'), false);
     assert.equal((await panggil('tok_editor')({ aksi: 'perpus-cari', kitabId: 'tt', q: 'البيع' })).total, 1);
     await imp(buat('الإجارة'), true);
-    assert.equal(db.data['kitab/tt/cari/meta'].revisi, 2);
+    assert.equal(db.data['kitab/tt'].revisi, 2); assert.equal(db.data['kitab/tt'].ruang, '_r2');
+    assert.equal(db.data['kitab/tt/cari_r2/meta'].revisi, 2);
+    assert.ok(!Object.keys(db.data).some((k) => k.startsWith('kitab/tt/cari/') || k.startsWith('kitab/tt/halaman/')), 'ruang lama dihapus setelah peralihan');
     assert.equal((await panggil('tok_editor')({ aksi: 'perpus-cari', kitabId: 'tt', q: 'البيع' })).total, 0, 'isi lama tidak tersisa, juga di memori');
     assert.equal((await panggil('tok_editor')({ aksi: 'perpus-cari', kitabId: 'tt', q: 'الاجاره' })).total, 1);
   });

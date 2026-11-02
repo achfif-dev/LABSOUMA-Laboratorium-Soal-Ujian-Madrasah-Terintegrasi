@@ -16,7 +16,7 @@ export const MAZHAB = ['', 'syafii', 'hanafi', 'maliki', 'hanbali'];
 export const STATUS_HAK_CIPTA = ['belum-dicek', 'domain-publik', 'izin'];
 const BENTUK_MATN = ['pemisah-tatwil', 'tanpa-pemisah'];
 const ANOMALI = ['duplikat', 'mundur', 'lompat'];
-export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'pdf-ocr', 'epub', 'epub-ocr', 'html', 'json', 'teks-virtual'];
+export const JENIS_SUMBER = ['syamilah-txt', 'syamilah-docx', 'teks-penanda', 'pdf', 'pdf-ocr', 'epub', 'epub-ocr', 'html', 'json', 'teks-virtual', 'docx-halaman'];
 const RE_ID = /^[a-z0-9][a-z0-9-]{1,59}$/;
 
 const tolak = (kode, pesan, status = 422) => { throw new ApiError(status, kode, pesan); };
@@ -33,6 +33,21 @@ const bil = (v, min, maks, nama, { boleh_null = false } = {}) => {
 };
 
 export const idHalaman = (seq) => `p${String(seq).padStart(5, '0')}`;
+
+// Ruang (revisi) penyimpanan. Kitab lama menyimpan halaman di `halaman`, `cari`, `daftar/isi` (ruang kosong). Impor ulang ("timpa") atas kitab yang
+// sudah siap ditulis ke ruang BARU (`halaman_r3`, `cari_r3`, `daftar/isi_r3`) sementara kitab lama tetap terbaca; baru di impor-selesai
+// meta.ruang dialihkan dalam SATU penulisan dokumen. Semua pembaca (kitabBaca, kitabCari) wajib lewat pembantu ini.
+const RE_RUANG = /^_r\d{1,5}$/;
+export const akhiran = (meta) => (meta && typeof meta.ruang === 'string' && RE_RUANG.test(meta.ruang) ? meta.ruang : '');
+export const koleksiHalaman = (kid, meta) => `kitab/${kid}/halaman${akhiran(meta)}`;
+export const koleksiCari = (kid, meta) => `kitab/${kid}/cari${akhiran(meta)}`;
+export const dokDaftarIsi = (kid, meta) => `kitab/${kid}/daftar/isi${akhiran(meta)}`;
+const RE_SIDIK = /^[a-z0-9:-]{1,40}$/;
+export function validasiSidik(v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (typeof v !== 'string' || !RE_SIDIK.test(v)) tolak('KITAB_INVALID', 'Sidik berkas tidak valid.');
+  return v;
+}
 
 export function validasiKitabId(id) {
   if (typeof id !== 'string' || !RE_ID.test(id)) tolak('KITAB_ID_INVALID', 'ID kitab hanya huruf kecil, angka, dan tanda hubung (2-60 karakter), mis. fathul-muin.');
@@ -123,11 +138,18 @@ async function hapusKoleksi(db, path) {
   }
   return snap.docs.length;
 }
-// Halaman dan indeks pencarian (kitab/{id}/cari) dihapus bersama saat impor ulang; yang dilaporkan hanya jumlah halaman.
-async function hapusHalaman(db, kid) {
-  const n = await hapusKoleksi(db, `kitab/${kid}/halaman`);
-  await hapusKoleksi(db, `kitab/${kid}/cari`);
+// Halaman, indeks pencarian, dan daftar isi satu ruang dihapus bersama; yang dilaporkan hanya jumlah halaman.
+async function hapusHalaman(db, kid, meta) {
+  const n = await hapusKoleksi(db, koleksiHalaman(kid, meta));
+  await hapusKoleksi(db, koleksiCari(kid, meta));
+  await db.doc(dokDaftarIsi(kid, meta)).delete();
   return n;
+}
+
+/** Urutan halaman yang sudah tertulis di satu koleksi halaman (untuk melanjutkan impor yang terputus). */
+async function seqTertulis(db, path) {
+  const snap = await db.collection(path).select().get();
+  return snap.docs.map((d) => Number((/^p(\d{5})$/.exec(d.id) || [])[1])).filter((n) => Number.isInteger(n) && n >= 1).sort((a, b) => a - b);
 }
 
 const ringkasMeta = (id, d) => ({
@@ -148,17 +170,41 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
 
   const kid = validasiKitabId(b.kitabId);
   const ref = metaRef(kid);
+  const berjalanRef = db.doc(`kitab/${kid}/impor/berjalan`);
   const ada = await ref.get();
+  // Impor bertahap (timpa atas kitab yang sudah siap): metadata run baru ada di impor/berjalan, kitab lama tidak disentuh sampai impor-selesai.
+  const brj = ada.exists ? await berjalanRef.get() : null;
+  const berjalan = brj && brj.exists ? brj.data() : null;
 
   if (b.aksi === 'impor-mulai') {
-    if (ada.exists && b.timpa !== true) tolak('KITAB_SUDAH_ADA', `Kitab "${kid}" sudah ada. Centang "timpa" untuk mengimpor ulang (halaman lama dihapus).`, 409);
+    const meta0 = ada.exists ? ada.data() : null;
+    const sidik = validasiSidik(b.sidik);
+    const mengimpor = !!meta0 && meta0.status === 'mengimpor';
+    if (b.lanjut === true && (mengimpor || berjalan)) { // lanjutkan impor yang terputus: tidak ada yang dihapus
+      const kitab = validasiKitab(b.kitab);
+      const sasaran = berjalan || meta0;
+      if (!sidik || !sasaran.sidik || sasaran.sidik !== sidik || sasaran.jumlahHalaman !== kitab.jumlahHalaman) {
+        tolak('KITAB_SIDIK_BEDA', 'Berkas ini tidak sama dengan berkas pada impor yang terputus, jadi tidak bisa dilanjutkan. Pilih berkas yang sama persis dengan pengaturan baca yang sama, atau impor ulang dengan \"timpa\" tanpa \"lanjutkan\".', 409);
+      }
+      const sudah = await seqTertulis(db, koleksiHalaman(kid, berjalan || meta0));
+      return { ok: true, kitabId: kid, revisi: sasaran.revisi || 1, lanjut: true, bertahap: !!berjalan, sudah };
+    }
+    if (ada.exists && b.timpa !== true) tolak('KITAB_SUDAH_ADA', `Kitab \"${kid}\" sudah ada. Centang \"timpa\" untuk mengimpor ulang, atau \"lanjutkan\" bila impor sebelumnya terputus.`, 409);
     const kitab = validasiKitab(b.kitab);
     const daftar = validasiDaftarIsi(b.daftarIsi);
-    const terhapus = ada.exists ? await hapusHalaman(db, kid) : 0;
-    const revisi = ada.exists ? (ada.data().revisi || 1) + 1 : 1;
     const t = sekarang();
-    await ref.set({ ...kitab, status: 'mengimpor', aktif: false, revisi, dibuatOleh: ada.exists ? (ada.data().dibuatOleh || uid) : uid, dibuatAt: ada.exists ? (ada.data().dibuatAt || t) : t, diubahAt: t, diubahOleh: uid });
-    await db.doc(`kitab/${kid}/daftar/isi`).set({ entri: daftar, jumlah: daftar.length, revisi });
+    if (ada.exists && meta0.status === 'siap') { // impor ulang bertahap: kitab lama tetap aktif dan terbaca selama impor
+      if (berjalan) await hapusHalaman(db, kid, berjalan); // sisa percobaan sebelumnya
+      const revisi = (meta0.revisi || 1) + 1; const ruang = `_r${revisi}`;
+      await berjalanRef.set({ revisi, ruang, kitab, jumlahHalaman: kitab.jumlahHalaman, sidik, mulaiAt: t, oleh: uid });
+      await db.doc(dokDaftarIsi(kid, { ruang })).set({ entri: daftar, jumlah: daftar.length, revisi });
+      return { ok: true, kitabId: kid, revisi, bertahap: true, halamanDihapus: 0 };
+    }
+    // Kitab baru, atau kitab yang impornya belum pernah selesai (tidak ada yang dibaca pemakai): tulis langsung.
+    const terhapus = ada.exists ? await hapusHalaman(db, kid, meta0) : 0;
+    const revisi = ada.exists ? (meta0.revisi || 1) + 1 : 1;
+    await ref.set({ ...kitab, ...(sidik ? { sidik } : {}), status: 'mengimpor', aktif: false, revisi, dibuatOleh: ada.exists ? (meta0.dibuatOleh || uid) : uid, dibuatAt: ada.exists ? (meta0.dibuatAt || t) : t, diubahAt: t, diubahOleh: uid });
+    await db.doc(dokDaftarIsi(kid, {})).set({ entri: daftar, jumlah: daftar.length, revisi });
     return { ok: true, kitabId: kid, revisi, halamanDihapus: terhapus };
   }
 
@@ -166,25 +212,40 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
   const meta = ada.data();
 
   if (b.aksi === 'impor-halaman') {
-    if (meta.status !== 'mengimpor') tolak('KITAB_STATUS', 'Kitab ini tidak sedang diimpor. Mulai ulang dengan "timpa".', 409);
+    if (!berjalan && meta.status !== 'mengimpor') tolak('KITAB_STATUS', 'Kitab ini tidak sedang diimpor. Mulai ulang dengan \"timpa\".', 409);
+    const sasaran = berjalan || meta; // tempat tulis: ruang baru (bertahap) atau ruang kitab itu sendiri
     if (!Array.isArray(b.halaman) || !b.halaman.length) tolak('KITAB_INVALID', 'Larik halaman kosong.');
     if (b.halaman.length > MAKS_HALAMAN_PER_PANGGILAN) tolak('KITAB_INVALID', `Maksimal ${MAKS_HALAMAN_PER_PANGGILAN} halaman per panggilan.`);
-    const docs = b.halaman.map((h) => validasiHalaman(h, meta.jumlahHalaman));
+    const docs = b.halaman.map((h) => validasiHalaman(h, sasaran.jumlahHalaman));
     if (new Set(docs.map((d) => d.seq)).size !== docs.length) tolak('KITAB_INVALID', 'Ada urutan halaman kembar dalam satu panggilan.');
     const bt = db.batch();
-    docs.forEach((d) => bt.set(db.doc(`kitab/${kid}/halaman/${idHalaman(d.seq)}`), d));
+    docs.forEach((d) => bt.set(db.doc(`${koleksiHalaman(kid, sasaran)}/${idHalaman(d.seq)}`), d));
     // Indeks pencarian ditulis dalam batch yang sama dengan halamannya: halaman lengkap = indeks lengkap (src/kitabCari.js).
-    bangunPotongan(docs).forEach((p) => bt.set(db.doc(`kitab/${kid}/cari/${p.id}`), { ...p.data, revisi: meta.revisi || 1 }));
+    bangunPotongan(docs).forEach((p) => bt.set(db.doc(`${koleksiCari(kid, sasaran)}/${p.id}`), { ...p.data, revisi: sasaran.revisi || 1 }));
     await bt.commit();
     return { ok: true, tertulis: docs.length };
   }
 
   if (b.aksi === 'impor-selesai') {
+    if (berjalan) { // peralihan bertahap: satu penulisan meta mengalihkan seluruh kitab ke ruang baru
+      const n = await hitung(db.collection(koleksiHalaman(kid, berjalan)));
+      if (n !== berjalan.jumlahHalaman) tolak('KITAB_JUMLAH_BEDA', `Halaman tersimpan ${n}, seharusnya ${berjalan.jumlahHalaman}. Kitab yang sedang dipakai tidak diubah; pilih berkas yang sama lalu \"lanjutkan\", atau ulangi dengan \"timpa\".`, 409);
+      const sudahTukar = meta.revisi === berjalan.revisi && akhiran(meta) === akhiran(berjalan);
+      if (!sudahTukar) {
+        await db.doc(`${koleksiCari(kid, berjalan)}/meta`).set({ versi: VERSI_INDEKS, revisi: berjalan.revisi, status: 'siap', halaman: n });
+        const t = sekarang();
+        await ref.set({ ...berjalan.kitab, ...(berjalan.sidik ? { sidik: berjalan.sidik } : {}), status: 'siap', aktif: meta.aktif === true, revisi: berjalan.revisi, ruang: berjalan.ruang, dibuatOleh: meta.dibuatOleh || uid, dibuatAt: meta.dibuatAt || t, diubahAt: t, diubahOleh: uid });
+      }
+      await berjalanRef.delete();
+      let lamaDihapus = false;
+      if (!sudahTukar) { try { await hapusHalaman(db, kid, meta); lamaDihapus = true; } catch { /* sisa ruang lama hanya memakan ruang simpan; impor berikutnya tidak terpengaruh */ } }
+      return { ok: true, jumlah: n, bertahap: true, lamaDihapus };
+    }
     if (meta.status === 'siap') return { ok: true, jumlah: meta.jumlahHalaman, sudah: true };
     if (meta.status !== 'mengimpor') tolak('KITAB_STATUS', 'Kitab ini tidak sedang diimpor.', 409);
-    const n = await hitung(db.collection(`kitab/${kid}/halaman`));
-    if (n !== meta.jumlahHalaman) tolak('KITAB_JUMLAH_BEDA', `Halaman tersimpan ${n}, seharusnya ${meta.jumlahHalaman}. Kitab belum diaktifkan; ulangi impor dengan "timpa".`, 409);
-    await db.doc(`kitab/${kid}/cari/meta`).set({ versi: VERSI_INDEKS, revisi: meta.revisi || 1, status: 'siap', halaman: n });
+    const n = await hitung(db.collection(koleksiHalaman(kid, meta)));
+    if (n !== meta.jumlahHalaman) tolak('KITAB_JUMLAH_BEDA', `Halaman tersimpan ${n}, seharusnya ${meta.jumlahHalaman}. Kitab belum diaktifkan; pilih berkas yang sama lalu \"lanjutkan\", atau ulangi impor dengan \"timpa\".`, 409);
+    await db.doc(`${koleksiCari(kid, meta)}/meta`).set({ versi: VERSI_INDEKS, revisi: meta.revisi || 1, status: 'siap', halaman: n });
     await ref.set({ ...meta, status: 'siap', aktif: true, diubahAt: sekarang(), diubahOleh: uid });
     return { ok: true, jumlah: n };
   }

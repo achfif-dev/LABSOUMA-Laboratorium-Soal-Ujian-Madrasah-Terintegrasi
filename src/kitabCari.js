@@ -8,7 +8,7 @@
 // Hasil pembacaan potongan disimpan di memori proses (maks 2 kitab) supaya pencarian berikutnya tidak membaca Firestore lagi.
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
-import { idHalaman } from './kitabImpor.js';
+import { idHalaman, koleksiHalaman, koleksiCari } from './kitabImpor.js';
 import {
   VERSI_INDEKS, GRUP_HALAMAN, MODE_CARI, HASIL_PER_HALAMAN, RE_ID_POTONGAN, bangunPotongan, cariDiHalaman, halamanDariPotongan, siapkanKueri,
 } from '../web/lib/cariKitab.js';
@@ -21,7 +21,7 @@ const simpanan = new Map(); // `${kid}:${revisi}:${versi}` -> halaman terindeks
 export const kosongkanSimpananCari = () => simpanan.clear();
 
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
-const metaRef = (db, kid) => db.doc(`kitab/${kid}/cari/meta`);
+const metaRef = (db, kid, m) => db.doc(`${koleksiCari(kid, m)}/meta`);
 const kunci = (kid, m) => `${kid}:${m.revisi || 1}:${VERSI_INDEKS}`;
 const metaSiap = (cm, m) => !!cm && cm.status === 'siap' && cm.versi === VERSI_INDEKS && cm.revisi === (m.revisi || 1);
 
@@ -31,28 +31,28 @@ async function bangunBertahap(db, kid, m, cm, { sekarang = Date.now, anggaran = 
   const baru = !cm || cm.versi !== VERSI_INDEKS || cm.revisi !== (m.revisi || 1);
   let g = baru ? 0 : (cm.berikutnya || 0);
   if (baru) { // indeks lama/usang: buang potongan lama agar tidak ada halaman ganda
-    const lama = await db.collection(`kitab/${kid}/cari`).select().get();
+    const lama = await db.collection(koleksiCari(kid, m)).select().get();
     for (let i = 0; i < lama.docs.length; i += 400) { const b = db.batch(); lama.docs.slice(i, i + 400).forEach((d) => { if (d.id !== 'meta') b.delete(d.ref); }); await b.commit(); }
   }
   const mulai = sekarang();
   do { // minimal satu grup per panggilan, supaya anggaran waktu sekecil apa pun tetap membuat kemajuan
     const dari = g * GRUP_HALAMAN + 1; const sampai = Math.min(m.jumlahHalaman, dari + GRUP_HALAMAN - 1);
     const ids = []; for (let s = dari; s <= sampai; s++) ids.push(s);
-    const snaps = await Promise.all(ids.map((s) => db.doc(`kitab/${kid}/halaman/${idHalaman(s)}`).get()));
+    const snaps = await Promise.all(ids.map((s) => db.doc(`${koleksiHalaman(kid, m)}/${idHalaman(s)}`).get()));
     const halaman = snaps.filter((x) => x.exists).map((x) => x.data()).map((d) => ({ seq: d.seq, hal: d.hal, juz: d.juz, teks: d.teks }));
     const potongan = bangunPotongan(halaman);
-    if (potongan.length) { const b = db.batch(); potongan.forEach((p) => b.set(db.doc(`kitab/${kid}/cari/${p.id}`), { ...p.data, revisi: m.revisi || 1 })); await b.commit(); }
+    if (potongan.length) { const b = db.batch(); potongan.forEach((p) => b.set(db.doc(`${koleksiCari(kid, m)}/${p.id}`), { ...p.data, revisi: m.revisi || 1 })); await b.commit(); }
     g++;
-    await metaRef(db, kid).set({ versi: VERSI_INDEKS, revisi: m.revisi || 1, status: g >= jumlahGrup ? 'siap' : 'membangun', berikutnya: g, jumlahGrup, halaman: m.jumlahHalaman });
+    await metaRef(db, kid, m).set({ versi: VERSI_INDEKS, revisi: m.revisi || 1, status: g >= jumlahGrup ? 'siap' : 'membangun', berikutnya: g, jumlahGrup, halaman: m.jumlahHalaman });
   } while (g < jumlahGrup && sekarang() - mulai < anggaran);
-  return (await metaRef(db, kid).get()).data();
+  return (await metaRef(db, kid, m).get()).data();
 }
 
 /** Muat semua halaman terindeks (dari memori bila ada). */
 async function muatIndeks(db, kid, m) {
   const k = kunci(kid, m);
   if (simpanan.has(k)) { const v = simpanan.get(k); simpanan.delete(k); simpanan.set(k, v); return v.halaman; } // segarkan urutan pakai terakhir
-  const snap = await db.collection(`kitab/${kid}/cari`).get();
+  const snap = await db.collection(koleksiCari(kid, m)).get();
   const halaman = [];
   for (const d of snap.docs) { if (RE_ID_POTONGAN.test(d.id)) { const x = d.data(); if (x.revisi === undefined || x.revisi === (m.revisi || 1)) halaman.push(...halamanDariPotongan(x)); } }
   const karakter = halaman.reduce((n, p) => n + p.t.length, 0);
@@ -78,7 +78,7 @@ export async function aksiCari(b, kid, m, opsi = {}) {
   const lewati = b.lewati === undefined ? 0 : b.lewati;
   if (!Number.isInteger(lewati) || lewati < 0 || lewati > MAKS_LEWATI) tolak(422, 'PERPUS_INVALID', `Lewati harus bilangan bulat 0-${MAKS_LEWATI}.`);
 
-  let cm = simpanan.has(kunci(kid, m)) ? { status: 'siap', versi: VERSI_INDEKS, revisi: m.revisi || 1 } : (await metaRef(db, kid).get()).data();
+  let cm = simpanan.has(kunci(kid, m)) ? { status: 'siap', versi: VERSI_INDEKS, revisi: m.revisi || 1 } : (await metaRef(db, kid, m).get()).data();
   if (!metaSiap(cm, m)) {
     cm = await bangunBertahap(db, kid, m, cm, opsi);
     if (!metaSiap(cm, m)) return { siap: false, kemajuan: { selesai: (cm && cm.berikutnya) || 0, total: Math.ceil(m.jumlahHalaman / GRUP_HALAMAN) } };
