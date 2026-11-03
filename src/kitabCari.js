@@ -10,7 +10,7 @@ import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { idHalaman, koleksiHalaman, koleksiCari } from './kitabImpor.js';
 import {
-  VERSI_INDEKS, GRUP_HALAMAN, MODE_CARI, HASIL_PER_HALAMAN, RE_ID_POTONGAN, bangunPotongan, cariDiHalaman, halamanDariPotongan, siapkanKueri,
+  VERSI_INDEKS, GRUP_HALAMAN, MODE_CARI, HASIL_PER_HALAMAN, RE_ID_POTONGAN, bangunPotongan, cariDiHalaman, halamanDariPotongan, siapkanKueri, peringkatHalaman,
 } from '../web/lib/cariKitab.js';
 
 export const ANGGARAN_MS = 5500;
@@ -86,4 +86,18 @@ export async function aksiCari(b, kid, m, opsi = {}) {
   const halaman = await muatIndeks(db, kid, m);
   const r = cariDiHalaman(halaman, kueri, { mode, lewati, batas: HASIL_PER_HALAMAN });
   return { siap: true, ...r, kata: kueri.kata, mode, q: kueri.q, lewati };
+}
+
+/**
+ * Halaman paling relevan untuk beberapa kueri (agen telaah). Memakai indeks yang sama dengan perpus-cari.
+ * @returns {{siap:true, halaman:{seq,hal,juz,skor}[]} | {siap:false, kemajuan:{selesai,total}}}
+ */
+export async function cariTerbaik(kid, m, kuerian, { k = 6, opsi = {} } = {}) {
+  const { db } = await firestoreAdmin();
+  let cm = simpanan.has(kunci(kid, m)) ? { status: 'siap', versi: VERSI_INDEKS, revisi: m.revisi || 1 } : (await metaRef(db, kid, m).get()).data();
+  if (!metaSiap(cm, m)) {
+    cm = await bangunBertahap(db, kid, m, cm, opsi);
+    if (!metaSiap(cm, m)) return { siap: false, kemajuan: { selesai: (cm && cm.berikutnya) || 0, total: Math.ceil(m.jumlahHalaman / GRUP_HALAMAN) } };
+  }
+  return { siap: true, halaman: peringkatHalaman(await muatIndeks(db, kid, m), kuerian, { k }) };
 }
