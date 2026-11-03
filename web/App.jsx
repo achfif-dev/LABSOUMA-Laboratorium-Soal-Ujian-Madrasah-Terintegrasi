@@ -872,7 +872,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     try {
       const res = await fetch('/api/generate', {
         method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
-        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus }),
+        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus, kitabId: form.kitabId }),
       });
       let data = null;
       try { data = await res.json(); } catch (e) {}
@@ -883,6 +883,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
         return;
       }
       const s = data.soal;
+      if (data.peringatanOtoritas) toast(data.peringatanOtoritas); // kitab pembanding/di luar rumpun/belum dinilai: ustadz perlu menelaah
       const bt = Bt.bentukDari(s.bentuk || form.bentuk); // soal pilihan ganda dari server lama/baru tidak membawa `bentuk`
       setForm((f) => ({
         ...f,
@@ -981,7 +982,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     if (bad) { setAi({ kind, error: { code: 'INVALID_ARABIC', message: bad } }); return; }
     setAi({ kind, loading: true });
     try {
-      const d = await callApi('/api/assist', { aksi: kind, teks: form.teks, nama: form.nama, tingkat: form.tingkat, mapel: form.mapel });
+      const d = await callApi('/api/assist', { aksi: kind, teks: form.teks, nama: form.nama, tingkat: form.tingkat, mapel: form.mapel, kitabId: form.kitabId });
+      if (d.peringatanOtoritas) toast(d.peringatanOtoritas);
       setAi({ kind, data: d.hasil });
     } catch (e) { const er = apiErr(e); setAi(er ? { kind, error: er } : null); }
   };
@@ -993,10 +995,11 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     setTl({ loading: true });
     try {
       const d = await callApi('/api/assist', {
-        aksi: 'telaah', teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, bentuk: form.bentuk,
+        aksi: 'telaah', teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, mapel: form.mapel, level: form.level, bentuk: form.bentuk, kitabId: form.kitabId,
         soal: { stimulus: form.stimulus, pertanyaan: form.pertanyaan, opsi: form.opsi, kunci: form.kunci, pembahasan: form.pembahasan, indikator: form.indikator, jawaban: form.jawaban, rubrik: form.rubrik },
       });
       setTl({ data: d.hasil });
+      if (d.peringatanOtoritas) toast(d.peringatanOtoritas);
     } catch (e) { const er = apiErr(e); setTl(er ? { error: er } : null); }
   };
   const applyFix = () => {
@@ -1375,7 +1378,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     setTl({ loading: true });
     try {
       const d = await callApi('/api/assist', {
-        aksi: 'telaah', teks: q.teks, bahasa: bahasaOtomatis(q.teks), nama: q.nama, juz: q.juz, hal: q.hal, tingkat: q.tingkat, mapel: q.mapel, level: q.level, bentuk: Bt.bentukDari(q),
+        aksi: 'telaah', teks: q.teks, bahasa: bahasaOtomatis(q.teks), nama: q.nama, juz: q.juz, hal: q.hal, tingkat: q.tingkat, mapel: q.mapel, level: q.level, bentuk: Bt.bentukDari(q), kitabId: q.kitabId || '',
         soal: { stimulus: q.stimulus, pertanyaan: q.pertanyaan, opsi: q.opsi, kunci: q.kunci, pembahasan: q.pembahasan, indikator: q.indikator || '', jawaban: q.jawaban || '', rubrik: q.rubrik || '' },
       });
       setTl({ data: d.hasil });
@@ -3525,6 +3528,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
       setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
       const d = await panggilSabar('/api/assist', {
         aksi: 'paket', teks: seg.teks, bahasa: bahasaOtomatis(seg.teks), hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
+        kitabId: (() => { const ids = new Set(perpus.map((x) => String(x.id).split(':')[0])); return ids.size === 1 ? [...ids][0] : ''; })(), // hanya bila seluruh materi dari satu kitab perpustakaan
         spek: tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level })),
       }, ctl.signal, { onTunggu: (s) => setStatus(`Menunggu batas permintaan AI (${s} detik)...`) });
       const h = d.hasil;

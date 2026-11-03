@@ -4,6 +4,7 @@ import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab
 import { bukaSimpananOcr, kunciBerkas } from './lib/simpananOcr.js';
 import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
 import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
+import { STATUS_OTORITAS, LABEL_STATUS, AKIDAH, LABEL_AKIDAH, MAKS_CATATAN, normalOtoritas } from './lib/otoritas.js';
 
 // Impor perpustakaan kitab/buku dari banyak sumber (Arab maupun berhuruf Latin, mis. Indonesia/Jawa/Inggris; Pegon/Jawi tampil kanan ke kiri): .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
 // atau berkas tanpa penanda sama sekali (halaman dibagi otomatis dan ditandai virtual). Admin saja. Berkas diparse di perangkat; yang dikirim ke server hanya
@@ -100,6 +101,17 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     catch (e) { toast((apiErr(e) || {}).message || 'Gagal mengubah status.'); }
   };
 
+  // Otoritas kitab: status ini diteruskan server ke prompt AI sebagai arahan haluan Aswaja (src/otoritas.js). Hanya admin; setiap perubahan diarsipkan server.
+  const tetapkanOtoritas = async (k, ubah) => {
+    const o = normalOtoritas(k.otoritas);
+    try { await callApi('/api/kitab', { aksi: 'impor-otoritas', kitabId: k.id, otoritas: { status: o.status, akidah: o.akidah, catatan: o.catatan, ...ubah } }); muatDaftar(); toast('Otoritas kitab disimpan.'); }
+    catch (e) { toast((apiErr(e) || {}).message || 'Gagal menyimpan otoritas kitab.'); }
+  };
+  const catatanOtoritas = (k) => {
+    const baru = window.prompt(`Catatan ustadz tentang kitab ini (maks ${MAKS_CATATAN} karakter; dibaca AI sebagai arahan):`, normalOtoritas(k.otoritas).catatan);
+    if (baru !== null) tetapkanOtoritas(k, { catatan: baru.slice(0, MAKS_CATATAN) });
+  };
+
   // Pemeriksaan mutu menyisir seluruh teks kitab: dihitung sekali per hasil baca, bukan di tiap ketikan pada kolom isian.
   const pilihBahasa = isian ? isian.bahasa : null; const pilihAksara = isian ? isian.aksara : null;
   const peringatanIsi = useMemo(() => (hasil ? peringatanPratinjau(hasil, pilihBahasa ? { bahasa: pilihBahasa, aksara: pilihAksara } : null) : []), [hasil, pilihBahasa, pilihAksara]);
@@ -130,6 +142,20 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                 {k.judul && k.judul !== k.judulLatin && <p {...tampilanTeks(k, 'truncate text-mute')}>{k.judul}</p>}
                 <p className="text-xs text-mute">{LABEL_BAHASA[bahasaKitab(k)]} · {k.jumlahHalaman} halaman · rev. {k.revisi} · {STATUS[k.status] || k.status} · {k.aktif ? 'aktif' : 'tidak aktif'} · {HAK[k.hakCipta] || k.hakCipta}{k.koreksi > 0 ? ` · ${k.koreksi} koreksi teks oleh editor` : ''}</p>
               </div>
+              {k.status === 'siap' && (
+                <div className="flex w-full flex-wrap items-center gap-2 text-xs">
+                  <label className="flex items-center gap-1">Otoritas:
+                    <select className="rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink" value={normalOtoritas(k.otoritas).status} onChange={(e) => tetapkanOtoritas(k, { status: e.target.value })}>
+                      {STATUS_OTORITAS.map((v) => <option key={v} value={v}>{LABEL_STATUS[v]}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-1">Akidah:
+                    <select className="rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink" value={normalOtoritas(k.otoritas).akidah} onChange={(e) => tetapkanOtoritas(k, { akidah: e.target.value })}>
+                      {AKIDAH.map((v) => <option key={v} value={v}>{LABEL_AKIDAH[v]}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" className="underline" onClick={() => catatanOtoritas(k)}>{normalOtoritas(k.otoritas).catatan ? 'Ubah catatan' : 'Tambah catatan'}</button>
+                </div>)}
               {k.status === 'siap' && <Btn kind="ghost" onClick={() => aktifkan(k)}>{k.aktif ? <><EyeOff size={15} />Sembunyikan</> : <><Eye size={15} />Aktifkan</>}</Btn>}
             </li>))}</ul>}
       </div>
