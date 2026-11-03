@@ -22,3 +22,10 @@ test/docxAman.test.js (baru), test/kitabImpor.test.js dan test/cariKitab.test.js
 - Hanya hasil berhasil yang disimpan (termasuk halaman kosong sah); halaman gagal dicoba ulang. Simpanan dihapus setelah impor berhasil dan otomatis kedaluwarsa setelah 14 hari. Galat penyimpanan tidak pernah menggagalkan OCR.
 - Karena hasil lama dipakai apa adanya, sidik berkas OCR menjadi stabil, sehingga "Lanjutkan impor yang terputus" juga bekerja untuk impor OCR.
 - Batas: simpanan ada per perangkat dan peramban; berpindah ponsel atau mode privat berarti mulai dari awal. Tes: test/simpananOcr.test.js (IndexedDB asli tidak bisa diuji di Node, hanya logika dan penanganan galatnya).
+
+## 4. Tambah jilid ke kitab yang sudah ada
+- `impor-mulai` dengan `tambah:true` menambahkan jilid berikutnya di belakang kitab berstatus siap. Urutan halaman digeser (offset = jumlah halaman sekarang), `juz` dimulai dari `juzAwal` (bawaan: juz terakhir + 1), daftar isi digabung. Hak cipta, mazhab, dan metadata kitab tidak berubah. Bahasa, aksara, dan jenis penomoran harus sama (422 `TAMBAH_TIDAK_SAMA`).
+- Halaman jilid baru tidak terlihat pembaca maupun pencarian sampai `impor-selesai` menaikkan `jumlahHalaman` dalam satu penulisan. Bisa dilanjutkan bila terputus (sidik berkas sama).
+- Dua celah ditutup: (a) pencarian kini mengabaikan potongan indeks dengan urutan di luar `jumlahHalaman`, jadi jilid yang belum selesai tidak muncul di hasil cari; (b) memulai penambahan baru membersihkan halaman dan potongan indeks sisa percobaan yang ditinggalkan, sehingga tidak ada halaman atau hasil cari ganda.
+- UI: kotak "Tambahkan sebagai jilid berikutnya" dan isian nomor juz awal; pratinjau memperingatkan bila ID belum ada, kitab belum siap, bahasa berbeda, atau "timpa" ikut dicentang.
+- Tes: lima tes baru di test/kitabImpor.test.js.

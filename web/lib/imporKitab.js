@@ -48,7 +48,7 @@ export function isianAwal(hasil) {
   const k = hasil.kitab;
   const aksara = k.aksara || 'arab'; const bahasa = k.bahasa || (aksara === 'arab' ? 'ar' : 'id');
   const judulLatin = aksara === 'arab' ? '' : String(k.judul || '').trim().slice(0, 150);
-  return { judulLatin, kitabId: judulLatin ? slugKitab(judulLatin) : '', bahasa, aksara, mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false, lanjut: false };
+  return { judulLatin, kitabId: judulLatin ? slugKitab(judulLatin) : '', bahasa, aksara, mazhab: tebakMazhab(k.fan), hakCipta: k.hakCipta.status, catatanHak: k.hakCipta.catatan || '', timpa: false, lanjut: false, tambah: false, juzAwal: '' };
 }
 
 /** Peringatan untuk admin sebelum impor. `tingkat`: 'bad' menghalangi, 'warn' memberi tahu. */
@@ -103,7 +103,13 @@ export function peringatanPratinjau(hasil, pilihan = null) {
 export function peringatanDuplikat(hasil, isian, daftar) {
   const w = []; const ada = Array.isArray(daftar) ? daftar : [];
   const sama = ada.find((k) => k.id === isian.kitabId);
-  if (sama) {
+  if (isian.tambah) { // jilid berikutnya di belakang kitab yang sudah siap: tidak ada yang dihapus atau ditimpa
+    if (!sama) w.push({ tingkat: 'bad', teks: `Kitab dengan ID \"${isian.kitabId}\" belum ada, jadi tidak ada yang bisa ditambah. Impor jilid pertama dulu tanpa \"tambah jilid\".` });
+    else if (sama.status !== 'siap') w.push({ tingkat: 'bad', teks: `Kitab \"${sama.judulLatin}\" belum selesai diimpor. Selesaikan dulu sebelum menambah jilid.` });
+    else if (isian.timpa) w.push({ tingkat: 'bad', teks: 'Pilih salah satu: \"tambah jilid\" atau \"timpa\". Keduanya tidak bisa bersamaan.' });
+    else if ((sama.bahasa || 'ar') !== isian.bahasa || (sama.aksara || 'arab') !== isian.aksara) w.push({ tingkat: 'bad', teks: `Bahasa/aksara jilid ini harus sama dengan kitab yang sudah ada (${sama.bahasa || 'ar'}/${sama.aksara || 'arab'}).` });
+    else w.push({ tingkat: 'warn', teks: `Jilid ini akan DITAMBAHKAN setelah halaman ${sama.jumlahHalaman} kitab \"${sama.judulLatin}\" (sekarang ${sama.jumlahJuz || 1} juz). Nomor halaman dan juz yang sudah ada tidak berubah. Pastikan ini jilid yang belum pernah diimpor: impor yang sama dua kali akan menggandakan halaman.` });
+  } else if (sama) {
     const terputus = sama.status === 'mengimpor';
     if (isian.timpa) w.push({ tingkat: 'warn', teks: terputus ? `Impor kitab \"${sama.judulLatin}\" (ID ${sama.id}) sebelumnya belum selesai. Halaman yang sudah tertulis akan DITIMPA dan impor dimulai dari awal, kecuali Anda mencentang \"lanjutkan\" dan memilih berkas yang sama persis.` : `Kitab \"${sama.judulLatin}\" (ID ${sama.id}, rev. ${sama.revisi}, ${sama.jumlahHalaman} halaman) akan DITIMPA. Kitab lama tetap aktif dan terbaca sampai impor baru selesai; sesudah itu halaman lamanya dihapus. Soal yang sudah bertaut ke halaman lama tetap menyimpan salinan teksnya, tetapi tautan \"Buka di kitab\" bisa menunjuk halaman yang berbeda bila urutannya berubah.` });
     else if (isian.lanjut && terputus) w.push({ tingkat: 'warn', teks: `Impor kitab \"${sama.judulLatin}\" (ID ${sama.id}) akan dilanjutkan dari halaman yang sudah tertulis. Hanya berhasil bila berkas dan pengaturan bacanya sama persis dengan impor sebelumnya.` });
@@ -122,6 +128,7 @@ export function muatanMulai(hasil, isian) {
   const { kitab, daftarIsi } = hasil;
   return {
     aksi: 'impor-mulai', kitabId: isian.kitabId, timpa: !!isian.timpa, lanjut: !!isian.lanjut, sidik: sidikHasil(hasil), daftarIsi,
+    ...(isian.tambah ? { tambah: true, ...(Number.isInteger(Number(isian.juzAwal)) && Number(isian.juzAwal) >= 1 && String(isian.juzAwal).trim() !== '' ? { juzAwal: Number(isian.juzAwal) } : {}) } : {}),
     kitab: { ...kitab, judul: kitab.judul || isian.judulLatin.trim(), judulLatin: isian.judulLatin.trim(), bahasa: isian.bahasa, aksara: isian.aksara, mazhab: isian.mazhab, hakCipta: { status: isian.hakCipta, catatan: isian.catatanHak } },
   };
 }

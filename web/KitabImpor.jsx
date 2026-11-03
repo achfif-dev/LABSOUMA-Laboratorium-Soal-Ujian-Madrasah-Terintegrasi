@@ -228,7 +228,10 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                 <select className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" value={isian.hakCipta} onChange={(e) => ubah({ hakCipta: e.target.value })}>
                   <option value="belum-dicek">Belum dicek</option><option value="domain-publik">Domain publik</option><option value="izin">Berizin</option></select></label>
             </div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isian.timpa} onChange={(e) => ubah({ timpa: e.target.checked })} />Timpa bila kitab dengan ID ini sudah ada (halaman lama dihapus lebih dulu)</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isian.timpa} onChange={(e) => ubah({ timpa: e.target.checked, ...(e.target.checked ? { tambah: false } : {}) })} />Timpa bila kitab dengan ID ini sudah ada (halaman lama dihapus lebih dulu)</label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!isian.tambah} onChange={(e) => ubah({ tambah: e.target.checked, ...(e.target.checked ? { timpa: false } : {}) })} /><span>Tambahkan sebagai jilid berikutnya ke kitab dengan ID ini (halaman lama tidak disentuh; ID di atas harus kitab yang sudah siap).</span></label>
+            {isian.tambah && (<label className="block text-sm">Nomor juz awal jilid ini (kosong = otomatis, melanjutkan juz terakhir)
+              <input className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" inputMode="numeric" value={isian.juzAwal} onChange={(e) => ubah({ juzAwal: e.target.value.replace(/\D/g, '').slice(0, 2) })} /></label>)}
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!isian.lanjut} onChange={(e) => ubah({ lanjut: e.target.checked })} /><span>Lanjutkan impor yang terputus (berkas dan pengaturan baca harus sama persis; halaman yang sudah tertulis dilewati). Untuk kitab yang sudah siap, centang juga \"timpa\".</span></label>
 
             {progres && progres.tahap !== 'gagal' && (
