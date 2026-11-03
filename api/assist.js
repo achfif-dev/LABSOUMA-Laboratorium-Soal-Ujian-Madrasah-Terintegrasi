@@ -15,6 +15,7 @@ import { fotoKitab } from '../src/fotoKitab.js';
 import { generatePaket, validatePaket } from '../src/paketService.js';
 import { periksaKutipan, bidangDariAI, bidangDariSoal } from '../src/kutipan.js';
 import { periksaSikap } from '../src/sikap.js';
+import { denganKitab, peringatanOtoritas } from '../src/otoritas.js';
 
 const ASSIST = {
   terjemah: terjemahTeks,
@@ -44,15 +45,18 @@ export default route(async (req) => {
   // Paket Dauri (satu naskah utuh, banyak panggilan AI) hanya untuk tim penyusun; tab-nya juga tidak ada di aplikasi Ustadz. Ditolak sebelum validasi dan kuota.
   if (aksi === 'paket' && u.role === 'ustadz') throw new ApiError(403, 'FORBIDDEN_ROLE', 'Paket Dauri tidak tersedia untuk peran Ustadz.');
   await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
+  // Otoritas kitab dibaca server dari perpustakaan lewat kitabId (hanya aksi yang memilih materi atau menyusun soal); `_kitab` kiriman klien selalu ditimpa.
+  const PAKAI_KITAB = ['terjemah', 'analisis', 'telaah', 'paket', 'bab'];
+  const body = PAKAI_KITAB.includes(aksi) ? await denganKitab(req.body) : req.body;
   let teks;
-  if (aksi === 'pegon') validatePegon(req.body); // teks Latin, bukan Arab: jangan lewat validateTeks
-  else if (aksi === 'pegonfoto' || aksi === 'fotokitab') validateFoto(req.body);
-  else if (aksi === 'paket') validatePaket(req.body); // segmen <= 6.000 karakter, bentuk dan level tiap butir; tolak input cacat sebelum menghabiskan kuota
-  else if (aksi === 'bab') validateBab(req.body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
-  else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(req.body).teks; else teks = validateTeks(req.body).teks;
+  if (aksi === 'pegon') validatePegon(body); // teks Latin, bukan Arab: jangan lewat validateTeks
+  else if (aksi === 'pegonfoto' || aksi === 'fotokitab') validateFoto(body);
+  else if (aksi === 'paket') validatePaket(body); // segmen <= 6.000 karakter, bentuk dan level tiap butir; tolak input cacat sebelum menghabiskan kuota
+  else if (aksi === 'bab') validateBab(body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
+  else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(body).teks; else teks = validateTeks(body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
   await enforceAi(u.uid, u.role);
-  const hasil = await withRefund(u.uid, () => run(req.body), [aiPool(u.role).id]); // gagal di sisi server/AI: kuota dikembalikan
+  const hasil = await withRefund(u.uid, () => run(body), [aiPool(u.role).id]); // gagal di sisi server/AI: kuota dikembalikan
   if (aksi === 'cekbuta') {
     // Catatan server atas hasil uji buta untuk isi yang persis sama: dipakai gerbang persetujuan (src/review.js), bukan klaim di dokumen soal.
     const { db, FieldValue } = await firestoreAdmin();
@@ -64,5 +68,6 @@ export default route(async (req) => {
     hasil.verifikasi_perbaikan = periksaKutipan(bidangDariAI(hasil.perbaikan), teks);
     hasil.sikap_perbaikan = periksaSikap(bidangDariAI(hasil.perbaikan));
   }
-  return { aksi, hasil, model: getModel() };
+  const peringatan = peringatanOtoritas(body._kitab);
+  return { aksi, hasil, model: getModel(), ...(peringatan ? { peringatanOtoritas: peringatan } : {}) };
 });
