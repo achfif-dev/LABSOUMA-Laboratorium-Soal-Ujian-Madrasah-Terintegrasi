@@ -1,4 +1,4 @@
-// POST /api/assist: terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
+// POST /api/assist: tanya-jawab bersumber atas perpustakaan (tanyakitab), pemeriksaan soal terhadap halaman rujukan (periksarujukan, gratis), terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
 import { route, authenticateAuthor, authenticateReviewer, enforceAi, enforceRate, withRefund, aiPool, firestoreAdmin, num } from '../src/platform.js';
 import { setujui, catatButa } from '../src/review.js';
 import { bentukSah } from '../src/bentuk.js';
@@ -16,6 +16,8 @@ import { generatePaket, validatePaket } from '../src/paketService.js';
 import { periksaKutipan, bidangDariAI, bidangDariSoal } from '../src/kutipan.js';
 import { periksaSikap } from '../src/sikap.js';
 import { denganKitab, peringatanOtoritas } from '../src/otoritas.js';
+import { tanyaKitab, validasiTanya } from '../src/telaahKitab.js';
+import { periksaRujukan } from '../src/periksaRujukan.js';
 
 const ASSIST = {
   terjemah: terjemahTeks,
@@ -26,6 +28,7 @@ const ASSIST = {
   pegonfoto: fotoPegon,
   fotokitab: fotoKitab, // OCR teks Arab dari foto halaman kitab fisik
   paket: generatePaket, // satu segmen teks -> beberapa butir naskah IMDA (tanpa narasi, 3 opsi, kutipan kitab terverifikasi)
+  tanyakitab: tanyaKitab, // tanya-jawab bersumber atas perpustakaan: dua panggilan AI, kutipan diverifikasi kode (src/telaahKitab.js)
   bab: sarankanBab, // saran bab penting untuk diujikan (haluan Aswaja); daftar isi opsional, bukan teks Arab wajib
 };
 
@@ -40,8 +43,12 @@ export default route(async (req) => {
   }
   const u = await authenticateAuthor(req);
   const aksi = req.body && req.body.aksi;
+  if (aksi === 'periksarujukan') { // soal vs halaman rujukan di perpustakaan: gratis, tanpa AI dan tanpa kuota AI
+    await enforceRate(`${u.uid}_periksa`, { perMinute: num('LIMIT_PERIKSA_PER_MINUTE', 20), perDay: num('LIMIT_PERIKSA_PER_DAY', 500) });
+    return { aksi, hasil: await periksaRujukan(req.body) };
+  }
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
-  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, paket, bab, pegon, pegonfoto, atau fotokitab.');
+  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, paket, bab, tanyakitab, periksarujukan, pegon, pegonfoto, atau fotokitab.');
   // Paket Dauri (satu naskah utuh, banyak panggilan AI) hanya untuk tim penyusun; tab-nya juga tidak ada di aplikasi Ustadz. Ditolak sebelum validasi dan kuota.
   if (aksi === 'paket' && u.role === 'ustadz') throw new ApiError(403, 'FORBIDDEN_ROLE', 'Paket Dauri tidak tersedia untuk peran Ustadz.');
   await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
@@ -52,6 +59,7 @@ export default route(async (req) => {
   if (aksi === 'pegon') validatePegon(body); // teks Latin, bukan Arab: jangan lewat validateTeks
   else if (aksi === 'pegonfoto' || aksi === 'fotokitab') validateFoto(body);
   else if (aksi === 'paket') validatePaket(body); // segmen <= 6.000 karakter, bentuk dan level tiap butir; tolak input cacat sebelum menghabiskan kuota
+  else if (aksi === 'tanyakitab') validasiTanya(body); // pertanyaan 3-500 karakter, maks 4 kitab; tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'bab') validateBab(body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(body).teks; else teks = validateTeks(body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota
