@@ -124,7 +124,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     <div className="fade-in space-y-4">
       <div className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
         <p className="font-semibold">Perpustakaan kitab</p>
-        <p className="mt-1 text-mute">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N] (kitab Arab) atau [hal. N] (buku berbahasa Indonesia, Jawa, Inggris, dan lain-lain). Bahasa dikenali otomatis dan bisa diubah sebelum impor. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p>
+        <details className="mt-1 text-mute"><summary className="font-semibold text-ink">Format yang didukung dan cara kerja impor</summary><p className="mt-1">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N] (kitab Arab) atau [hal. N] (buku berbahasa Indonesia, Jawa, Inggris, dan lain-lain). Bahasa dikenali otomatis dan bisa diubah sebelum impor. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p></details>
       </div>
 
       {errDaftar && <ErrorBox e={errDaftar} />}

@@ -91,11 +91,11 @@
   .pattern h1 { letter-spacing: .08em; }
   /* Kartu: bayangan halus dan tepi lembut untuk semua panel isi (tanpa mengubah markup) */
   .rounded-2xl.border.bg-surface:not(.border-dashed) { box-shadow: var(--shadow-sm); }
-  .rounded-2xl.border.bg-surface:not(.border-dashed):hover { box-shadow: var(--shadow-md); }
+  @media (hover: hover) { .rounded-2xl.border.bg-surface:not(.border-dashed):hover { box-shadow: var(--shadow-md); } }
   section.rounded-2xl > div:first-child > h2 { text-transform: none; letter-spacing: -0.005em; font-size: 15px; }
   /* Tabel dan kode: hanya angka rata dan sorot baris; tata letak tetap dari kelas Tailwind di komponen */
   table { font-variant-numeric: tabular-nums; }
-  tbody tr:hover { background: color-mix(in srgb, var(--soft) 55%, transparent); }
+  @media (hover: hover) { tbody tr:hover { background: color-mix(in srgb, var(--soft) 55%, transparent); } }
   code { background: var(--soft); color: var(--soft-ink); padding: .1em .4em; border-radius: 6px; }
   /* Bilah gulir tipis */
   * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -109,3 +109,23 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+  /* ---- Layar sentuh dan HP (portrait) ---- */
+  button, summary, label, select, [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  @media (max-width: 639px) {
+    /* 16px mencegah Safari iOS memperbesar layar sendiri saat isian difokus; tinggi 44px = sasaran ketuk yang nyaman */
+    .field { font-size: 16px; min-height: 44px; }
+    .ar-input { font-size: 1.3rem; }
+    main button, main summary { min-height: 40px; }
+    main button { min-width: 40px; }
+    main a[target="_blank"] { display: inline-flex; align-items: center; min-height: 40px; }
+    main input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), main select, main textarea { font-size: 16px; }
+    main input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), main select { min-height: 40px; }
+    main input[type="checkbox"], main input[type="radio"] { width: 20px; height: 20px; flex-shrink: 0; }
+    main label:has(> input[type="checkbox"]), main label:has(> input[type="radio"]) { min-height: 40px; }
+    /* Bilah sub-tab bisa digeser: tepi memudar sebagai penanda masih ada tab di luar layar */
+    .subtab-fade { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%); }
+    /* Teks panjang tanpa spasi (email, URL, nama berkas) tidak boleh melebarkan layar */
+    main p, main li, main td, main dd, main h2, main h3 { overflow-wrap: anywhere; }
+    main details > summary { padding-block: 4px; }
+  }

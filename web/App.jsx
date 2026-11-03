@@ -529,10 +529,31 @@ function Jam() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   return (
-    <div className="mt-1 shrink-0 rounded-full bg-white/10 px-4 py-1 text-center sm:ml-auto sm:mt-0 sm:rounded-none sm:bg-transparent sm:p-0 sm:text-right" role="timer" aria-live="off" aria-label="Jam dan tanggal WIB">
-      <p className="text-xl font-bold tabular-nums leading-tight sm:text-3xl">{FMT_JAM.format(now).replace(/\./g, ':')}<span className="ml-1 text-xs font-semibold opacity-70">WIB</span></p>
+    <div className="ml-auto shrink-0 rounded-full bg-white/10 px-2.5 py-0.5 text-center sm:mt-0 sm:rounded-none sm:bg-transparent sm:p-0 sm:text-right" role="timer" aria-live="off" aria-label="Jam dan tanggal WIB">
+      <p className="text-sm font-bold tabular-nums leading-tight sm:text-3xl">{FMT_JAM.format(now).replace(/\./g, ':')}<span className="ml-1 text-xs font-semibold opacity-70">WIB</span></p>
       <p className="mt-0.5 hidden text-xs font-medium opacity-80 sm:block">{FMT_TGL.format(now)}</p>
     </div>
+  );
+}
+
+// Kepala aplikasi dipakai App dan AppUstadz. Di HP dibuat satu baris (logo, judul, jam) supaya konten mulai lebih cepat tampak;
+// baris nama Arab disembunyikan di layar kecil dan tampil mulai lebar sm ke atas.
+const SISI_KEPALA = { marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' };
+function AppHeader() {
+  return (
+    <header className="pattern bg-head text-head-ink" style={SISI_KEPALA}>
+      <div className="mx-auto max-w-6xl py-3 sm:pb-5 sm:pt-8">
+        <div className="flex min-w-0 items-center gap-3 sm:items-start sm:gap-4">
+          <AppLogo size={44} className="shrink-0 sm:!h-14 sm:!w-14" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg font-extrabold leading-tight sm:text-2xl">LABSOUMA</h1>
+            <p className="text-xs font-medium leading-snug opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
+            <p dir="rtl" lang="ar" className="ar mt-1 hidden text-right text-lg opacity-80 sm:block" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
+          </div>
+          <Jam />
+        </div>
+      </div>
+    </header>
   );
 }
 
@@ -1483,7 +1504,7 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
   useEffect(() => { if (f.paket && qs.length && !paketOpsi.some((g) => g.id === f.paket)) setF({ ...f, paket: '' }); }, [f.paket, paketOpsi, qs.length]);
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
-      <Filter size={16} className="mb-2.5 text-mute" />
+      <Filter size={16} className="mb-2.5 hidden text-mute sm:block" />
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-mapel' + (withStatus ? 'b' : 'e')}>Mata Pelajaran</Label>
         <Select id={'f-mapel' + (withStatus ? 'b' : 'e')} value={f.mapel} onChange={(v) => setF({ ...f, mapel: v })}><option value="">Semua</option>{mapelOpsi.map((m) => <option key={m}>{m}</option>)}</Select></div>
       <div className="min-w-[140px] flex-1"><Label htmlFor={'f-tingkat' + (withStatus ? 'b' : 'e')}>Tingkat</Label>
@@ -2615,7 +2636,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
     <div className="fade-in space-y-5">
       <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
         Atur pilihan yang muncul di form penyusunan soal dan filter. {kustom ? 'Sedang memakai pengaturan Anda.' : 'Sedang memakai daftar bawaan aplikasi.'}
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+        <details className="mt-2"><summary className="font-semibold text-ink">Petunjuk pengaturan (ketuk untuk membuka)</summary><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
           <li>Tingkatan bisa ditambah, diurutkan, dinonaktifkan, atau dihapus. <b>Kunci</b> tingkat dipakai pada setiap soal, jadi tidak bisa diubah setelah disimpan; yang bisa diubah kapan saja adalah label, singkatan, label Arab, dan kelas.</li>
           <li>Tingkat baru belum punya mapel dan kitab: pakai tombol <b>Salin mapel &amp; kitab dari…</b> atau centang per mapel/kitab di bawah.</li>
           <li>Mengganti nama mapel tidak mengubah soal lama. Soal lama tetap muncul di filter dengan nama lamanya.</li>
@@ -2624,7 +2645,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
           <li><b>Pemetaan kitab</b>: pada tiap kitab, buka <i>Kelas &amp; ujian</i> untuk menentukan kitab itu dipakai di kelas dan periode ujian mana. Kitab tanpa pemetaan berlaku untuk semua kelas dan periode di tingkatnya.</li>
           <li>Nama Arab kitab dan pengarang tampil di pilihan kitab, daftar soal, dan ekspor (DOCX/CSV). Tulis dengan huruf Arab; harakat boleh.</li>
           <li>Daftar kitab dan nama Arab bawaan adalah usulan. Periksa bersama ustadz atau guru mapel.</li>
-        </ul>
+        </ul></details>
       </div>
 
       <Section title="Impor & Template Excel" icon={FileSpreadsheet}>
@@ -2837,7 +2858,18 @@ function UserAdmin({ me, toast }) {
         Pengguna baru masuk dengan status <b className="text-ink">Menunggu persetujuan</b>. Beri peran agar mereka bisa bekerja.
         Penyusun membuat soal, editor meninjau, admin mengelola semuanya. Ustadz memakai alat bantu (AI, Pegon, ekspor) untuk soal latihan sendiri, tanpa akses ke bank soal.{waiting > 0 && <b className="ml-1 text-warn">{waiting} menunggu.</b>}
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+      <ul className="divide-y divide-line rounded-2xl border border-line bg-surface sm:hidden">
+        {rows.map((r) => (
+          <li key={r.id} className="space-y-2 p-4">
+            <div className="min-w-0"><p className="break-words font-semibold">{r.name || r.email}</p><p className="break-all text-xs text-mute">{r.email}</p></div>
+            <select aria-label={'Peran ' + (r.name || r.email)} className="field" value={r.role} disabled={r.id === me.uid} onChange={(e) => setRole(r.id, e.target.value)}>
+              {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <p className="text-xs text-mute">{r.id === me.uid ? '(Anda) · ' : ''}Terakhir masuk: {(() => { try { const d = r.lastLoginAt && r.lastLoginAt.toDate ? r.lastLoginAt.toDate() : null; return d ? d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'; } catch (e) { return '-'; } })()}</p>
+          </li>
+        ))}
+      </ul>
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface max-sm:hidden">
         <table className="w-full min-w-[620px] text-left text-sm">
           <thead className="border-b border-line text-xs uppercase tracking-wide text-mute">
             <tr><th className="px-4 py-3">Pengguna</th><th className="px-4 py-3">Peran</th><th className="px-4 py-3">Terakhir masuk</th></tr>
@@ -2936,7 +2968,20 @@ function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antrean, onB
         <Section title="Pemakaian AI per pengguna (hari ini)" icon={Users}
           action={<label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={semua} onChange={(e) => setSemua(e.target.checked)} />Tampilkan juga yang belum memakai</label>}>
           {!d.pengguna.length ? <p className="text-sm text-mute">Belum ada yang memakai AI hari ini.</p> : (
-            <div className="overflow-x-auto">
+            <>
+            <ul className="divide-y divide-line sm:hidden">
+              {d.pengguna.map((r) => (
+                <li key={r.uid} className="space-y-2 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0"><p className="break-words font-semibold">{r.nama}</p><p className="break-all text-xs text-mute">{ROLE_LABEL[r.role] || r.role || 'Tidak dikenal'}{r.email && r.email !== r.nama ? ' · ' + r.email : ''}</p></div>
+                    <BadgeKuota status={r.status} />
+                  </div>
+                  <BatangKuota persen={r.persen} status={r.status} label={'Kuota ' + r.nama} />
+                  <p className="text-xs text-mute">Terpakai <b className="text-ink">{r.dipakai} / {r.batas}</b> · sisa <b className="text-ink">{r.sisa}</b></p>
+                </li>
+              ))}
+            </ul>
+            <div className="overflow-x-auto max-sm:hidden">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="border-b border-line text-xs uppercase tracking-wide text-mute">
                   <tr><th className="px-2 py-2">Pengguna</th><th className="px-2 py-2">Terpakai</th><th className="w-32 px-2 py-2"><span className="sr-only">Proporsi</span></th><th className="px-2 py-2">Sisa</th><th className="px-2 py-2">Status</th></tr>
@@ -2954,6 +2999,7 @@ function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antrean, onB
                 </tbody>
               </table>
             </div>
+            </>
           )}
           <p className="mt-3 text-xs leading-relaxed text-mute">
             Total {d.totalHariIni} permintaan hari ini{d.penggunaHabis > 0 ? `; ${d.penggunaHabis} pengguna sudah kena batas hariannya` : ''}. Permintaan yang gagal di sisi server sudah dikembalikan dan tidak dihitung.
@@ -4121,6 +4167,11 @@ function App({ user, profile }) {
     ...(canReview ? [{ id: 'backup', label: 'Backup Drive', icon: CloudUpload }] : []),
     ...(isAdmin ? [{ id: 'dasbor', label: 'Dasbor', icon: LayoutDashboard, n: kuotaRingkas ? kuotaRingkas.peringatan : 0 }, { id: 'users', label: 'Pengguna', icon: Users }, { id: 'cfg', label: 'Konfigurasi', icon: BookOpen }, { id: 'perpus', label: 'Perpustakaan Kitab', icon: LibraryBig }, { id: 'ai', label: 'Pengaturan AI', icon: Sparkles }] : []),
   ];
+  const subNavRef = useRef(null);
+  useEffect(() => { // sub-tab aktif digulirkan ke tengah bilah, supaya tidak tersembunyi di luar layar HP
+    const n = subNavRef.current; const el = n && n.querySelector('[aria-current="page"]');
+    if (n && el) n.scrollTo({ left: Math.max(0, el.offsetLeft - (n.clientWidth - el.offsetWidth) / 2), behavior: 'smooth' });
+  }, [tab]);
   const needsData = tab === 'review' || tab === 'bank' || tab === 'export' || tab === 'fokus';
   const aktif = TABS.find((t) => t.id === tab);
   const NAV = NV.bangunNav(TABS);
@@ -4131,19 +4182,7 @@ function App({ user, profile }) {
 
   return (
     <div className="font-sans">
-      <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
-        <div className="mx-auto max-w-6xl pb-4 pt-5 sm:pb-5 sm:pt-8">
-          <div className="flex min-w-0 flex-col items-center gap-2 text-center sm:flex-row sm:items-start sm:gap-4 sm:text-left">
-            <AppLogo size={56} className="shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
-              <p className="text-sm font-medium opacity-90 sm:text-base" style={{ textWrap: 'balance' }}>Laboratorium Soal Ujian Madrasah Terintegrasi</p>
-              <p dir="rtl" lang="ar" className="ar mt-1 text-center text-lg opacity-80 sm:text-right" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
-            </div>
-            <Jam />
-          </div>
-        </div>
-      </header>
+      <AppHeader />
 
       {/* Bilah beku: tetap di atas saat halaman digulir */}
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
@@ -4185,7 +4224,7 @@ function App({ user, profile }) {
           </div>
         </div>
         {grupAktif && grupAktif.items.length > 1 && (
-          <nav aria-label={'Sub-tab ' + grupAktif.label} className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] max-sm:[&>*:first-child]:ml-auto max-sm:[&>*:last-child]:mr-auto">
+          <nav ref={subNavRef} aria-label={'Sub-tab ' + grupAktif.label} className="subtab-fade relative mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] max-sm:[&>*:first-child]:ml-auto max-sm:[&>*:last-child]:mr-auto">
             {grupAktif.items.map((t) => (
               <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
                 className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === t.id ? 'bg-white/25' : 'bg-white/10 hover:bg-white/15'}`}>
@@ -4237,7 +4276,7 @@ function App({ user, profile }) {
         </KamusCtx.Provider>
         </AppCfgCtx.Provider>
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pb-8 pt-2 text-center text-xs text-mute">
+      <footer className="mx-auto max-w-6xl px-4 pt-2 text-center text-xs text-mute" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}>
         <p>Powered By Achmad Afifuddin / achfif-dev</p>
         <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
       </footer>
@@ -4453,19 +4492,7 @@ function AppUstadz({ user, profile }) {
 
   return (
     <div className="font-sans">
-      <header className="pattern bg-head text-head-ink" style={{ marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
-        <div className="mx-auto max-w-6xl pb-4 pt-5 sm:pb-5 sm:pt-8">
-          <div className="flex min-w-0 flex-col items-center gap-2 text-center sm:flex-row sm:items-start sm:gap-4 sm:text-left">
-            <AppLogo size={56} className="shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-xl font-extrabold leading-tight sm:text-2xl" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
-              <p className="text-sm font-medium opacity-90 sm:text-base" style={{ textWrap: 'balance' }}>Laboratorium Soal Ujian Madrasah Terintegrasi</p>
-              <p dir="rtl" lang="ar" className="ar mt-1 text-center text-lg opacity-80 sm:text-right" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
-            </div>
-            <Jam />
-          </div>
-        </div>
-      </header>
+      <AppHeader />
 
       {/* Bilah beku: tetap di atas saat halaman digulir */}
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
@@ -4531,7 +4558,7 @@ function AppUstadz({ user, profile }) {
         </KamusCtx.Provider>
         </AppCfgCtx.Provider>
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pb-8 pt-2 text-center text-xs text-mute">
+      <footer className="mx-auto max-w-6xl px-4 pt-2 text-center text-xs text-mute" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}>
         <p>Powered By Achmad Afifuddin / achfif-dev</p>
         <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
       </footer>
