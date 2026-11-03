@@ -20,6 +20,7 @@ pemeriksa tanpa menulis ke database: `node scripts/periksa-syamilah.mjs berkas.t
 kitab/{kitabId}                  metadata (satu dokumen)
 kitab/{kitabId}/daftar/isi       daftar isi (satu dokumen, satu bacaan)
 kitab/{kitabId}/halaman/{halId}  satu dokumen per halaman, halId = p + seq 5 digit
+kitab/{kitabId}/koreksi/{id}     arsip koreksi teks (hanya tambah, hanya server): seq, teksLama, teksBaru, oleh, at, catatan
 kitab/{kitabId}/cari/{cNNNNN}    indeks pencarian teks: potongan <= 250 ribu karakter teks normal; cari/meta = status indeks
 soal/{id}                        field opsional baru: kitabId, halId
 ```
@@ -131,3 +132,7 @@ Pengecualian indeks `halaman.teks`, `soal.teks`, `soal.pembahasan` dari v1 tetap
 - Kepala berkas Latin: `Judul:`, `Penulis:`/`Pengarang:`/`Author:`, `Penerbit:`, `Cetakan:`, `Editor:` (huruf besar/kecil bebas).
 - Bahasa dan aksara terdeteksi otomatis dari isi (saran), lalu dipilih admin di layar impor. Pemeriksaan mutu memakai aturan huruf Latin untuk kitab Latin; salah pilih (Latin dipilih untuk teks Arab, atau sebaliknya) menghalangi impor.
 - Dokumen soal TIDAK menyimpan bahasa (aturan Firestore membatasi kolom soal). Bahasa dikirim ke server saat membuat soal dan dideteksi dari teks sumber (`bahasaOtomatis`).
+
+## Koreksi teks (3 November 2026)
+Lihat `docs/PERUBAHAN-03-NOV-2026-KOREKSI-KITAB.md`. Bidang baru pada `halaman/{halId}` (semua opsional): `rev` (naik tiap perubahan; dasar deteksi bentrok), `dikoreksi {oleh, nama, at, jumlah}`, `diverifikasi {oleh, nama, at}` (dicocokkan dengan kitab asli).
+Pada `kitab/{id}`: `koreksi` (penghitung; ikut kunci simpanan pencarian), `koreksiAt`, `koreksiOleh`. Aksi server: `perpus-koreksi`, `perpus-riwayat` (editor dan admin).

@@ -128,7 +128,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
               <div className="mr-auto min-w-0">
                 <p className="font-semibold">{k.judulLatin} <span className="font-normal text-mute">· {k.id}</span></p>
                 {k.judul && k.judul !== k.judulLatin && <p {...tampilanTeks(k, 'truncate text-mute')}>{k.judul}</p>}
-                <p className="text-xs text-mute">{LABEL_BAHASA[bahasaKitab(k)]} · {k.jumlahHalaman} halaman · rev. {k.revisi} · {STATUS[k.status] || k.status} · {k.aktif ? 'aktif' : 'tidak aktif'} · {HAK[k.hakCipta] || k.hakCipta}</p>
+                <p className="text-xs text-mute">{LABEL_BAHASA[bahasaKitab(k)]} · {k.jumlahHalaman} halaman · rev. {k.revisi} · {STATUS[k.status] || k.status} · {k.aktif ? 'aktif' : 'tidak aktif'} · {HAK[k.hakCipta] || k.hakCipta}{k.koreksi > 0 ? ` · ${k.koreksi} koreksi teks oleh editor` : ''}</p>
               </div>
               {k.status === 'siap' && <Btn kind="ghost" onClick={() => aktifkan(k)}>{k.aktif ? <><EyeOff size={15} />Sembunyikan</> : <><Eye size={15} />Aktifkan</>}</Btn>}
             </li>))}</ul>}
@@ -229,6 +229,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                   <option value="belum-dicek">Belum dicek</option><option value="domain-publik">Domain publik</option><option value="izin">Berizin</option></select></label>
             </div>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isian.timpa} onChange={(e) => ubah({ timpa: e.target.checked, ...(e.target.checked ? { tambah: false } : {}) })} />Timpa bila kitab dengan ID ini sudah ada (halaman lama dihapus lebih dulu)</label>
+            {isian.timpa && (() => { const ada = (daftar || []).find((k) => k.id === isian.kitabId); return ada && ada.koreksi > 0 ? <p role="alert" className="rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn">Kitab ini sudah dikoreksi {ada.koreksi} kali oleh editor. Menimpa mengganti seluruh teks dengan isi berkas, jadi koreksi pada halaman kitab tidak ikut terbawa (riwayatnya tetap tersimpan di server). Pakai "tambah jilid" bila hanya ingin menambah halaman.</p> : null; })()}
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!isian.tambah} onChange={(e) => ubah({ tambah: e.target.checked, ...(e.target.checked ? { timpa: false } : {}) })} /><span>Tambahkan sebagai jilid berikutnya ke kitab dengan ID ini (halaman lama tidak disentuh; ID di atas harus kitab yang sudah siap).</span></label>
             {isian.tambah && (<label className="block text-sm">Nomor juz awal jilid ini (kosong = otomatis, melanjutkan juz terakhir)
               <input className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" inputMode="numeric" value={isian.juzAwal} onChange={(e) => ubah({ juzAwal: e.target.value.replace(/\D/g, '').slice(0, 2) })} /></label>)}

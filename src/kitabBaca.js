@@ -6,6 +6,7 @@ import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
+import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
@@ -16,16 +17,14 @@ const ringkas = (id, d) => ({
   halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '', ocrHalaman: d.ocrHalaman || 0,
   bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab', // kitab lama (sebelum impor non-Arab) tidak punya bidang ini: Arab
 });
-const dokHalaman = (d) => ({
-  id: idHalaman(d.seq), seq: d.seq, juz: d.juz, hal: d.hal, teks: d.teks, batasMatn: d.batasMatn ?? null,
-  ...(d.bab ? { bab: d.bab } : {}), ...(d.nomorAnomali ? { nomorAnomali: d.nomorAnomali } : {}), ...(d.potongan ? { potongan: d.potongan } : {}), ...(d.ocr === true ? { ocr: true } : {}),
-});
+const dokHalaman = halamanKlien;
 const bulat = (v, min, maks, nama) => {
   if (!Number.isInteger(v) || v < min || v > maks) tolak(422, 'PERPUS_INVALID', `${nama} harus bilangan bulat ${min}-${maks}.`);
   return v;
 };
 
-export async function aksiBaca(body) {
+// `pengguna` = { uid, role, nama } dari api/kitab.js; hanya dipakai aksi koreksi (editor/admin). Aksi baca tidak membutuhkannya.
+export async function aksiBaca(body, pengguna = null) {
   const b = body && typeof body === 'object' ? body : {};
   const { db } = await firestoreAdmin();
 
@@ -47,6 +46,8 @@ export async function aksiBaca(body) {
   }
 
   if (b.aksi === 'perpus-cari') return aksiCari(b, kid, m);
+  if (b.aksi === 'perpus-koreksi') return aksiKoreksi(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-riwayat') return aksiRiwayat(b, kid, m, pengguna);
 
   if (b.aksi === 'perpus-halaman') {
     let docs = [];

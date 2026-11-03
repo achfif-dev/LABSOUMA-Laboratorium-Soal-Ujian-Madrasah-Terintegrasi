@@ -88,6 +88,16 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
     },
     /** Pencarian teks di satu kitab (server: src/kitabCari.js). Hasil `{ siap:false, kemajuan }` berarti indeks kitab lama sedang dibangun: panggil lagi. */
     cari(kitabId, { q, mode = 'frasa', lewati = 0 }) { return panggil({ aksi: 'perpus-cari', kitabId, q, mode, lewati }); },
+    /** Simpan koreksi teks satu halaman (editor/admin). `isi` = { rev, teks | (matn, syarah), cocok?, catatan? }. Halaman hasilnya langsung masuk simpanan, jadi pembaca dan pemilih kitab melihat teks baru. */
+    async koreksi(kitabId, seq, isi) {
+      const r = await panggil({ aksi: 'perpus-koreksi', kitabId, seq, ...isi });
+      if (r.halaman) simpanan.halaman.set(kunci(kitabId, r.halaman.seq), r.halaman);
+      return r;
+    },
+    /** Riwayat koreksi satu halaman (editor/admin): { riwayat: [...], jumlah }. */
+    riwayat(kitabId, seq) { return panggil({ aksi: 'perpus-riwayat', kitabId, seq }); },
+    /** Buang satu halaman dari simpanan (mis. setelah bentrok koreksi) supaya dibaca ulang dari server. */
+    lupakan(kitabId, seq) { simpanan.halaman.delete(kunci(kitabId, seq)); },
     async cariHal(kitabId, hal) {
       const r = await panggil({ aksi: 'perpus-halaman', kitabId, hal });
       for (const p of r.halaman) simpanan.halaman.set(kunci(kitabId, p.seq), p);

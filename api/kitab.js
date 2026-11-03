@@ -2,9 +2,10 @@
 //  - tanpa `aksi`: mengambil satu halaman teks kitab dari situs perpustakaan online yang diizinkan (semua peran pemakai alat).
 //  - `aksi` berawalan "impor-": impor perpustakaan kitab dari ekspor Syamilah. Khusus admin (src/kitabImpor.js).
 //  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
+//  - `aksi` "perpus-koreksi" / "perpus-riwayat": mengoreksi teks satu halaman kitab dan melihat riwayatnya. Khusus editor dan admin (src/kitabKoreksi.js).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
 // Impor sengaja ada di sini, bukan berkas api/ baru: jumlah fungsi Vercel Hobby dibatasi 12 dan api/ sudah berisi 11.
-import { route, authenticateAuthor, authenticateAdmin, enforceRate, kitabLimitsFor, num } from '../src/platform.js';
+import { route, authenticateAuthor, authenticateAdmin, authenticateReviewer, enforceRate, kitabLimitsFor, num } from '../src/platform.js';
 import { fetchKitab, DEFAULT_HOSTS } from '../src/kitabFetch.js';
 import { aksiImpor } from '../src/kitabImpor.js';
 import { aksiBaca } from '../src/kitabBaca.js';
@@ -13,6 +14,7 @@ import { loadAiConfig } from '../src/aiConfig.js';
 import { parseList } from '../src/access.js';
 
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
+const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
 
 export default route(async (req) => {
   const aksi = req.body && typeof req.body === 'object' ? req.body.aksi : undefined;
@@ -27,6 +29,11 @@ export default route(async (req) => {
     const u = await authenticateAdmin(req);
     await enforceRate(`${u.uid}_kitabimpor`, LIMIT_IMPOR);
     return aksiImpor(req.body, u.uid);
+  }
+  if (aksi === 'perpus-koreksi' || aksi === 'perpus-riwayat') {
+    const u = await authenticateReviewer(req);
+    if (aksi === 'perpus-koreksi') await enforceRate(`${u.uid}_kitabkoreksi`, LIMIT_KOREKSI, { pesanHarian: 'Batas koreksi kitab harian tercapai. Lanjutkan besok.' });
+    return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
   }
   if (typeof aksi === 'string' && aksi.startsWith('perpus-')) {
     await authenticateAuthor(req);

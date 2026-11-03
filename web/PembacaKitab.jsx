@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Plus, Search, X } from 'lucide-react';
+import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, Search, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
 import { tampilanTeks, kitabArab } from './lib/bahasa.js';
+import PenyuntingHalaman from './PenyuntingHalaman.jsx';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
 // daftar isi yang bisa dicari, lompat ke nomor cetak, dan penyorotan rentang halaman yang dirujuk soal (tautan balik dari Bank Soal/Review).
@@ -12,13 +13,15 @@ import { tampilanTeks, kitabArab } from './lib/bahasa.js';
 // Membaca lewat server (aksi perpus-*), jadi semua peran pemakai alat, termasuk ustadz, bisa membuka; hanya kitab berstatus siap dan aktif yang terbaca.
 // `Btn`, `ErrorBox`, `callApi`, `apiErr` dioper dari App.jsx (menghindari impor melingkar). `awal` = { kitabId, dari, sampai } dari tautan soal atau #baca/...
 // `onPosisi({ kitabId, seq })` dipanggil saat halaman berganti, agar alamat (#baca/kitab/40) selalu bisa dibagikan atau dimuat ulang.
-export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {} }) {
+// `bisaKoreksi` (editor dan admin) menampilkan tombol "Koreksi teks" per halaman: memperbaiki teks yang keliru (mis. hasil OCR AI) setelah dicocokkan dengan kitab asli
+// (web/PenyuntingHalaman.jsx; server src/kitabKoreksi.js memeriksa peran sendiri, jadi prop ini hanya mengatur tampilan).
+export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false }) {
   const pem = useMemo(() => buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN), []);
   const [pref, setPref] = useState(pengaturanBaca);
   const [daftar, setDaftar] = useState(SIMPANAN.daftar);
   const [kitabId, setKitabId] = useState(awal ? awal.kitabId : '');
   const [isi, setIsi] = useState(null);
-  const [kursor, setKursor] = useState(awal ? awal.dari : 1);
+  const [kursor, setKursorRaw] = useState(awal ? awal.dari : 1);
   const [sorot, setSorot] = useState(awal ? { dari: awal.dari, sampai: awal.sampai } : null); // rentang rujukan soal
   const [halaman, setHalaman] = useState([]);
   const [halInput, setHalInput] = useState('');
@@ -36,11 +39,23 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [infoCari, setInfoCari] = useState('');
   const [cariBusy, setCariBusy] = useState(false);
   const [kataSorot, setKataSorot] = useState(null);        // { kata[], mode }: kata yang disorot di teks halaman
+  const [sunting, setSunting] = useState(null);          // urutan halaman yang sedang dikoreksi (satu per satu)
+  const kursorRef = useRef(kursor); kursorRef.current = kursor;
+  const kotorRef = useRef(false);                        // true = ada ketikan koreksi yang belum disimpan
   const urut = useRef(0);
   const urutCari = useRef(0);
   const cariRef = useRef(null);
   const areaRef = useRef(null);
   const gagal = (e) => { const x = apiErr(e); if (x) setErr(x); };
+  // Semua perpindahan halaman lewat sini: koreksi yang belum disimpan tidak hilang diam-diam (ada konfirmasi), dan penyunting ditutup saat halaman berganti.
+  const BUANG = 'Perubahan teks belum disimpan. Tinggalkan halaman ini dan buang perubahan?';
+  const setKursor = useCallback((v) => {
+    const nilai = typeof v === 'function' ? v(kursorRef.current) : v;
+    if (nilai === kursorRef.current) return;
+    if (kotorRef.current && !window.confirm(BUANG)) return;
+    kotorRef.current = false; setSunting(null); setKursorRaw(nilai);
+  }, []);
+  const bolehTinggal = () => !kotorRef.current || window.confirm(BUANG);
   const ubahPref = (p) => setPref((s) => { const n = { ...s, ...p }; simpanPengaturanBaca(n); return n; });
 
   // Tautan baru dari luar (mis. tombol "Buka di kitab" pada kartu soal) mengganti kitab dan halaman yang dibuka.
@@ -51,7 +66,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
   useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
   useEffect(() => {
-    setIsi(null); setHalaman([]); setKembar([]); setSaring('');
+    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); kotorRef.current = false;
     urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
     if (!kitabId) return;
     setErr(null);
@@ -189,7 +204,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   return (
     <div className={`fade-in ${bungkus}`}>
       <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mb-0' : ''}`} role="toolbar" aria-label="Alat pembaca kitab">
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehTinggal()) return; setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={14} />Daftar isi</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={14} />Cari teks</Btn>
         <div className="flex items-center gap-1.5">
@@ -222,7 +237,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
       {err && <div className={lebarLayar ? 'mx-2' : ''}><ErrorBox e={err} /></div>}
       {pesanVirtual && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman kitab ini dibagi otomatis saat diimpor, jadi nomor halamannya bukan nomor cetak. Rujukan soal ke kitab ini sebaiknya dicocokkan dengan edisi cetak.</p>}
-      {kitab && (kitab.sumberJenis === 'pdf-ocr' || kitab.sumberJenis === 'epub-ocr') && halaman.some((x) => x.ocr) && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman ini hasil OCR dari kitab pindai: huruf dan harakat bisa keliru. Bandingkan dengan kitab cetak sebelum dijadikan rujukan soal.</p>}
+      {kitab && (kitab.sumberJenis === 'pdf-ocr' || kitab.sumberJenis === 'epub-ocr') && halaman.some((x) => x.ocr && !x.diverifikasi) && <p role="note" className={`rounded-xl bg-warn-bg px-4 py-2 text-xs text-warn ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Halaman ini hasil OCR dari kitab pindai: huruf dan harakat bisa keliru. Bandingkan dengan kitab cetak sebelum dijadikan rujukan soal.{bisaKoreksi ? ' Bila menemukan yang salah, klik "Koreksi teks" pada halaman.' : ' Temuan yang salah bisa disampaikan ke editor atau admin untuk dikoreksi.'}</p>}
       {kitab && !pesanVirtual && (kitab.sumberJenis === 'pdf' || kitab.sumberJenis === 'pdf-ocr') && <p role="note" className={`rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>Kitab ini diimpor dari PDF: nomor halaman mengikuti urutan PDF ditambah nomor awal yang diisi admin ({labelSumberJenis(kitab.sumberJenis)}).</p>}
       {kataSorot && hasilCari && hasilCari.total > 0 && halaman.length > 0 && (
         <p role="status" className={`flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-2 text-xs text-soft-ink ${lebarLayar ? 'mx-2 mt-2' : ''}`}>
@@ -323,12 +338,22 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       <b className="text-ink">Hal. {p.hal}</b><span>juz {p.juz}</span><span>urutan {p.seq}/{total}</span>
                       {p.potongan && <span>bagian {p.potongan.ke}/{p.potongan.dari}</span>}
                       {p.nomorAnomali && <span className="text-warn">nomor cetak {p.nomorAnomali}</span>}
+                      {p.diverifikasi && <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 font-semibold text-ok"><BadgeCheck size={12} />dicocokkan dengan kitab asli</span>}
+                      {p.dikoreksi && <span className="rounded-full bg-soft px-2 py-0.5 text-soft-ink">dikoreksi</span>}
                       {disorot && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 font-semibold text-brand-fg">rujukan soal</span>}
+                      {bisaKoreksi && sunting !== p.seq && <button type="button" onClick={() => { if (sunting !== null && !bolehTinggal()) return; kotorRef.current = false; setSunting(p.seq); }} className={`${disorot ? '' : 'ml-auto '}inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft`} aria-label={`Koreksi teks halaman ${p.hal}`}><Pencil size={12} />Koreksi teks</button>}
                     </header>
+                    {bisaKoreksi && sunting === p.seq ? (
+                      <PenyuntingHalaman key={`${p.seq}:${p.rev || 0}`} p={p} kitab={kitab} kitabId={kitabId} arab={arab} px={px} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}
+                        onKotor={(v) => { kotorRef.current = v; }} onBatal={() => { kotorRef.current = false; setSunting(null); }}
+                        onSimpan={(hb, tanpaUbah) => { setHalaman((l) => l.map((x) => (x.seq === hb.seq ? hb : x))); kotorRef.current = false; setSunting(null); setInfo(tanpaUbah ? 'Tidak ada perubahan untuk disimpan.' : 'Koreksi disimpan. Pencarian dan pemilih kitab memakai teks baru.'); }}
+                        onMuatUlang={async () => { pem.lupakan(kitabId, p.seq); kotorRef.current = false; setSunting(null); try { setHalaman(await pem.halaman(kitabId, kursor, kursor + jumlah - 1, total)); setErr(null); } catch (e) { gagal(e); } }} />
+                    ) : (
                     <div {...(kitab && kitab.bahasa && kitab.bahasa !== 'lain' ? { lang: kitab.bahasa } : (arab ? { lang: 'ar' } : {}))} className={`${arab ? 'ar text-right' : 'text-left'} whitespace-pre-wrap break-words`} style={{ fontSize: `${px}px`, lineHeight: arab ? 2.15 : 1.75 }}>
                       {teks ? potongSorot(teks, reSorot).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))
                         : <span className="text-sm text-mute" dir="ltr">(halaman tanpa teks pada bagian ini)</span>}
                     </div>
+                    )}
                   </article>);
               })}
             </div>)}
