@@ -2,6 +2,8 @@
 // Dipakai oleh fungsi Vercel di api/ (generate.js, assist.js).
 
 import { BENTUK, bentukSah, bentukDari, adaPenanda, OPSI_BENARSALAH } from './bentuk.js';
+import { HALUAN_RINGKAS } from './aswaja.js';
+import { barisOtoritas } from '../web/lib/otoritas.js';
 
 export class ApiError extends Error {
   constructor(status, code, message, { retryAfter } = {}) {
@@ -175,6 +177,7 @@ export function validateInput(body) {
     hal: cleanLine(body.hal, 20),
     mapel: cleanLine(body.mapel, 60) || 'Fiqih',
     fokus: cleanLine(body.fokus, 300),
+    otoritas: barisOtoritas(body._kitab), // dari server (api/*.js lewat denganKitab), tidak pernah dari klien
   };
 }
 
@@ -194,7 +197,7 @@ ATURAN KETAT (tidak boleh dilanggar):
    - L3 (HOTS): menuntut analisis, evaluasi, atau penalaran. stimulus wajib berupa studi kasus realistis 3-5 kalimat; pengecoh berasal dari kesalahpahaman yang umum.
 7. PEMBAHASAN. Kutip bagian Arab yang relevan persis seperti di teks (beserta harakat), terjemahkan, lalu jelaskan mengapa kunci benar dan pengecoh salah. Sebut rujukan sesuai metadata kitab yang diberikan, tanpa menambah detail yang tidak diberikan. Jangan menyebut huruf opsi.
 8. INDIKATOR KISI-KISI. Satu kalimat berformat "Peserta didik dapat <kata kerja operasional> ..." yang selaras dengan level kognitif soal.
-9. KONTEKS LEMBAGA. Madrasah berhaluan Ahlussunnah wal Jamaah yang moderat (wasathiyah). Setia pada teks dan mazhab yang tertulis di dalamnya, gunakan bahasa santun, dan jangan menyalahkan, mengkafirkan, atau merendahkan kelompok lain. Jangan memasukkan pandangan di luar teks.
+9. KONTEKS LEMBAGA. ${HALUAN_RINGKAS}
 10. KELUARAN. Balas HANYA dengan memanggil alat \`buat_soal\`. Jangan menulis teks lain. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak memuat materi yang cukup untuk satu soal yang sah, panggil alat \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
 
 /**
@@ -252,7 +255,7 @@ export function buildUserPrompt(input, targetKey) {
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
-Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
 </metadata>
 ${petunjukTarget(bentuk, targetKey)}
 

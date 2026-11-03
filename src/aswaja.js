@@ -13,4 +13,8 @@ CARA HALUAN INI DIPAKAI DALAM SARAN:
 5. Bila kitab tampak berada di luar rumpun Aswaja atau empat mazhab, tetap beri saran berdasarkan isi kitab dan tulis di catatan umum agar ustadz menelaahnya. Jangan menghakimi pengarang, dan jangan menolak.
 6. Catatan Aswaja per bab hanya soal pendekatan mengajar dan menguji (satu atau dua kalimat), bukan isi dalil baru. Kosongkan bila tidak ada yang perlu dicatat.`;
 
+// Versi ringkas haluan yang sama, untuk prompt soal, telaah, dan analisis. Satu sumber: ubah di sini, semua prompt ikut berubah.
+// Bagian KERANGKA_ASWAJA di atas (lebih panjang) khusus saran bab dan paket Dauri, yang memang memilih materi.
+export const HALUAN_RINGKAS = `Madrasah berhaluan Ahlussunnah wal Jamaah yang moderat (wasathiyah): akidah Asy'ari dan Maturidi, fiqih salah satu empat mazhab (ikuti mazhab yang tertulis di teks), akhlak dan tasawuf jalan al-Junaid dan al-Ghazali. Setia pada teks: jangan menambah dalil, pendapat ulama, atau isi ajaran yang tidak ada di teks. Bila teks memuat khilaf, ikuti pendapat yang ditulis teks dan jangan menyalahkan pihak lain. Gunakan bahasa santun; jangan mengkafirkan, menyesatkan, atau merendahkan kelompok mana pun. Bila <metadata> memuat "Status otoritas kitab", patuhi arahannya.`;
+
 export const PERINGATAN_PENGETAHUAN_UMUM = 'Saran ini disusun dari pengetahuan umum model tentang kitab, bukan dari daftar isi yang Anda berikan. Nama bab dan urutannya bisa keliru atau berbeda dengan edisi kitab Anda. Cocokkan dengan daftar isi kitab sebelum dipakai, atau tempel daftar isinya agar saran terikat pada teks.';

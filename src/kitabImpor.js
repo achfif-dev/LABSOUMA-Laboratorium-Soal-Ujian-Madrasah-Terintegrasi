@@ -3,6 +3,7 @@
 // (jumlah dihitung ulang di server; baru aktif bila cocok). Klien dianggap tidak tepercaya: semua bidang divalidasi dan
 // ditulis ulang dari daftar putih, hasil parse klien tidak pernah disalin mentah.
 import { ApiError } from './soalService.js';
+import { normalOtoritas, validasiOtoritas } from '../web/lib/otoritas.js';
 import { firestoreAdmin } from './platform.js';
 import { VERSI_INDEKS, bangunPotongan } from '../web/lib/cariKitab.js';
 import { BAHASA, AKSARA, aksaraBawaan } from '../web/lib/bahasa.js';
@@ -166,7 +167,7 @@ async function bersihkanEkor(db, kid, meta, offset) {
 
 const ringkasMeta = (id, d) => ({
   id, jumlahJuz: d.jumlahJuz || 1, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
-  aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
+  aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, otoritas: normalOtoritas(d.otoritas), hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
 });
 
 /** Satu pintu untuk semua aksi impor. `uid` = admin yang memanggil. */
@@ -233,7 +234,7 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
     // Kitab baru, atau kitab yang impornya belum pernah selesai (tidak ada yang dibaca pemakai): tulis langsung.
     const terhapus = ada.exists ? await hapusHalaman(db, kid, meta0) : 0;
     const revisi = ada.exists ? (meta0.revisi || 1) + 1 : 1;
-    await ref.set({ ...kitab, ...(sidik ? { sidik } : {}), status: 'mengimpor', aktif: false, revisi, dibuatOleh: ada.exists ? (meta0.dibuatOleh || uid) : uid, dibuatAt: ada.exists ? (meta0.dibuatAt || t) : t, diubahAt: t, diubahOleh: uid });
+    await ref.set({ ...kitab, ...(ada.exists && meta0.otoritas ? { otoritas: meta0.otoritas } : {}), ...(sidik ? { sidik } : {}), status: 'mengimpor', aktif: false, revisi, dibuatOleh: ada.exists ? (meta0.dibuatOleh || uid) : uid, dibuatAt: ada.exists ? (meta0.dibuatAt || t) : t, diubahAt: t, diubahOleh: uid });
     await db.doc(dokDaftarIsi(kid, {})).set({ entri: daftar, jumlah: daftar.length, revisi });
     return { ok: true, kitabId: kid, revisi, halamanDihapus: terhapus };
   }
@@ -282,7 +283,7 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
       if (!sudahTukar) {
         await db.doc(`${koleksiCari(kid, berjalan)}/meta`).set({ versi: VERSI_INDEKS, revisi: berjalan.revisi, status: 'siap', halaman: n });
         const t = sekarang();
-        await ref.set({ ...berjalan.kitab, ...(berjalan.sidik ? { sidik: berjalan.sidik } : {}), status: 'siap', aktif: meta.aktif === true, revisi: berjalan.revisi, ruang: berjalan.ruang, dibuatOleh: meta.dibuatOleh || uid, dibuatAt: meta.dibuatAt || t, diubahAt: t, diubahOleh: uid });
+        await ref.set({ ...berjalan.kitab, ...(meta.otoritas ? { otoritas: meta.otoritas } : {}), ...(berjalan.sidik ? { sidik: berjalan.sidik } : {}), status: 'siap', aktif: meta.aktif === true, revisi: berjalan.revisi, ruang: berjalan.ruang, dibuatOleh: meta.dibuatOleh || uid, dibuatAt: meta.dibuatAt || t, diubahAt: t, diubahOleh: uid });
       }
       await berjalanRef.delete();
       let lamaDihapus = false;
@@ -296,6 +297,20 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
     await db.doc(`${koleksiCari(kid, meta)}/meta`).set({ versi: VERSI_INDEKS, revisi: meta.revisi || 1, status: 'siap', halaman: n });
     await ref.set({ ...meta, status: 'siap', aktif: true, diubahAt: sekarang(), diubahOleh: uid });
     return { ok: true, jumlah: n };
+  }
+
+  // Otoritas kitab: hanya admin (api/kitab.js memeriksa peran). Status ini yang menentukan arahan Aswaja di prompt AI, jadi setiap perubahan diarsipkan.
+  if (b.aksi === 'impor-otoritas') {
+    const o = validasiOtoritas(b.otoritas, (pesan) => tolak('OTORITAS_INVALID', pesan));
+    const t = sekarang();
+    await db.runTransaction(async (tx) => {
+      const segar = await tx.get(ref);
+      if (!segar.exists) tolak('KITAB_TIDAK_ADA', 'Kitab tidak ditemukan.', 404);
+      const lama = normalOtoritas(segar.data().otoritas);
+      tx.set(ref, { ...segar.data(), otoritas: { ...o, ditetapkanOleh: uid, ditetapkanAt: t }, diubahAt: t, diubahOleh: uid });
+      tx.set(db.doc(`kitab/${kid}/otoritasRiwayat/${t.replace(/[^0-9A-Za-z]/g, '')}_${uid}`), { dari: { status: lama.status, akidah: lama.akidah, catatan: lama.catatan }, ke: o, oleh: uid, at: t });
+    });
+    return { ok: true, otoritas: o };
   }
 
   if (b.aksi === 'impor-aktif') {

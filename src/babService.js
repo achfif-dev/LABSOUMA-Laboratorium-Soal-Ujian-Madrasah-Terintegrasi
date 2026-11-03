@@ -7,6 +7,7 @@ import { runTool } from './assistService.js';
 import { KERANGKA_ASWAJA, PERINGATAN_PENGETAHUAN_UMUM } from './aswaja.js';
 import { ada, normBab } from './kisi.js';
 import { periksaSikap } from './sikap.js';
+import { barisOtoritas } from '../web/lib/otoritas.js';
 
 export const MAX_DAFTAR_ISI = 5000;
 export const MAX_BAB = 12;
@@ -75,12 +76,13 @@ export function validateBab(body) {
     nama, tingkat, daftarIsi, jumlahSoal: j,
     pengarang: cleanLine(body.pengarang, 120), mapel: cleanLine(body.mapel, 60) || 'Fiqih', kelas: cleanLine(body.kelas, 20),
     ujian: cleanLine(body.ujian, 60), cakupan: cleanLine(body.cakupan, 300),
+    otoritas: barisOtoritas(body._kitab), // dari server, bukan dari klien
   };
 }
 
 export function buatPromptBab(i) {
   const meta = [`Jenjang: ${i.tingkat}`, i.kelas && `Kelas: ${i.kelas}`, `Mata pelajaran: ${i.mapel}`, `Kitab: ${i.nama}`, i.pengarang && `Pengarang: ${i.pengarang}`,
-    i.ujian && `Ujian: ${i.ujian}`, i.cakupan && `Cakupan materi ujian (dari admin madrasah): ${i.cakupan}`, i.jumlahSoal && `Jumlah soal yang direncanakan: ${i.jumlahSoal}`].filter(Boolean).join('\n');
+    i.ujian && `Ujian: ${i.ujian}`, i.cakupan && `Cakupan materi ujian (dari admin madrasah): ${i.cakupan}`, i.jumlahSoal && `Jumlah soal yang direncanakan: ${i.jumlahSoal}`, i.otoritas].filter(Boolean).join('\n');
   return `Sarankan bab penting untuk ujian berikut.\n\n<metadata>\n${meta}\n</metadata>\n\n` +
     (i.daftarIsi ? `<daftar_isi>\n${i.daftarIsi}\n</daftar_isi>` : 'Daftar isi tidak diberikan. Ikuti aturan nomor 3.');
 }

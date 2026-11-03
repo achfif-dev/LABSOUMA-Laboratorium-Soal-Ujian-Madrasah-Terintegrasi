@@ -3,6 +3,7 @@
 // Hanya kitab berstatus "siap" dan aktif yang terbaca. Tanpa pembatas laju karena pembatas laju sendiri menulis satu dokumen per panggilan
 // (menggerus kuota tulis Spark); gantinya, setiap panggilan dibatasi 10 halaman dan klien menyimpan hasilnya di memori.
 import { ApiError } from './soalService.js';
+import { normalOtoritas } from '../web/lib/otoritas.js';
 import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
@@ -15,6 +16,7 @@ const ringkas = (id, d) => ({
   id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang || '', fan: d.fan || '', mazhab: d.mazhab || '',
   jumlahHalaman: d.jumlahHalaman, jumlahJuz: d.jumlahJuz || 1, bentukMatn: d.bentukMatn, berharakat: d.berharakat === true,
   halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '', ocrHalaman: d.ocrHalaman || 0,
+  otoritas: (({ status, akidah, catatan }) => ({ status, akidah, catatan }))(normalOtoritas(d.otoritas)), // tanpa uid penetap
   bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab', // kitab lama (sebelum impor non-Arab) tidak punya bidang ini: Arab
 });
 const dokHalaman = halamanKlien;

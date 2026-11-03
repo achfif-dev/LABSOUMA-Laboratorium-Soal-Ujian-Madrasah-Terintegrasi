@@ -8,6 +8,7 @@
 //     dan butirnya ditandai, jadi naskah kunci tidak pernah memuat "kutipan" karangan model.
 import { ApiError, getClient, getModel, clean, cleanLine, teksProblem, resolveBahasa, resolveTingkat, resolveLevel, toApiError, periksaPenolakan, TOOL_TOLAK, MAX_TEKS } from './soalService.js';
 import { KERANGKA_ASWAJA } from './aswaja.js';
+import { barisOtoritas } from '../web/lib/otoritas.js';
 import { periksaKutipan } from './kutipan.js';
 import { periksaSikap } from './sikap.js';
 import { adaPenanda } from '../web/lib/bentuk.js';
@@ -108,6 +109,7 @@ export function validatePaket(body) {
     teks, bahasa, tingkat, spek,
     kelas: cleanLine(body.kelas, 20), nama: cleanLine(body.nama, 120), juz: cleanLine(body.juz, 20), hal: cleanLine(body.hal, 20),
     mapel: cleanLine(body.mapel, 60) || 'Fiqih', fokus: cleanLine(body.fokus, 300), cakupan: cleanLine(body.cakupan, 200),
+    otoritas: barisOtoritas(body._kitab), // dari server, bukan dari klien
   };
 }
 
@@ -130,7 +132,7 @@ export function buildPaketPrompt(input, target) {
 <metadata>
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
-Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${input.bahasa}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${input.bahasa}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
 </metadata>
 
 Daftar permintaan:
