@@ -162,3 +162,36 @@ export function potongCuplikan(c, kata, mode = 'frasa') {
   if (akhir < s.length) hasil.push({ t: s.slice(akhir), m: false });
   return hasil;
 }
+
+/* ------------------------------------------------------------------ peringkat (untuk agen telaah) */
+
+/** Kata kueri -> bentuk pencocokan substring: awalan "ال" dibuang agar "الصلاه" juga menemukan "صلاه" dan "والصلاه". */
+const akarKata = (w) => (w.startsWith('ال') && w.length > 4 ? w.slice(2) : w);
+
+/**
+ * Peringkat halaman untuk beberapa kueri sekaligus (hasil rencana pencarian AI). Skor memakai bobot kelangkaan kata (idf) atas kata yang ada di halaman,
+ * ditambah bonus bila SEMUA kata satu kueri ada di halaman yang sama dan bonus lagi bila berurutan sebagai frasa. Murni dan deterministik.
+ * @param {{s:number,h:any,j:any,t:string}[]} halaman  halaman terindeks (t = teks normal)
+ * @param {string[][]} kuerian  tiap kueri = larik kata yang SUDAH dinormalkan (siapkanKueri)
+ * @returns {{seq:number,hal:any,juz:any,skor:number}[]} paling relevan lebih dulu; halaman tanpa kecocokan tidak ikut
+ */
+export function peringkatHalaman(halaman, kuerian, { k = 6 } = {}) {
+  const kueri = (Array.isArray(kuerian) ? kuerian : []).map((q) => (Array.isArray(q) ? q : []).map(akarKata).filter((w) => w.length >= 2)).filter((q) => q.length);
+  const kata = [...new Set(kueri.flat())];
+  if (!kata.length || !Array.isArray(halaman) || !halaman.length) return [];
+  const df = new Map(kata.map((w) => [w, 0]));
+  const ada = halaman.map((p) => { const m = new Map(); for (const w of kata) { const n = hitungKemunculan(p.t, w); if (n) { m.set(w, n); df.set(w, df.get(w) + 1); } } return m; });
+  const N = halaman.length; const idf = (w) => Math.log(1 + N / Math.max(1, df.get(w)));
+  const skor = halaman.map((p, i) => {
+    const m = ada[i]; if (!m.size) return 0;
+    let sk = 0; for (const [w, n] of m) sk += idf(w) * (1 + 0.25 * Math.log(1 + n));
+    for (const q of kueri) {
+      if (!q.every((w) => m.has(w))) continue;
+      const bobot = q.reduce((a, w) => a + idf(w), 0);
+      sk += 0.5 * bobot; if (q.length > 1 && p.t.includes(q.join(' '))) sk += 0.5 * bobot;
+    }
+    return sk;
+  });
+  return halaman.map((p, i) => ({ seq: p.s, hal: p.h, juz: p.j, skor: Math.round(skor[i] * 100) / 100 }))
+    .filter((x) => x.skor > 0).sort((a, b) => b.skor - a.skor || a.seq - b.seq).slice(0, k);
+}
