@@ -26,7 +26,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings,
+  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, ChevronDown
 } from 'lucide-react';
 import * as NV from './lib/navigasi.js';
 // Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).
@@ -407,17 +407,28 @@ const Btn = ({ kind = 'ghost', className = '', children, ...p }) => {
 const Select = ({ id, value, onChange, children, className = '', ...rest }) => (
   <select id={id} className={'field ' + className} {...rest} value={value} onChange={(e) => onChange(e.target.value)}>{children}</select>
 );
-const Section = ({ title, icon: Icon, children, action }) => (
-  <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-      <h2 className="flex items-center gap-2.5 text-sm font-bold text-ink">
-        {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-soft text-soft-ink"><Icon size={15} /></span>}{title}
-      </h2>
-      {action}
-    </div>
-    {children}
-  </section>
-);
+// `lipat`: di HP (lebar < 640px) seksi dimulai tertutup dan dibuka dengan mengetuk judulnya, supaya halaman panjang tidak perlu digulir jauh.
+// Isi tetap terpasang (hanya disembunyikan) agar isian di dalamnya tidak hilang; di layar lebar seksi selalu terbuka.
+const layarHp = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width: 639px)').matches;
+const Section = ({ title, icon: Icon, children, action, lipat = false }) => {
+  const [buka, setBuka] = useState(() => !(lipat && layarHp()));
+  const judul = <>{Icon && <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-soft text-soft-ink"><Icon size={15} /></span>}{title}</>;
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${lipat && !buka ? '' : 'mb-4'}`}>
+        <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-bold text-ink">
+          {lipat ? (
+            <button type="button" aria-expanded={buka} onClick={() => setBuka((b) => !b)} className="flex min-h-[40px] w-full items-center gap-2.5 text-left sm:pointer-events-none sm:min-h-0">
+              {judul}<ChevronDown size={18} className={`ml-auto shrink-0 text-mute transition-transform sm:hidden ${buka ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </button>
+          ) : judul}
+        </h2>
+        <div className={lipat && !buka ? 'max-sm:hidden' : ''}>{action}</div>
+      </div>
+      <div className={lipat && !buka ? 'max-sm:hidden' : ''}>{children}</div>
+    </section>
+  );
+};
 const Empty = ({ icon: Icon, title, text }) => (
   <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-12 text-center">
     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-soft text-soft-ink"><Icon size={22} /></div>
@@ -1121,7 +1132,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
         <Section title="Rujukan Kitab" icon={BookOpen}
           action={<button type="button" onClick={resetRujukan} disabled={kBusy || !rujukanTerisi} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw size={13} />Reset</button>}>
           <div className="space-y-3">
-            <div className="space-y-2 rounded-xl border border-line bg-bg p-3">
+            <div className="space-y-2 rounded-xl border border-line bg-bg p-3 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
               <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="form" onPakai={pakaiPerpus}
                 sekarang={{ teks: form.teks, hal: form.hal, bab: form.bab }} batas={6000} />
               {rujukanSah(form) && (
@@ -1150,13 +1161,11 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                   {kBusy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Ambil
                 </Btn>
               </div>
-              <p className="text-xs leading-relaxed text-mute">Situs yang didukung: shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org, ketabonline.com (hasilnya belum tentu bersih). Satu halaman per permintaan. Tautan boleh ditempel tanpa https://.</p>
               <div className="flex flex-wrap gap-2">
                 <a href="https://shamela.ws/" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Buka shamela.ws ↗</a>
                 <a href="https://al-maktaba.org/" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Buka al-maktaba.org ↗</a>
                 {form.nama.trim() && <a href={cariGoogle(form.nama.trim())} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-soft-ink hover:bg-soft">Cari “{form.nama.trim().slice(0, 24)}” di Shamela ↗</a>}
               </div>
-              <p className="text-xs leading-relaxed text-mute">Cara cepat: buka kitabnya di situs, pindah ke halaman yang dibutuhkan, salin alamat di bilah browser, lalu tempel di kolom di atas.</p>
               {(pageNav(kUrl, -1) || pageNav(kUrl, 1)) && (
                 <div className="flex flex-wrap items-center gap-2">
                   <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" disabled={kBusy || !pageNav(kUrl, -1)} onClick={() => fetchKitab(pageNav(kUrl, -1), kAppend)}>Halaman sebelumnya</Btn>
@@ -1179,7 +1188,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                 <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" aria-label="Pilih foto halaman kitab dari galeri" onChange={(e) => { bacaFoto(e.target.files[0]); e.target.value = ''; }} />
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={cleanText} disabled={!form.teks.trim()}>Bersihkan teks</Btn>
               </div>
-              <p className="text-xs leading-relaxed text-mute">Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p>
+              <details className="text-xs text-mute"><summary className="font-semibold text-soft-ink">Bantuan mengambil teks kitab</summary>
+                <div className="mt-1 space-y-2 leading-relaxed"><p>Situs yang didukung: shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org, ketabonline.com (hasilnya belum tentu bersih). Satu halaman per permintaan. Tautan boleh ditempel tanpa https://.</p><p>Cara cepat: buka kitabnya di situs, pindah ke halaman yang dibutuhkan, salin alamat di bilah browser, lalu tempel di kolom di atas.</p><p>Maktabah Syamilah versi desktop tidak bisa diakses dari web. Salin teks dari aplikasinya (atau ekspor ke .txt), tempel di kolom Teks Kitab, lalu tekan Bersihkan teks untuk membuang penanda halaman dan nomor catatan kaki.</p></div></details>
             </div>
             <div><Label htmlFor="nama">Nama Kitab</Label>
               <Select id="nama" value={kManual ? KITAB_LAIN : form.nama} onChange={pilihKitab}>
@@ -1850,7 +1860,7 @@ function Export({ all, toast }) {
           </Section>
 
           {isNaskah && (
-            <Section title="Pengaturan Naskah Ujian" icon={FileText}>
+            <Section title="Pengaturan Naskah Ujian" icon={FileText} lipat>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div><Label htmlFor="nk-dauri">Dauri (putaran ujian)</Label>
                   <Select id="nk-dauri" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dauriSah(v))}>
@@ -1889,7 +1899,7 @@ function Export({ all, toast }) {
             </Section>
           )}
 
-          <Section title="Pratinjau">
+          <Section title="Pratinjau" lipat>
             {!chosen.length ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> :
               isNaskah ? (
                 <div className="space-y-3 text-sm">
@@ -2144,7 +2154,7 @@ function FokusUjian({ all, toast }) {
             <p className="mt-3 text-xs leading-relaxed text-mute">Kunci jawaban, opsi, dan pembahasan tidak pernah dimasukkan, jadi aman dibagikan kepada murid. Nomor soal mengikuti urutan soal terpilih; bila Anda juga mengekspor naskah di tab Export/Download, samakan filter dan pilihan soalnya agar nomornya cocok. Halaman yang tertulis adalah halaman sumber soal, bukan seluruh bab.</p>
           </Section>
 
-          <Section title="Pratinjau Kisi-kisi">
+          <Section title="Pratinjau Kisi-kisi" lipat>
             {!kisi ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> : (
               <div className="max-h-[420px] space-y-3 overflow-auto rounded-xl bg-bg p-4 text-sm">
                 {kisi.tanpaBab > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{kisi.tanpaBab} soal belum ditandai bab, jadi dikumpulkan di “Belum ditandai bab”. Edit soalnya dan isi kolom Bab agar masuk kelompok yang benar.</p>}
@@ -2389,7 +2399,7 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
     </li>
   );
   return (
-    <Section title="Cadangan & Riwayat" icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
+    <Section title="Cadangan & Riwayat" lipat icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
       <div className="space-y-4">
         <p className="text-xs leading-relaxed text-mute">
           Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal 30 terakhir). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
@@ -2648,11 +2658,11 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
         </ul></details>
       </div>
 
-      <Section title="Impor & Template Excel" icon={FileSpreadsheet}>
+      <Section title="Impor & Template Excel" icon={FileSpreadsheet} lipat>
         <ImporExcel Btn={Btn} unduh={simpanBerkas} konfigurasi={susun} toast={toast} onTerapkan={(c) => { setD(bubuhId(c)); setErr(null); }} />
       </Section>
 
-      <Section title={`Tingkatan & Kelas (${d.tingkat.length})`} icon={Layers} action={<Btn kind="soft" onClick={tambahT} disabled={d.tingkat.length >= 8}>Tambah tingkat</Btn>}>
+      <Section title={`Tingkatan & Kelas (${d.tingkat.length})`} lipat icon={Layers} action={<Btn kind="soft" onClick={tambahT} disabled={d.tingkat.length >= 8}>Tambah tingkat</Btn>}>
         <div className="space-y-3">
           {d.tingkat.map((t, i) => (
             <div key={t._k} className="space-y-2 rounded-xl border border-line bg-bg p-3">
@@ -2692,7 +2702,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
         </div>
       </Section>
 
-      <Section title={`Sistem Ujian (${d.sistemUjian.length})`} icon={ClipboardCheck} action={<Btn kind="soft" onClick={tambahS} disabled={d.sistemUjian.length >= 4}>Tambah sistem</Btn>}>
+      <Section title={`Sistem Ujian (${d.sistemUjian.length})`} lipat icon={ClipboardCheck} action={<Btn kind="soft" onClick={tambahS} disabled={d.sistemUjian.length >= 4}>Tambah sistem</Btn>}>
         <div className="space-y-3">
           {d.sistemUjian.map((sis) => {
             const dipakai = d.tingkat.filter((t) => rapikan(t.nama) && (t.sistemUjian || d.sistemUjian[0].id) === sis.id).map((t) => t.singkat || t.label || t.nama);
@@ -2721,7 +2731,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
         </div>
       </Section>
 
-      <Section title={`Mata Pelajaran (${d.mapel.length})`} icon={BookOpen} action={<Btn kind="soft" onClick={tambahM}>Tambah mapel</Btn>}>
+      <Section title={`Mata Pelajaran (${d.mapel.length})`} lipat icon={BookOpen} action={<Btn kind="soft" onClick={tambahM}>Tambah mapel</Btn>}>
         <div className="space-y-2">
           {d.mapel.map((m) => (
             <div key={m._k} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-bg p-3">
@@ -2735,7 +2745,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
         </div>
       </Section>
 
-      <Section title={`Katalog Kitab (${d.kitab.length})`} icon={Library} action={<Btn kind="soft" onClick={tambahK}>Tambah kitab</Btn>}>
+      <Section title={`Katalog Kitab (${d.kitab.length})`} lipat icon={Library} action={<Btn kind="soft" onClick={tambahK}>Tambah kitab</Btn>}>
         <div className="space-y-3">
           <input aria-label="Cari kitab" className="field" placeholder="Cari nama kitab (Latin atau Arab), pengarang, atau mapel…" value={cari} onChange={(e) => { setCari(e.target.value); setBatas(30); }} />
           <div className="space-y-2">
@@ -4871,7 +4881,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
       </Section>
 
       {hasil && isAdmin && (
-        <Section title="Arsipkan dari Firestore (admin)" icon={Trash2}>
+        <Section title="Arsipkan dari Firestore (admin)" icon={Trash2} lipat>
           <p className="text-sm leading-relaxed text-mute">
             Hapus dari Firestore soal berstatus <b className="text-ink">Disetujui</b> yang terakhir diubah lebih dari
             {' '}<span className="inline-block w-28 align-middle"><Select id="arsip-hari" value={hari} onChange={setHari}><option value="90">90 hari</option><option value="180">180 hari</option><option value="365">365 hari</option></Select></span>{' '}lalu.
@@ -4910,7 +4920,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
       </Section>
 
       {isAdmin && pilih && (
-        <Section title="Pulihkan dari cadangan" icon={RotateCcw}>
+        <Section title="Pulihkan dari cadangan" icon={RotateCcw} lipat>
           <p className="text-sm leading-relaxed">
             <b>{pilih.nama}</b><br />
             <span className="text-mute">Dibuat {pilih.dibuat ? waktuLokal(pilih.dibuat) : '-'}{pilih.oleh ? ' oleh ' + pilih.oleh : ''} · {pilih.soal.length} soal · {pilih.jumlahKitab} kitab</span>
