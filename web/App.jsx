@@ -4,6 +4,8 @@ import AnalisisButir from './AnalisisButir.jsx';
 import KitabImpor from './KitabImpor.jsx';
 import PemilihKitab from './PemilihKitab.jsx';
 import PembacaKitab from './PembacaKitab.jsx';
+import TanyaKitab from './TanyaKitab.jsx';
+import PeriksaRujukan from './PeriksaRujukan.jsx';
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
@@ -1107,6 +1109,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                   <a href={hashBaca(form)} target="_blank" rel="noreferrer" className="underline">Buka di kitab</a>
                   <button type="button" className="ml-auto underline" onClick={() => setForm((f) => ({ ...f, kitabId: '', halId: '', halIdAkhir: '' }))}>Lepas tautan</button>
                 </p>)}
+              {rujukanSah(form) && <PeriksaRujukan Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} soal={form} />}
               {kitabCocok && kitabCocok.tautan && (
                 <div className="space-y-2 rounded-lg bg-soft p-2.5">
                   <p className="text-xs font-semibold text-soft-ink">Kitab ini punya tautan sumber</p>
@@ -4222,6 +4225,7 @@ function App({ user, profile }) {
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} />}
+        {tab === 'baca' && <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>}
         {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
