@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseSyamilah } from '../src/syamilah.js';
-import { slugKitab, bagiBatch, tebakMazhab, isianAwal, peringatanPratinjau, isianSiap, jalankanImpor } from '../web/lib/imporKitab.js';
+import { slugKitab, bagiBatch, tebakMazhab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor } from '../web/lib/imporKitab.js';
 import { validasiKitabId, validasiKitab, validasiHalaman, idHalaman } from '../src/kitabImpor.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import handler from '../api/kitab.js';
@@ -243,4 +243,81 @@ test('firestore.rules: kitab hanya dibaca staf dan tidak pernah ditulis klien (t
   assert.match(blok, /match \/halaman\/\{hid\} \{ allow read: if isStaff\(\); allow write: if false; \}/);
   assert.match(blok, /match \/daftar\/\{x\} \{ allow read: if isStaff\(\); allow write: if false; \}/);
   assert.ok(!/allow (create|update|write)[^;]*: if (true|isAdmin)/.test(blok));
+});
+
+/* ---------- Tambah jilid ---------- */
+const jilid2 = (n = 3) => parseSyamilah(buku(n).replaceAll('نص الصفحة', 'جلد'));
+
+test('tambah jilid: halaman baru tidak terlihat sebelum selesai; sesudahnya urutan, juz, daftar isi, dan pencarian ikut bertambah', () => dengan(dasar(), async (db) => {
+  const admin = panggilSebagai('tok_admin'); const editor = panggilSebagai('tok_editor');
+  const { muatanMulai } = await import('../web/lib/imporKitab.js');
+  await jalankanImpor({ panggil: admin, hasil: HASIL, isian: ISIAN });
+  const j2 = jilid2(3);
+  const mulai = await admin(muatanMulai(j2, { ...ISIAN, tambah: true }));
+  assert.equal(mulai.tambah, true); assert.equal(mulai.offsetSeq, 5); assert.equal(mulai.juzAwal, 2);
+  await admin({ aksi: 'impor-halaman', kitabId: 'fathul-muin', halaman: j2.halaman });
+  // belum selesai: pembaca dan pencarian tidak melihat halaman baru
+  assert.equal(db.data['kitab/fathul-muin'].jumlahHalaman, 5);
+  await assert.rejects(() => editor({ aksi: 'perpus-halaman', kitabId: 'fathul-muin', dariSeq: 6 }), (e) => e.status === 422);
+  assert.equal((await editor({ aksi: 'perpus-cari', kitabId: 'fathul-muin', q: 'جلد' })).total, 0);
+  const selesai = await admin({ aksi: 'impor-selesai', kitabId: 'fathul-muin' });
+  assert.equal(selesai.jumlah, 8); assert.equal(selesai.jilidDitambah, 3);
+  const m = db.data['kitab/fathul-muin'];
+  assert.equal(m.jumlahHalaman, 8); assert.equal(m.jumlahJuz, 2); assert.equal(m.aktif, true); assert.equal(m.status, 'siap');
+  assert.equal(db.data['kitab/fathul-muin/halaman/p00006'].juz, 2); assert.equal(db.data['kitab/fathul-muin/halaman/p00006'].hal, 1);
+  assert.equal(db.data['kitab/fathul-muin/halaman/p00005'].juz, 1);
+  assert.ok(!('kitab/fathul-muin/impor/berjalan' in db.data));
+  assert.equal((await editor({ aksi: 'perpus-halaman', kitabId: 'fathul-muin', dariSeq: 6, sampaiSeq: 8 })).halaman.length, 3);
+  const cari = await editor({ aksi: 'perpus-cari', kitabId: 'fathul-muin', q: 'جلد' });
+  assert.equal(cari.total, 3);
+  assert.deepEqual(cari.hasil.map((h) => h.seq).sort((a, b) => a - b), [6, 7, 8]);
+  assert.equal((await editor({ aksi: 'perpus-cari', kitabId: 'fathul-muin', q: 'الصفحة' })).total, 5, 'jilid pertama tetap terindeks, tanpa ganda');
+}));
+
+test('tambah jilid: ditolak bila kitab tidak ada, belum siap, atau bahasa/aksara berbeda', () => dengan(dasar(), async () => {
+  const admin = panggilSebagai('tok_admin');
+  const { muatanMulai } = await import('../web/lib/imporKitab.js');
+  await assert.rejects(() => admin(muatanMulai(jilid2(), { ...ISIAN, tambah: true })), (e) => e.status === 404);
+  await jalankanImpor({ panggil: admin, hasil: HASIL, isian: ISIAN });
+  await assert.rejects(() => admin(muatanMulai(jilid2(), { ...ISIAN, tambah: true, bahasa: 'id', aksara: 'latin' })), (e) => e.status === 422 && e.code === 'TAMBAH_TIDAK_SAMA');
+}));
+
+test('tambah jilid yang ditinggalkan lalu diulang dengan jilid berbeda: sisa dibersihkan, tidak ada halaman atau hasil cari ganda', () => dengan(dasar(), async (db) => {
+  const admin = panggilSebagai('tok_admin'); const editor = panggilSebagai('tok_editor');
+  const { muatanMulai } = await import('../web/lib/imporKitab.js');
+  await jalankanImpor({ panggil: admin, hasil: HASIL, isian: ISIAN });
+  const salah = parseSyamilah(buku(4).replaceAll('نص الصفحة', 'غلط'));
+  await admin(muatanMulai(salah, { ...ISIAN, tambah: true }));
+  await admin({ aksi: 'impor-halaman', kitabId: 'fathul-muin', halaman: salah.halaman }); // terputus sebelum selesai
+  assert.equal(Object.keys(db.data).filter((p) => p.startsWith('kitab/fathul-muin/halaman/')).length, 9);
+  const benar = jilid2(2);
+  const r = await jalankanImpor({ panggil: admin, hasil: benar, isian: { ...ISIAN, tambah: true } });
+  assert.equal(r.selesai.jumlah, 7);
+  assert.equal(Object.keys(db.data).filter((p) => p.startsWith('kitab/fathul-muin/halaman/')).length, 7, 'halaman sisa percobaan lama terhapus');
+  assert.equal((await editor({ aksi: 'perpus-cari', kitabId: 'fathul-muin', q: 'غلط' })).total, 0);
+  assert.equal((await editor({ aksi: 'perpus-cari', kitabId: 'fathul-muin', q: 'جلد' })).total, 2);
+}));
+
+test('tambah jilid bisa dilanjutkan setelah terputus (berkas sama); berkas lain ditolak', () => dengan(dasar(), async (db) => {
+  const admin = panggilSebagai('tok_admin');
+  const { muatanMulai } = await import('../web/lib/imporKitab.js');
+  await jalankanImpor({ panggil: admin, hasil: HASIL, isian: ISIAN });
+  const j2 = jilid2(4);
+  await admin(muatanMulai(j2, { ...ISIAN, tambah: true }));
+  await admin({ aksi: 'impor-halaman', kitabId: 'fathul-muin', halaman: j2.halaman.slice(0, 2) });
+  await assert.rejects(() => admin(muatanMulai(jilid2(3), { ...ISIAN, tambah: true, lanjut: true })), (e) => e.code === 'KITAB_SIDIK_BEDA');
+  const log = [];
+  const r = await jalankanImpor({ panggil: async (b) => { log.push(b.aksi === 'impor-halaman' ? b.halaman.map((h) => h.seq).join() : b.aksi); return admin(b); }, hasil: j2, isian: { ...ISIAN, tambah: true, lanjut: true }, ukuranBatch: 2 });
+  assert.deepEqual(log, ['impor-mulai', '3,4', 'impor-selesai']);
+  assert.equal(r.selesai.jumlah, 9); assert.equal(db.data['kitab/fathul-muin'].jumlahHalaman, 9);
+}));
+
+test('peringatanDuplikat untuk tambah jilid: tanpa kitab, tanpa timpa bersamaan, dan bahasa harus sama', () => {
+  const sama = { id: 'fathul-muin', judulLatin: "Fathul Mu'in", status: 'siap', jumlahHalaman: 5, jumlahJuz: 1, bahasa: 'ar', aksara: 'arab', revisi: 1 };
+  const isian = { ...ISIAN, tambah: true };
+  assert.equal(peringatanDuplikat(HASIL, isian, []).some((x) => x.tingkat === 'bad'), true);
+  assert.equal(peringatanDuplikat(HASIL, { ...isian, timpa: true }, [sama]).some((x) => x.tingkat === 'bad'), true);
+  assert.equal(peringatanDuplikat(HASIL, { ...isian, bahasa: 'id', aksara: 'latin' }, [sama]).some((x) => x.tingkat === 'bad'), true);
+  const ok = peringatanDuplikat(HASIL, isian, [sama]);
+  assert.equal(ok.some((x) => x.tingkat === 'bad'), false); assert.ok(ok.some((x) => /DITAMBAHKAN/.test(x.teks)));
 });

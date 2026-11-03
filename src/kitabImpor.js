@@ -153,8 +153,19 @@ async function seqTertulis(db, path) {
 }
 
 const t0 = (sekarang) => sekarang();
+/** Sisa penambahan jilid yang ditinggalkan: halaman dan potongan indeks dengan urutan di atas `offset` (jilid yang sah tidak pernah menyentuhnya). */
+async function bersihkanEkor(db, kid, meta, offset) {
+  const hapusId = async (path, ambilSeq) => {
+    const snap = await db.collection(path).select().get();
+    const target = snap.docs.filter((d) => { const n = ambilSeq(d.id); return Number.isInteger(n) && n > offset; });
+    for (let i = 0; i < target.length; i += 400) { const b = db.batch(); target.slice(i, i + 400).forEach((d) => b.delete(d.ref)); await b.commit(); }
+  };
+  await hapusId(koleksiHalaman(kid, meta), (id) => { const m = /^p(\d{5})$/.exec(id); return m ? Number(m[1]) : NaN; });
+  await hapusId(koleksiCari(kid, meta), (id) => { const m = /^c(\d{5})$/.exec(id); return m ? Number(m[1]) : NaN; });
+}
+
 const ringkasMeta = (id, d) => ({
-  id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
+  id, jumlahJuz: d.jumlahJuz || 1, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
   aktif: d.aktif === true, revisi: d.revisi || 1, hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
 });
 
@@ -204,6 +215,7 @@ export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOSt
       if (juzAwal + (kitab.jumlahJuz || 1) - 1 > 99) tolak('KITAB_INVALID', 'Nomor juz melebihi 99.', 422);
       if (berjalan && !berjalan.tambah) await hapusHalaman(db, kid, berjalan); // sisa impor-ulang yang ditinggalkan (ruangnya bukan ruang kitab yang aktif)
       const geser = daftar.map((e) => ({ ...e, seq: e.seq + offset, juz: juzAwal + e.juz - 1 }));
+      await bersihkanEkor(db, kid, meta0, offset);
       await berjalanRef.set({ tambah: { offset, juzAwal }, ruang: akhiran(meta0), revisi: meta0.revisi || 1, kitab, jumlahHalaman: kitab.jumlahHalaman, sidik, daftar: geser, mulaiAt: t0(sekarang), oleh: uid });
       return { ok: true, kitabId: kid, revisi: meta0.revisi || 1, tambah: true, offsetSeq: offset, juzAwal };
     }

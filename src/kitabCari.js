@@ -53,8 +53,8 @@ async function muatIndeks(db, kid, m) {
   const k = kunci(kid, m);
   if (simpanan.has(k)) { const v = simpanan.get(k); simpanan.delete(k); simpanan.set(k, v); return v.halaman; } // segarkan urutan pakai terakhir
   const snap = await db.collection(koleksiCari(kid, m)).get();
-  const halaman = [];
-  for (const d of snap.docs) { if (RE_ID_POTONGAN.test(d.id)) { const x = d.data(); if (x.revisi === undefined || x.revisi === (m.revisi || 1)) halaman.push(...halamanDariPotongan(x)); } }
+  const halaman = []; // urutan di luar jumlahHalaman (sisa penambahan jilid yang belum selesai) tidak boleh ikut terindeks
+  for (const d of snap.docs) { if (RE_ID_POTONGAN.test(d.id)) { const x = d.data(); if (x.revisi === undefined || x.revisi === (m.revisi || 1)) halaman.push(...halamanDariPotongan(x).filter((p) => p.s <= m.jumlahHalaman)); } }
   const karakter = halaman.reduce((n, p) => n + p.t.length, 0);
   if (karakter <= MAKS_KARAKTER_SIMPANAN) {
     simpanan.set(k, { halaman });
