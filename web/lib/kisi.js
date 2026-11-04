@@ -5,16 +5,12 @@
 
 import { BENTUK, bentukDari } from './bentuk.js';
 
-const HARAKAT = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+import { lipat, kunciBab, samaKitab } from './kitabNama.js';
+
 const STOP = new Set(['bab', 'باب', 'kitab', 'كتاب', 'fasal', 'fashl', 'fasl', 'فصل', 'pasal', 'tentang', 'fi', 'في', 'al', 'wa', 'dan']);
 
 /** Samakan penulisan nama bab: buang harakat dan tatwil, satukan bentuk huruf Arab, huruf kecil, buang tanda baca dan apostrof. */
-export function normBab(s) {
-  return String(s || '').normalize('NFKC').replace(HARAKAT, '')
-    .replace(/[إأآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
-    .toLowerCase().replace(/[’ʼ'`‘]/g, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
-}
+export const normBab = lipat;
 
 /** Apakah `nama` (nama bab) tercantum di `korpus` (mis. daftar isi yang ditempel)? Cocok bila seluruh nama ada, satu kata bermakna ada sebagai kata utuh, atau >= 60% kata bermakna ada (nama 2 kata atau lebih). */
 export function ada(nama, korpus) {
@@ -27,7 +23,8 @@ export function ada(nama, korpus) {
   return kata.filter((t) => k.includes(t)).length / kata.length >= 0.6;
 }
 
-export const samaBab = (a, b) => { const x = normBab(a); return !!x && x === normBab(b); };
+/** Bab yang sama: awalan Bab/Kitab/Fasal/باب, keterangan dalam kurung, dan ejaan dl/dh tidak membedakan (lihat web/lib/kitabNama.js). */
+export const samaBab = (a, b) => { const x = kunciBab(a); return !!x && x === kunciBab(b); };
 
 const LV = ['L1', 'L2', 'L3'];
 const LVL_NAMA = { L1: 'L1 Ingatan', L2: 'L2 Aplikasi', L3: 'L3 HOTS' };
@@ -61,15 +58,21 @@ export const untukMurid = (t) => {
  */
 export function buatKisi(soal, opt = {}) {
   const daftar = (Array.isArray(soal) ? soal : []).map((q, i) => ({ q, no: i + 1 }));
-  const urutan = (opt.urutanBab || []).map(normBab);
-  const prio = new Map(Object.entries(opt.prioritas || {}).map(([k, v]) => [normBab(k), v]));
-  const grup = new Map();
+  const urutan = (opt.urutanBab || []).map(kunciBab);
+  const prio = new Map(Object.entries(opt.prioritas || {}).map(([k, v]) => [kunciBab(k), v]));
+  // Satu kelompok = satu bab DI SATU kitab. Bab bernama sama di kitab berbeda tidak boleh digabung: rentang halamannya milik kitab masing-masing.
+  const grup = []; const perBab = new Map();
   for (const { q, no } of daftar) {
     const bab = String(q.bab || '').trim() || BELUM;
-    const kunci = bab === BELUM ? '' : normBab(bab);
-    if (!grup.has(kunci)) grup.set(kunci, { bab, kitab: new Set(), juz: new Set(), hals: [], soal: [], perLevel: { L1: 0, L2: 0, L3: 0 } });
-    const g = grup.get(kunci);
-    if (q.nama) g.kitab.add(q.nama);
+    const kunci = bab === BELUM ? '' : kunciBab(bab);
+    const nama = String(q.nama || '').trim();
+    const calon = perBab.get(kunci) || [];
+    let g = calon.find((x) => (nama ? [...x.kitab].some((n) => samaKitab(n, nama)) : x.kitab.size === 0));
+    if (!g) {
+      g = { kunci, bab, kitab: new Set(), juz: new Set(), hals: [], soal: [], perLevel: { L1: 0, L2: 0, L3: 0 } };
+      grup.push(g); perBab.set(kunci, [...calon, g]);
+    }
+    if (nama) g.kitab.add(nama);
     if (q.juz) g.juz.add(q.juz);
     g.hals.push(q.hal);
     const level = LV.includes(q.level) ? q.level : 'L1';
@@ -77,7 +80,8 @@ export function buatKisi(soal, opt = {}) {
     g.soal.push({ no, level, bentuk: BENTUK[bentukDari(q)].label, indikator: bersihIndikator(q.indikator), hal: String(q.hal || '').trim() });
   }
   const total = daftar.length;
-  const kelompok = [...grup.entries()].map(([kunci, g], idx) => {
+  const kelompok = grup.map((g, idx) => {
+    const kunci = g.kunci;
     const juz = [...g.juz];
     const rujukan = [[...g.kitab].join(' / '), juz.length ? `juz ${juz.join(', ')}` : '', rentangHal(g.hals) ? `hal. ${rentangHal(g.hals)}` : ''].filter(Boolean).join(', ');
     const pos = urutan.indexOf(kunci);
@@ -118,19 +122,19 @@ export function fokusMurid(kisi) {
 export function analisisCakupan(saran, soal) {
   const hitung = new Map(); let tanpaBab = 0;
   for (const q of soal || []) {
-    const k = normBab(q.bab);
+    const k = kunciBab(q.bab);
     if (!k) { tanpaBab++; continue; }
     hitung.set(k, (hitung.get(k) || 0) + 1);
   }
   const dipakai = new Set();
   const baris = (saran || []).map((b) => {
-    const k = normBab(b.nama); const jumlah = hitung.get(k) || 0; dipakai.add(k);
+    const k = kunciBab(b.nama); const jumlah = hitung.get(k) || 0; dipakai.add(k);
     const alokasi = Number.isInteger(b.alokasi) && b.alokasi > 0 ? b.alokasi : 0;
     let status = jumlah === 0 ? 'kosong' : 'ada';
     if (alokasi && jumlah > 0) status = jumlah < alokasi ? 'kurang' : jumlah === alokasi ? 'cukup' : 'lebih';
     return { nama: b.nama, prioritas: b.prioritas || '', alokasi, jumlah, status };
   });
-  const diluarSaran = [...hitung.entries()].filter(([k]) => !dipakai.has(k)).map(([k, n]) => ({ bab: (soal.find((q) => normBab(q.bab) === k) || {}).bab || k, jumlah: n }));
+  const diluarSaran = [...hitung.entries()].filter(([k]) => !dipakai.has(k)).map(([k, n]) => ({ bab: (soal.find((q) => kunciBab(q.bab) === k) || {}).bab || k, jumlah: n }));
   return { baris, tanpaBab, diluarSaran, intiKosong: baris.filter((b) => b.prioritas === 'inti' && b.jumlah === 0).map((b) => b.nama) };
 }
 

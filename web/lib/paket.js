@@ -8,6 +8,7 @@
 //      satu panggilan per segmen untuk materi panjang, bukan 15-20 panggilan satu soal per satu. Kuota AI harian terbatas (bawaan 60).
 //   3. Sebaran tingkat kesukaran (L1/L2/L3) dibagi per bagian dengan pembulatan sisa terbesar, jadi jumlahnya selalu pas.
 import { PRESET_DAURI, dauriSah, URUTAN_BAGIAN } from './naskah.js';
+import { rujukanDariHalaman, MAKS_HALAMAN_RUJUKAN, RUJUKAN_KOSONG } from './rujukan.js';
 
 /* ---------------------------------------------------------------------------------- Paket sebagai satu kesatuan */
 
@@ -20,6 +21,27 @@ export function penandaPaket({ id, dawr, cakupan, urut }) {
   const c = String(cakupan || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (c) p.cakupan = c;
   return p;
+}
+
+/**
+ * Kolom bab dan tautan-balik perpustakaan untuk butir paket (agar masuk kisi-kisi dan bisa dibuka di Baca Kitab).
+ * Tautan (kitabId, halId, halIdAkhir) hanya dibuat bila SELURUH materi paket berasal dari halaman satu kitab perpustakaan (tanpa teks tempelan
+ * atau foto) dan rentangnya tidak melebihi batas pemeriksaan rujukan (MAKS_HALAMAN_RUJUKAN); selain itu tautan salah atau ditolak server, jadi dikosongkan.
+ * Mengembalikan objek yang hanya memuat kolom terisi (kompatibel dengan aturan Firestore lama yang menolak kunci kosong baru).
+ */
+export function tautanPaket({ bab = '', perpus = [], teksManual = '', foto = [] } = {}) {
+  const hasil = {};
+  const b = String(bab || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (b) hasil.bab = b;
+  if (!perpus.length || String(teksManual || '').trim() || (foto && foto.length)) return hasil;
+  const sumber = perpus.map((x) => { const id = String((x && x.id) || ''); const i = id.lastIndexOf(':'); return { kitabId: id.slice(0, i), seq: Number(id.slice(i + 1)) }; });
+  if (sumber.some((x) => !x.kitabId || !Number.isInteger(x.seq) || x.seq < 1) || new Set(sumber.map((x) => x.kitabId)).size !== 1) return hasil;
+  const seqs = sumber.map((x) => x.seq);
+  if (Math.max(...seqs) - Math.min(...seqs) + 1 > MAKS_HALAMAN_RUJUKAN) return hasil;
+  const r = rujukanDariHalaman(sumber[0].kitabId, seqs.map((seq) => ({ seq })));
+  if (r.kitabId === RUJUKAN_KOSONG.kitabId) return hasil;
+  hasil.kitabId = r.kitabId; hasil.halId = r.halId; if (r.halIdAkhir) hasil.halIdAkhir = r.halIdAkhir;
+  return hasil;
 }
 
 /** Jumlah butir satu Dauri menurut template. */

@@ -1,17 +1,16 @@
 // Pemilih kitab/bab/halaman dari perpustakaan (tanpa React): pencocokan katalog, pemotongan matn/syarah, penggabungan teks dan nomor halaman,
 // serta pemuat halaman dengan simpanan memori. Server: src/kitabBaca.js. Layar: web/PemilihKitab.jsx.
+import { cariKitabDi } from './kitabNama.js';
+
 export const MAKS_TEKS_SOAL = 6000; // batas teks per soal (Penyusunan Soal)
 export const MAKS_HAL_FORM = 20;    // panjang kolom hal di aturan Firestore
 export const MAKS_BAB_FORM = 120;
 export const MAKS_NAMA_FORM = 120;
 const JENDELA = 5;                  // halaman yang diambil sekaligus agar pindah halaman terasa cepat
 
-const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
-
-/** Nama kitab untuk form: bila katalog Konfigurasi punya kitab yang sama (abaikan huruf besar, apostrof, spasi), pakai ejaan katalog supaya cakupan materinya berlaku. */
+/** Nama kitab untuk form: bila katalog Konfigurasi punya kitab yang sama (definisi tunggal di kitabNama.js: abaikan huruf besar, apostrof, spasi, keterangan dalam kurung), pakai ejaan katalog supaya batas materinya berlaku. */
 export function namaUntukForm(judulLatin, katalog = []) {
-  const n = norm(judulLatin);
-  const k = n ? katalog.find((x) => norm(x.nama) === n) : null;
+  const k = cariKitabDi(katalog, judulLatin);
   return String((k ? k.nama : judulLatin) || '').slice(0, MAKS_NAMA_FORM);
 }
 
