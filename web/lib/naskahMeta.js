@@ -36,13 +36,17 @@ export function tahunAjaranBerjalan(tanggal = new Date()) {
   return h.bulan >= BULAN_AWAL_TAHUN_AJARAN ? h.tahun : h.tahun - 1;
 }
 
+/** Jangkauan dropdown: berapa tahun ajaran ke depan dan ke belakang dari yang sedang berjalan. */
+export const TAHUN_AJARAN_KE_DEPAN = 3;
+export const TAHUN_AJARAN_KE_BELAKANG = 2;
+
 /**
- * Opsi dropdown tahun ajaran: dua tahun ajaran sebelumnya, yang berjalan, dan satu berikutnya (terbaru di atas).
+ * Opsi dropdown tahun ajaran: dua tahun ajaran sebelumnya, yang berjalan, dan tiga berikutnya (terbaru di atas).
  * `tersimpan` (nilai yang sudah ada di naskah, mis. dari draf) selalu ikut agar tidak hilang diam-diam.
  */
 export function opsiTahunAjaran(tanggal = new Date(), tersimpan = '') {
   const kini = tahunAjaranBerjalan(tanggal);
-  const daftar = kini === null ? [] : [kini + 1, kini, kini - 1, kini - 2].map(formatTahunAjaran);
+  const daftar = kini === null ? [] : Array.from({ length: TAHUN_AJARAN_KE_DEPAN + TAHUN_AJARAN_KE_BELAKANG + 1 }, (_, i) => kini + TAHUN_AJARAN_KE_DEPAN - i).map(formatTahunAjaran);
   const lama = teks(tersimpan);
   if (lama && !daftar.includes(lama)) daftar.push(lama);
   return daftar;
