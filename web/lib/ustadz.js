@@ -67,6 +67,7 @@ export function createSoalSaya({ storage = null, normal, now = () => Date.now(),
       return r.ok ? { ok: true, id: baru.id } : r;
     },
     hapus(id) { return tulis(this.list().filter((x) => x.id !== id)); },
+    hapusBanyak(ids) { const s = new Set(ids || []); return tulis(this.list().filter((x) => !s.has(x.id))); },
     kosongkan() { return tulis([]); },
     /** Isi berkas cadangan (JSON). */
     ekspor() {
