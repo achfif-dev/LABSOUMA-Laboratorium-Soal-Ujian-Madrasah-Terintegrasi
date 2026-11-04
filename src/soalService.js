@@ -177,6 +177,8 @@ export function validateInput(body) {
     hal: cleanLine(body.hal, 20),
     mapel: cleanLine(body.mapel, 60) || 'Fiqih',
     fokus: cleanLine(body.fokus, 300),
+    cakupan: cleanLine(body.cakupan, 200), // batas materi dari Konfigurasi (kitab x kelas x ujian); klien yang mengirim, tetap hanya arahan untuk AI
+    ujian: cleanLine(body.ujian, 60),
     otoritas: barisOtoritas(body._kitab), // dari server (api/*.js lewat denganKitab), tidak pernah dari klien
   };
 }
@@ -198,7 +200,8 @@ ATURAN KETAT (tidak boleh dilanggar):
 7. PEMBAHASAN. Kutip bagian Arab yang relevan persis seperti di teks (beserta harakat), terjemahkan, lalu jelaskan mengapa kunci benar dan pengecoh salah. Sebut rujukan sesuai metadata kitab yang diberikan, tanpa menambah detail yang tidak diberikan. Jangan menyebut huruf opsi.
 8. INDIKATOR KISI-KISI. Satu kalimat berformat "Peserta didik dapat <kata kerja operasional> ..." yang selaras dengan level kognitif soal.
 9. KONTEKS LEMBAGA. ${HALUAN_RINGKAS}
-10. KELUARAN. Balas HANYA dengan memanggil alat \`buat_soal\`. Jangan menulis teks lain. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak memuat materi yang cukup untuk satu soal yang sah, panggil alat \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
+10. CAKUPAN. Bila <metadata> memuat "Cakupan ujian", soal HANYA boleh berasal dari bagian teks yang termasuk cakupan itu (cocokkan dengan judul bab di teks). Jika teks yang diberikan seluruhnya di luar cakupan, panggil \`tolak_teks\` dengan alasan bahwa teks ini di luar cakupan.
+11. KELUARAN. Balas HANYA dengan memanggil alat \`buat_soal\`. Jangan menulis teks lain. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak memuat materi yang cukup untuk satu soal yang sah, panggil alat \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
 
 /**
  * Tambahan aturan per bentuk soal. Untuk "pilgan" tidak ada tambahan (prompt sama persis dengan sebelumnya).
@@ -255,7 +258,7 @@ export function buildUserPrompt(input, targetKey) {
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
-Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.ujian ? `\nUjian: ${input.ujian}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
 </metadata>
 ${petunjukTarget(bentuk, targetKey)}
 
