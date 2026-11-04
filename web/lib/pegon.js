@@ -153,7 +153,7 @@ const FIQH_EXTRA = {
   nawawi:'النووي', rafii:'الرافعي', syafii:'الشافعي', hanafi:'الحنفي', maliki:'المالكي', hanbali:'الحنبلي', ghazali:'الغزالي',
   syaikh:'شيخ', syekh:'شيخ', sayyid:'سيد', habib:'حبيب', kiai:'', rahimahullah:'رحمه الله',
   tayammum:'تيمم', rukhsah:'رخصة', azimah:'عزيمة', jabirah:'جبيرة', jabair:'جبائر', mashu:'مسح', masah:'مسح', khuf:'خف',
-  maktubah:'مكتوبة', rawatib:'رواتب', witir:'وتر', dhuha:'ضحى', duha:'ضحى', tahajjud:'تهجد', tarawih:'تراويح', tarawih:'تراويح',
+  maktubah:'مكتوبة', rawatib:'رواتب', witir:'وتر', dhuha:'ضحى', duha:'ضحى', tahajjud:'تهجد', tarawih:'تراويح',
   ied:'عيد', idul:'عيد', kusuf:'كسوف', khusuf:'خسوف', istisqa:'استسقاء',
   qadha:'قضاء', qadla:'قضاء', mukallaf:'مكلف', baligh:'بالغ', balig:'بالغ', mumayyiz:'مميز', mumayiz:'مميز',
   shahih:'صحيح', sahih:'صحيح', batil:'باطل', batal:'باطل', sah:'صح', fasid:'فاسد', mandub:'مندوب', mubah:'مباح',
