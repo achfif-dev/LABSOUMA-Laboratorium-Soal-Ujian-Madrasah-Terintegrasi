@@ -1651,7 +1651,12 @@ function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim,
   const pl = usePilihan(list);
   const bisaHapus = pl.dipilih.filter(canEdit);
   const approvedDipilih = pl.dipilih.filter((q) => q.status === 'approved');
-  const hapusMassal = async () => { const n = await onDeleteMany(bisaHapus.map((q) => q.id)); pl.tutup(); return n; };
+  const hapusMassal = async () => {
+    const approved = bisaHapus.filter((q) => q.status === 'approved').length;
+    // Konfirmasi kedua untuk penghapusan besar atau yang menyentuh soal Approved: tombol "Ya" saja terlalu mudah ditekan tanpa sengaja di layar sentuh.
+    if ((approved || bisaHapus.length >= 10) && !window.confirm(`Hapus ${bisaHapus.length} soal dari server${approved ? ` (${approved} berstatus Approved)` : ''}? Tidak bisa dibatalkan.`)) return;
+    const n = await onDeleteMany(bisaHapus.map((q) => q.id)); pl.tutup(); return n;
+  };
   const kartu = (q) => (
           <article key={q.id} className={'rounded-2xl border bg-surface p-4 sm:p-5 ' + (pl.aktif && pl.dipilih.some((x) => x.id === q.id) ? 'border-brand ring-2 ring-brand/30' : 'border-line')}>
             <KotakPilih pl={pl} q={q} />
