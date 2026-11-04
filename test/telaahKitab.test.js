@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { parseSyamilah } from '../src/syamilah.js';
 import { isianAwal, jalankanImpor } from '../web/lib/imporKitab.js';
 import { peringkatHalaman, siapkanKueri, normalCari } from '../web/lib/cariKitab.js';
-import { bersihkanRencana, verifikasiPoin, ringkasVerifikasi, pertanyaanArab } from '../web/lib/telaahKitab.js';
+import { bersihkanRencana, verifikasiPoin, ringkasVerifikasi, pertanyaanArab, alihkanPilihanKitab, saringPilihanKitab, MAKS_KITAB_TANYA } from '../web/lib/telaahKitab.js';
 import { periksaSoalDenganTeks } from '../web/lib/periksaRujukan.js';
 import { tanyaKitab, validasiTanya } from '../src/telaahKitab.js';
 import { periksaRujukan } from '../src/periksaRujukan.js';
@@ -243,3 +243,25 @@ test('periksaRujukan: memuat otoritas kitab; halaman OCR belum dicocokkan menuru
   await tandaiHalaman(db, 2, { diverifikasi: { oleh: 'u_editor', at: 'x' } });
   assert.equal((await periksaRujukan({ soal: SOAL() })).status, 'selaras');
 }));
+
+test('alihkanPilihanKitab: centang/lepas, urutan klik terjaga, batas 4 kitab, tidak mengubah larik asal', () => {
+  const awal = ['a'];
+  assert.deepEqual(alihkanPilihanKitab(awal, 'b'), ['a', 'b']);
+  assert.deepEqual(awal, ['a'], 'larik asal tidak diubah');
+  assert.deepEqual(alihkanPilihanKitab(['a', 'b'], 'a'), ['b']);
+  assert.deepEqual(alihkanPilihanKitab([], 'x'), ['x']);
+  const penuh = ['a', 'b', 'c', 'd'];
+  assert.equal(MAKS_KITAB_TANYA, 4);
+  assert.deepEqual(alihkanPilihanKitab(penuh, 'e'), penuh, 'kitab ke-5 ditolak');
+  assert.deepEqual(alihkanPilihanKitab(penuh, 'd'), ['a', 'b', 'c'], 'kitab terpilih tetap bisa dilepas saat penuh');
+  assert.deepEqual(alihkanPilihanKitab(undefined, 'a'), ['a']);
+  // hasilnya selalu lolos validasi server
+  let t = []; for (const id of ['k1', 'k2', 'k3', 'k4', 'k5', 'k6']) t = alihkanPilihanKitab(t, id);
+  assert.deepEqual(validasiTanya({ pertanyaan: 'apa hukumnya', kitabIds: t }).kitabIds, ['k1', 'k2', 'k3', 'k4']);
+});
+
+test('saringPilihanKitab: buang kitab yang sudah tidak aktif di daftar', () => {
+  assert.deepEqual(saringPilihanKitab(['a', 'x', 'b'], [{ id: 'a' }, { id: 'b' }]), ['a', 'b']);
+  assert.deepEqual(saringPilihanKitab(['a'], []), []);
+  assert.deepEqual(saringPilihanKitab(null, null), []);
+});

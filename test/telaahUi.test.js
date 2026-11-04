@@ -22,7 +22,7 @@ const dasar = { Btn, ErrorBox, callApi: async () => ({}), apiErr: (e) => e };
 
 test('TanyaKitab dan PeriksaRujukan dirender: judul, peringatan "bukan fatwa", tombol', () => {
   const a = h(Tanya.default, dasar);
-  assert.match(a, /Tanya kitab/); assert.match(a, /bukan fatwa/); assert.match(a, /Semua kitab aktif/); assert.match(a, /<button[^>]*disabled/, 'tombol Tanya nonaktif sebelum ada pertanyaan');
+  assert.match(a, /Tanya kitab/); assert.match(a, /bukan fatwa/); assert.match(a, /Semua kitab aktif \(maksimal 4\)/); assert.match(a, /name="tk-mode"[^>]*checked/, 'bawaan: semua kitab aktif terpilih'); assert.match(a, /<button[^>]*disabled/, 'tombol Tanya nonaktif sebelum ada pertanyaan');
   const b = h(Periksa.default, { ...dasar, soal: { kitabId: 'fathul-muin', halId: 'p00002' } });
   assert.match(b, /Periksa dengan halaman rujukan/);
 });
