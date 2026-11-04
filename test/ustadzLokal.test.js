@@ -226,3 +226,12 @@ test('Root mengarahkan peran ustadz ke AppUstadz, dan hanya peran itu', () => {
   assert.match(html, /if \(profile\.role === 'ustadz'\) return <AppUstadz user=\{user\} profile=\{profile\} \/>;\n  return <App user=\{user\} profile=\{profile\} \/>;/);
   assert.match(html, /ustadz: 'Ustadz'/);
 });
+
+test('hapusBanyak: hanya id terpilih yang terhapus, sisanya utuh', () => {
+  const { st } = baru();
+  const a = st.simpan({ ...SOAL, pertanyaan: 'a' }); const b = st.simpan({ ...SOAL, pertanyaan: 'b' }); const c = st.simpan({ ...SOAL, pertanyaan: 'c' });
+  assert.ok(st.hapusBanyak([a.id, c.id, 'tidak-ada']).ok);
+  assert.deepEqual(st.list().map((x) => x.id), [b.id]);
+  assert.ok(st.hapusBanyak([]).ok);
+  assert.equal(st.list().length, 1);
+});
