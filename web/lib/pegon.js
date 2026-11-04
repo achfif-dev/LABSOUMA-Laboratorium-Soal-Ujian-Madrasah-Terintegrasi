@@ -24,7 +24,9 @@ const DEFAULT_SUFFIX_EXC = [
   'bukan','akan','makan','bahkan','ikan','segan','iklan','bulan','jalan',
   'kedudukan','kebalikan','langkah','jumlah','seolah','salah','sekolah','masalah',
   'rumah','tanah','wilayah','mudah','indah','sejarah','anugerah','pisah',
-  'hikmah','fitnah','musibah','sunnah','ibadah','telah','sebelah','setelah','belah','lelah','murah','marah','wajah','megah','gundah','resah','gelisah','tengah','sepenggalah'
+  'hikmah','fitnah','musibah','sunnah','ibadah','telah','sebelah','setelah','belah','lelah','murah','marah','wajah','megah','gundah','resah','gelisah','tengah','sepenggalah',
+  // [AUDIT 04-NOV-2026] akar, bukan suffix: master prompt menyebut sedangkan; tekan/pekan/rekan dulu terbaca akar+kan (تكن/ڤكن/ركن)
+  'sedangkan','tekan','pekan','rekan'
 ];
 
 // -nya klitik: kata yang akarnya sendiri "...nya" (tanya/punya/hanya), bukan akar+klitik -nya
@@ -178,7 +180,8 @@ const DEFAULT_KERAS_E = [
 const DEFAULT_PEPET_E = [
   'emas','empat','sebut','dengan', // eksplisit dari master prompt
   'kembali','kemarin','sekolah','pemuda','kelapa','kepala','kerja','kertas',
-  'kena','keras','kera','tempat','sementara','seperti' // tambahan umum (bukan dari master prompt)
+  'kena','keras','kera','tempat','sementara','seperti', // tambahan umum (bukan dari master prompt)
+  'pesantren','pesan','perlu' // [AUDIT 04-NOV-2026] sangat sering di naskah madrasah; tadinya selalu bersorot ⚠
 ];
 
 /* ---------- Kamus tambahan pengguna (disimpan di localStorage) ---------- */
