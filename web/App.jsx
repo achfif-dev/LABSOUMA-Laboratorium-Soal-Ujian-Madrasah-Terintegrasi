@@ -8,6 +8,7 @@ import TanyaKitab from './TanyaKitab.jsx';
 import PeriksaRujukan from './PeriksaRujukan.jsx';
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
+import { samaKitab, cariKitabDi } from './lib/kitabNama.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
@@ -70,7 +71,7 @@ const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingka
 const kitabUntuk = (cfg, tingkat, mapel, kelas = '', periode = '') =>
   cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel) && Uj.kitabCocok(k, { tingkat, kelas, periode }));
 const KITAB_LAIN = '__lain__';
-const cariKitab = (cfg, nama) => cfg.kitab.find((k) => k.nama.toLowerCase() === String(nama || '').trim().toLowerCase());
+const cariKitab = (cfg, nama) => cariKitabDi(cfg.kitab, nama); // definisi "kitab yang sama" satu untuk semua tab: web/lib/kitabNama.js
 const namaArabKitab = (cfg, nama) => (cariKitab(cfg, nama) || {}).namaArab || '';
 const labelArabTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).labelArab) || '';
 // Teks Arab di tengah kalimat Latin: font Amiri, arah RTL terisolasi.
@@ -834,7 +835,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   const periodeOpsi = Uj.periodeUntuk(cfg, form.tingkat).map((x) => ({ kode: x.kode, label: x.label }));
   if (form.periode && !periodeOpsi.some((x) => x.kode === form.periode)) periodeOpsi.push({ kode: form.periode, label: Uj.labelPeriode(cfg, form.tingkat, form.periode) + ' (tidak ada di sistem ujian tingkat ini)' });
   const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel, form.kelas, form.periode);
-  const kitabCocok = cfg.kitab.find((k) => k.nama.toLowerCase() === form.nama.trim().toLowerCase());
+  const kitabCocok = cariKitab(cfg, form.nama);
   const cakupanTerpilih = kitabCocok && form.kelas && form.periode ? Uj.cakupanKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : '';
   // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
   const [ex, setEx] = useState(() => {
@@ -906,7 +907,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     try {
       const res = await fetch('/api/generate', {
         method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
-        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus, kitabId: form.kitabId }),
+        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus, kitabId: form.kitabId, cakupan: cakupanTerpilih, ujian: form.periode ? Uj.labelPeriode(cfg, form.tingkat, form.periode) : '' }),
       });
       let data = null;
       try { data = await res.json(); } catch (e) {}
@@ -2051,12 +2052,12 @@ function FokusUjian({ all, toast }) {
   const list = applyFilter(approved, kf);
   const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
   // Saran dipakai untuk urutan dan analisis hanya bila untuk kitab yang sama dengan soal terpilih (jangan campur kitab).
-  const saranCocok = K && saran && chosen.some((q) => K.samaBab(q.nama, saran.kitab)) ? saran : null;
+  const saranCocok = K && saran && chosen.some((q) => samaKitab(q.nama, saran.kitab)) ? saran : null;
   const kisi = K && chosen.length ? K.buatKisi(chosen, {
     judul: meta.judul, madrasah: meta.madrasah,
     urutanBab: saranCocok ? saranCocok.bab.map((b) => b.nama) : [], prioritas: saranCocok ? Object.fromEntries(saranCocok.bab.map((b) => [b.nama, b.prioritas])) : {},
   }) : null;
-  const cakupanHasil = saranCocok ? K.analisisCakupan(saranCocok.bab.map((b) => ({ nama: b.nama, prioritas: b.prioritas, alokasi: b.alokasi_soal })), chosen.filter((q) => K.samaBab(q.nama, saranCocok.kitab))) : null;
+  const cakupanHasil = saranCocok ? K.analisisCakupan(saranCocok.bab.map((b) => ({ nama: b.nama, prioritas: b.prioritas, alokasi: b.alokasi_soal })), chosen.filter((q) => samaKitab(q.nama, saranCocok.kitab))) : null;
   const tanpaIndikator = chosen.filter((q) => !String(q.indikator || '').trim()).length;
   const toggle = (id) => { const cur = new Set(picked || list.map((q) => q.id)); cur.has(id) ? cur.delete(id) : cur.add(id); setPicked(cur); };
   const slug = (meta.judul || kf.mapel || 'soal').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'soal';
@@ -2160,7 +2161,7 @@ function FokusUjian({ all, toast }) {
                 {kisi.tanpaBab > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{kisi.tanpaBab} soal belum ditandai bab, jadi dikumpulkan di “Belum ditandai bab”. Edit soalnya dan isi kolom Bab agar masuk kelompok yang benar.</p>}
                 {tanpaIndikator > 0 && <p role="alert" className="rounded-lg bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">{tanpaIndikator} soal belum punya indikator, jadi barisnya kosong di kisi-kisi. Isi kolom Indikator Kisi-kisi pada soal itu.</p>}
                 {kisi.kelompok.map((g) => (
-                  <div key={g.bab}>
+                  <div key={`${g.bab}|${g.rujukan}`}>
                     <p className="font-bold">{g.bab}{g.prioritas && <span className={'ml-2 rounded-md px-2 py-px text-xs font-bold ' + (PRIO_BAB[g.prioritas] || PRIO_BAB.penting)[1]}>{(PRIO_BAB[g.prioritas] || PRIO_BAB.penting)[0]}</span>}</p>
                     <p className="text-xs text-mute">{g.jumlah} soal ({g.bobot}%){g.rujukan ? ` · ${g.rujukan}` : ''}</p>
                     <ul className="mt-1 space-y-0.5">{g.soal.map((s) => <li key={s.no} className="text-xs leading-relaxed"><b>No. {s.no}</b> · {s.level} · {s.indikator || '(indikator belum diisi)'}</li>)}</ul>
@@ -3471,7 +3472,7 @@ function pulihPaket() {
   const d = Draft.read('paketDauri'); if (!d || typeof d !== 'object') return {};
   const S = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
   const N = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : undefined);
-  const o = { tingkat: S(d.tingkat, 40), mapel: S(d.mapel, 60), kelas: S(d.kelas, 20), periode: S(d.periode, 20), nama: S(d.nama, 120), juz: S(d.juz, 20), halMulai: S(d.halMulai, 20), fokus: S(d.fokus, 300), teks: S(d.teks, 600000), lanjutan: N(d.lanjutan) };
+  const o = { tingkat: S(d.tingkat, 40), mapel: S(d.mapel, 60), kelas: S(d.kelas, 20), periode: S(d.periode, 20), nama: S(d.nama, 120), juz: S(d.juz, 20), halMulai: S(d.halMulai, 20), fokus: S(d.fokus, 300), bab: S(d.bab, 120), teks: S(d.teks, 600000), lanjutan: N(d.lanjutan) };
   if (Number.isInteger(d.dawr)) o.dawr = NK.dauriSah(d.dawr);
   if (d.komposisi && typeof d.komposisi === 'object' && ['L1', 'L2', 'L3'].every((k) => N(d.komposisi[k]) !== undefined)) o.komposisi = { L1: N(d.komposisi.L1), L2: N(d.komposisi.L2), L3: N(d.komposisi.L3) };
   if (Array.isArray(d.foto)) o.foto = d.foto.filter((f) => f && typeof f.id === 'string' && typeof f.teks === 'string').slice(0, 60)
@@ -3497,6 +3498,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const [halMulai, setHalMulai] = useState(A0.halMulai || '');
   const [periode, setPeriode] = useState(A0.periode || '');
   const [fokus, setFokus] = useState(A0.fokus || '');
+  const [bab, setBab] = useState(A0.bab || '');            // bab/materi paket (untuk kisi-kisi); sama dengan kolom Bab di Penyusunan Soal
+  const babSaran = (React.useContext(SaranCtx).saran || { bab: [] }).bab.map((b) => b.nama);
   const [teks, setTeks] = useState(A0.teks || '');
   const [perpus, setPerpus] = useState(A0.perpus || []);          // [{id, nama, teks, hal, juz}] halaman dari perpustakaan (teks bersih dari ekspor Syamilah, tidak disunting)
   const [foto, setFoto] = useState(A0.foto || []);              // [{id, nama, teks, hal, kualitas, ragu}] satu foto = satu halaman
@@ -3516,16 +3519,16 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const rekam = useMemo(() => {
     const segs = []; const idx = new Map();
     const hs = hasil.map(({ segmenTeks, ...sisa }) => { let si = idx.get(segmenTeks); if (si === undefined) { si = segs.length; segs.push(segmenTeks || ''); idx.set(segmenTeks, si); } return { ...sisa, si }; });
-    return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, perpus, komposisi, lanjutan, segs, hasil: hs };
-  }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, teks, foto, perpus, komposisi, lanjutan, hasil]);
-  useDraftSync('paketDauri', rekam, !teks.trim() && !foto.length && !perpus.length && !hasil.length && !fokus && !nama && !juz && !halMulai);
+    return { dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, bab, teks, foto, perpus, komposisi, lanjutan, segs, hasil: hs };
+  }, [dawr, tingkat, mapel, kelas, periode, nama, juz, halMulai, fokus, bab, teks, foto, perpus, komposisi, lanjutan, hasil]);
+  useDraftSync('paketDauri', rekam, !teks.trim() && !foto.length && !perpus.length && !hasil.length && !fokus && !bab && !nama && !juz && !halMulai);
 
   const tingkatOpsi = [...new Set(tingkatAktif(cfg).map((t) => t.nama).concat(tingkat))];
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, tingkat), mapel])];
   const kelasOpsi = [...new Set([...Uj.kelasUntuk(cfg, tingkat), kelas].filter(Boolean))];
   const periodeOpsi = Uj.periodeUntuk(cfg, tingkat);
   const kitabOpsi = kitabUntuk(cfg, tingkat, mapel, kelas, periode);
-  const kitabCfg = cfg.kitab.find((k) => k.nama.toLowerCase() === nama.trim().toLowerCase());
+  const kitabCfg = cariKitab(cfg, nama);
   const cakupan = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
 
   const sumber = useMemo(() => [{ teks, hal: halMulai.trim() }, ...foto.map((f) => ({ teks: f.teks, hal: f.hal })), ...perpus.map((f) => ({ teks: f.teks, hal: f.hal }))], [teks, halMulai, foto, perpus]);
@@ -3669,7 +3672,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
       for (const bg of naskah.bagian) for (const { q } of bg.butir) if (q) nomor.set(q._uid, ++no);
       for (const x of hasil) if (!nomor.has(x.uid)) nomor.set(x.uid, Math.min(200, ++no));
       const paketId = PK.idPaket();
-      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut: nomor, paketId, status: kirim ? 'pending' : 'draft' });
+      const n = await onSimpan(hasil, { tingkat, kelas, mapel, nama, juz, periode, dawr, cakupan, urut: nomor, paketId, tautan: PK.tautanPaket({ bab, perpus, teksManual: teks, foto }), status: kirim ? 'pending' : 'draft' });
       toast(kirim ? `${n} butir paket dikirim ke editor.` : `${n} butir tersimpan sebagai satu paket Draft. Cari di tab Bank Soal (filter Paket).`); setHasil([]); setKurang([]); setSunting(null);
       if (onBukaBank) onBukaBank(paketId);
     }
@@ -3687,6 +3690,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
     setPerpus((l) => [...l, ...baru].slice(0, 60));
     if (!nama.trim()) setNama(r.nama);
     if (!juz.trim()) setJuz(r.juz);
+    if (!bab.trim() && r.bab) setBab(String(r.bab).slice(0, 120));
     toast(`${baru.length} halaman ditambahkan ke materi.`);
   };
   const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAURI[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
@@ -3777,6 +3781,9 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
           <input id="pk-lanj" type="number" min="0" max="100" inputMode="numeric" className="field" value={lanjutan} onChange={(e) => setLanjutan(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} disabled={jalan} /></div>
         <p className="mt-2 text-xs leading-relaxed text-mute">Angka adalah perbandingan (bobot), bukan harus 100. Bawaan 30:50:20 hanya titik awal; sesuaikan kebijakan madrasah. Jumlah per bagian (L1/L2/L3): {sebaranTeks}.</p>
         <div className="mt-3"><Label htmlFor="pk-fokus" hint="(opsional)">Fokus soal</Label><input id="pk-fokus" className="field" value={fokus} maxLength={300} onChange={(e) => setFokus(e.target.value)} disabled={jalan} /></div>
+        <div className="mt-3"><Label htmlFor="pk-bab" hint="(untuk kisi-kisi)">Bab / Materi</Label><input id="pk-bab" list="pk-bab-list" className="field" maxLength={120} placeholder="mis. Bab Thaharah" value={bab} onChange={(e) => setBab(e.target.value)} disabled={jalan} />
+          <datalist id="pk-bab-list">{babSaran.map((b) => <option key={b} value={b} />)}</datalist>
+          <p className="mt-1 text-xs text-mute">Dicatat pada semua butir paket supaya tampil di kisi-kisi. {babSaran.length ? 'Pilihan berasal dari saran AI di tab Fokus Ujian.' : 'Tab Fokus Ujian bisa menyarankan bab yang penting.'}</p></div>
       </Section>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -4085,6 +4092,7 @@ function App({ user, profile }) {
         };
         if (meta.kelas) c.kelas = meta.kelas;
         if (meta.periode) c.periode = meta.periode;
+        if (meta.tautan) Object.assign(c, meta.tautan); // bab (kisi-kisi) dan kitabId/halId/halIdAkhir (tautan balik ke perpustakaan), hanya bila ada
         // Penanda kelompok: seluruh butir satu kali simpan menjadi satu paket (Bank Soal dan Ekspor menampilkannya sebagai satu kesatuan).
         if (meta.paketId) Object.assign(c, PK.penandaPaket({ id: meta.paketId, dawr: meta.dawr, cakupan: meta.cakupan, urut: meta.urut && meta.urut.get(x.uid) }));
         if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
