@@ -11,6 +11,23 @@ export const MAKS_TEKS_HALAMAN = 3500; // karakter per halaman yang dikirim ke A
 export const MAKS_KUERI = 4;
 export const MAKS_KATA_PER_KUERI = 4;
 
+/**
+ * Pilihan kitab di layar Tanya Kitab: mengalihkan (centang/lepas) satu kitab dari daftar terpilih.
+ * Urutan klik dipertahankan; kitab ke-(maks+1) ditolak (daftar tetap) agar tidak dikirim lebih dari batas server.
+ * Daftar kosong berarti "semua kitab aktif" (server mengambil MAKS_KITAB_TANYA kitab pertama menurut abjad).
+ */
+export function alihkanPilihanKitab(terpilih, id, maks = MAKS_KITAB_TANYA) {
+  const daftar = Array.isArray(terpilih) ? terpilih : [];
+  if (daftar.includes(id)) return daftar.filter((x) => x !== id);
+  return daftar.length >= maks ? daftar : [...daftar, id];
+}
+
+/** Buang ID yang sudah tidak ada di daftar kitab aktif (mis. dinonaktifkan admin), supaya tidak ditolak server dengan KITAB_TIDAK_ADA. */
+export function saringPilihanKitab(terpilih, daftar) {
+  const ada = new Set((Array.isArray(daftar) ? daftar : []).map((k) => k.id));
+  return (Array.isArray(terpilih) ? terpilih : []).filter((id) => ada.has(id));
+}
+
 /** Rencana AI (kueri berupa teks) -> larik larik kata normal. Kueri kosong dibuang; duplikat dibuang. */
 export function bersihkanRencana(kueri) {
   const lihat = new Set(); const hasil = [];
