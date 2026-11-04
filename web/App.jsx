@@ -27,7 +27,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, ChevronDown
+  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, ChevronDown, CheckSquare, Square
 } from 'lucide-react';
 import * as NV from './lib/navigasi.js';
 // Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).
@@ -1591,7 +1591,45 @@ function RiwayatSoal({ id, form, setForm, toast }) {
   );
 }
 
-function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab }) {
+/* ---------- Pilih massal (dipakai Bank Soal dan Soal Saya) ---------- */
+// "terlihat" = soal yang sedang tampil sesuai filter. Pilihan di luar daftar yang tampil TIDAK ikut diproses,
+// supaya mengganti filter tidak membuat soal tersembunyi ikut terhapus.
+function usePilihan(terlihat) {
+  const [aktif, setAktif] = useState(false);
+  const [ids, setIds] = useState(() => new Set());
+  const [konfirm, setKonfirm] = useState(false);
+  const dipilih = useMemo(() => terlihat.filter((q) => ids.has(q.id)), [terlihat, ids]);
+  const semua = terlihat.length > 0 && dipilih.length === terlihat.length;
+  const toggle = (id) => { setKonfirm(false); setIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const pilihSemua = () => { setKonfirm(false); setIds(semua ? new Set() : new Set(terlihat.map((q) => q.id))); };
+  const tutup = () => { setAktif(false); setIds(new Set()); setKonfirm(false); };
+  return { aktif, setAktif, dipilih, semua, toggle, pilihSemua, tutup, konfirm, setKonfirm };
+}
+function KotakPilih({ pl, q }) {
+  if (!pl.aktif) return null;
+  const on = pl.dipilih.some((x) => x.id === q.id);
+  return (
+    <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg bg-soft px-3 py-2 text-sm font-semibold text-soft-ink">
+      <input type="checkbox" className="h-5 w-5" checked={on} onChange={() => pl.toggle(q.id)} aria-label="Pilih soal ini" />
+      {on ? 'Dipilih' : 'Pilih soal ini'}
+    </label>
+  );
+}
+function BilahPilih({ pl, total, children }) {
+  if (!pl.aktif) return <div className="flex"><Btn kind="ghost" onClick={() => pl.setAktif(true)} disabled={!total}><CheckSquare size={15} />Pilih</Btn></div>;
+  return (
+    <div className="sticky top-2 z-10 space-y-2 rounded-xl border border-brand/40 bg-surface p-3 shadow-md" role="region" aria-label="Aksi soal terpilih">
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn kind="ghost" onClick={pl.pilihSemua}>{pl.semua ? <Square size={15} /> : <CheckSquare size={15} />}{pl.semua ? 'Batal pilih semua' : `Pilih semua (${total})`}</Btn>
+        <span className="mr-auto text-sm font-semibold">{pl.dipilih.length} dipilih</span>
+        <Btn kind="ghost" onClick={pl.tutup}><X size={15} />Selesai</Btn>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
+function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim, onKirimTab }) {
   const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved', paket: '', kitab: '', bab: '' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
@@ -1610,8 +1648,13 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab })
     else if (f.bab && !opsiBab.some((o) => o.nilai === f.bab)) setF({ ...f, bab: '' });
   }, [f, opsiKitab, opsiBab, all.length]);
   const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
+  const pl = usePilihan(list);
+  const bisaHapus = pl.dipilih.filter(canEdit);
+  const approvedDipilih = pl.dipilih.filter((q) => q.status === 'approved');
+  const hapusMassal = async () => { const n = await onDeleteMany(bisaHapus.map((q) => q.id)); pl.tutup(); return n; };
   const kartu = (q) => (
-          <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+          <article key={q.id} className={'rounded-2xl border bg-surface p-4 sm:p-5 ' + (pl.aktif && pl.dipilih.some((x) => x.id === q.id) ? 'border-brand ring-2 ring-brand/30' : 'border-line')}>
+            <KotakPilih pl={pl} q={q} />
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
               <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
@@ -1659,6 +1702,16 @@ function Bank({ all, onEdit, onDelete, canEdit, uid = '', onKirim, onKirimTab })
             </Select></div>
         </div>
       )}
+      <BilahPilih pl={pl} total={list.length}>
+        <Btn kind="ghost" disabled={pl.dipilih.length !== 1 || !canEdit(pl.dipilih[0])} onClick={() => { const q = pl.dipilih[0]; pl.tutup(); onEdit(q); }}><Pencil size={15} />Edit</Btn>
+        {onKirimTab && <Btn kind="soft" disabled={!approvedDipilih.length} onClick={() => { const ids = approvedDipilih.map((q) => q.id); pl.tutup(); onKirimTab('export', ids); }}><Download size={15} />Ke Export ({approvedDipilih.length})</Btn>}
+        {onKirimTab && <Btn kind="soft" disabled={!approvedDipilih.length} onClick={() => { const ids = approvedDipilih.map((q) => q.id); pl.tutup(); onKirimTab('fokus', ids); }}><ListChecks size={15} />Ke Fokus Ujian ({approvedDipilih.length})</Btn>}
+        {pl.konfirm
+          ? <><Btn kind="danger" onClick={hapusMassal}><Trash2 size={15} />Ya, hapus {bisaHapus.length} soal</Btn><Btn kind="ghost" onClick={() => pl.setKonfirm(false)}>Batal</Btn></>
+          : <Btn kind="ghost" disabled={!bisaHapus.length} onClick={() => pl.setKonfirm(true)}><Trash2 size={15} />Hapus ({bisaHapus.length})</Btn>}
+        {pl.konfirm && pl.dipilih.length > bisaHapus.length && <p className="w-full text-xs text-warn">{pl.dipilih.length - bisaHapus.length} soal terpilih tidak bisa Anda hapus (bukan milik Anda atau sudah dikirim/disetujui) dan akan dilewati.</p>}
+        {pl.konfirm && <p className="w-full text-xs text-mute">Penghapusan dari server tidak bisa dibatalkan.</p>}
+      </BilahPilih>
       <input type="search" aria-label="Cari di bank soal" className="field w-full" placeholder="Cari kata di pertanyaan, pilihan, pembahasan, teks kitab (Latin atau Arab)…" value={kata} onChange={(e) => setKata(e.target.value)} />
       {onKirimTab && list.some((q) => q.status === 'approved') && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-soft px-4 py-3 text-sm text-soft-ink">
@@ -3247,6 +3300,7 @@ function PegonTab({ toast }) {
   const [foto, setFoto] = useState(null);         // File
   const [hasil, setHasil] = useState(null);       // { id, html, details, tag, latin }
   const [warns, setWarns] = useState([]);
+  const [infoAI, setInfoAI] = useState(null); // { perubahan, keyakinan, dikembalikan, bagian } dari Perkuat dengan AI
   const [rincian, setRincian] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState(null);
@@ -3257,7 +3311,7 @@ function PegonTab({ toast }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const teksHasil = () => (box.current ? box.current.innerText : '');
-  const tampil = (html, details, tag, asal) => { setHasil({ id: Date.now(), html, details, tag, latin: asal }); setWarns([]); setRincian(false); };
+  const tampil = (html, details, tag, asal) => { setHasil({ id: Date.now(), html, details, tag, latin: asal }); setWarns([]); setInfoAI(null); setRincian(false); };
 
   const konversi = async () => {
     setErr(null);
@@ -3280,9 +3334,14 @@ function PegonTab({ toast }) {
     if (!hasil || !hasil.latin.trim()) return toast('Konversi teks dulu sebelum diperkuat dengan AI.');
     setErr(null); setBusy('Meminta AI memeriksa & memperkuat hasil…');
     try {
-      const d = await callApi('/api/assist', { aksi: 'pegon', teks: hasil.latin, hasilMesin: teksHasil() });
+      // Konteks untuk AI: kata yang disorot mesin (beserta catatannya) dan kamus pengguna/bersama yang berlaku pada teks ini.
+      const rincianAI = (hasil.details || []).filter((x) => x.flagged).slice(0, 60).map((x) => ({ latin: x.latin, pegon: x.pegon, catatan: x.note || '' }));
+      const adaDi = new Set(hasil.latin.toLowerCase().match(/[a-z\u00e0-\u024f\u2019'-]+/g) || []);
+      const kamusAI = Object.entries({ ...P.kamus.bersama().arab, ...P.kamus.kustom().arab }).filter(([k]) => adaDi.has(k)).slice(0, 80).map(([latinKata, arab]) => ({ latin: latinKata, arab }));
+      const d = await callApi('/api/assist', { aksi: 'pegon', teks: hasil.latin, hasilMesin: teksHasil(), rincian: rincianAI, kamus: kamusAI });
       if (box.current) box.current.innerText = P.ubahEjaan(d.hasil.pegon, ejaan);
       setHasil((h) => ({ ...h, tag: 'diperkuat AI', details: [] })); setWarns(d.hasil.peringatan || []); setRincian(false);
+      setInfoAI({ perubahan: d.hasil.perubahan || [], keyakinan: d.hasil.keyakinan || '', dikembalikan: d.hasil.dikembalikan || 0, bagian: d.hasil.bagian || null });
     } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); }
   };
   const pilihFile = async (file) => {
@@ -3294,7 +3353,7 @@ function PegonTab({ toast }) {
       setFileInfo({ nama: file.name, arab: r.arab });
     } catch (e) { setLatin(''); setFileInfo(null); setErr(e && e.code ? e : { code: 'FILE', message: 'Gagal membaca file: ' + ((e && e.message) || e) }); }
   };
-  const bersihkan = () => { setLatin(''); setFileInfo(null); setFoto(null); setHasil(null); setWarns([]); setErr(null); };
+  const bersihkan = () => { setLatin(''); setFileInfo(null); setFoto(null); setHasil(null); setWarns([]); setInfoAI(null); setErr(null); };
 
   const bicara = () => {
     if (!SR) return;
@@ -3387,6 +3446,14 @@ function PegonTab({ toast }) {
               <div className="mt-4 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
                 <p className="font-bold">Perlu diperiksa manual{flagged ? ` (${flagged} kata bersorot)` : ''}</p>
                 {warns.map((w, i) => <p key={i} className="mt-1"><b>{w.kata}</b> — {w.catatan}</p>)}
+              </div>
+            )}
+            {infoAI && (
+              <div className="mt-4 rounded-xl border border-line px-4 py-3 text-sm">
+                <p className="font-bold">AI mengubah {infoAI.perubahan.length} kata{infoAI.keyakinan ? ` · keyakinan ${infoAI.keyakinan}` : ''}</p>
+                {infoAI.dikembalikan > 0 && <p className="mt-1 text-xs text-mute">{infoAI.dikembalikan} perubahan tanpa alasan dibatalkan otomatis (kembali ke hasil mesin).</p>}
+                {infoAI.bagian && infoAI.bagian.ditolak > 0 && <p className="mt-1 text-xs text-warn">{infoAI.bagian.ditolak} dari {infoAI.bagian.total} bagian gagal pemeriksaan otomatis; bagian itu tetap hasil mesin.</p>}
+                {infoAI.perubahan.map((c, i) => <p key={i} className="mt-1"><span className="ar-sm" dir="rtl">{c.dari}</span> → <span className="ar-sm" dir="rtl">{c.ke}</span> <span className="text-xs text-mute">— {c.alasan}</span></p>)}
               </div>
             )}
             {hasil.tag.includes('foto') && hasil.latin && <p className="mt-3 text-xs text-mute">Teks Latin terbaca: {hasil.latin}</p>}
@@ -4155,6 +4222,17 @@ function App({ user, profile }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const del = async (id) => { try { await col.doc(id).delete(); setExtra((e) => e.filter((x) => x.id !== id)); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
+  const delMany = async (ids) => {
+    const gagal = [];
+    for (let i = 0; i < ids.length; i += 25) {
+      const hasil = await Promise.allSettled(ids.slice(i, i + 25).map((id) => col.doc(id).delete()));
+      hasil.forEach((r, j) => { if (r.status === 'rejected') gagal.push(ids[i + j]); });
+    }
+    const ok = ids.filter((id) => !gagal.includes(id));
+    setExtra((e) => e.filter((x) => !ok.includes(x.id)));
+    toast(gagal.length ? `${ok.length} soal dihapus, ${gagal.length} gagal (ditolak server atau jaringan). Coba lagi untuk sisanya.` : `${ok.length} soal dihapus.`);
+    return ok.length;
+  };
   const canEdit = (q) => isAdmin || (q.authorUid === user.uid && (q.status === 'draft' || q.status === 'revision'));
 
   // Dari saran bab ke form soal. Form kosong: kitab, jenjang, dan bab diisi. Form berisi: HANYA kolom Bab (isian yang sedang diketik tidak diubah).
@@ -4277,7 +4355,7 @@ function App({ user, profile }) {
           </div>
         )}
         {loaded && tab === 'review' && <Review list={pending} all={qs} me={me} onApprove={approve} onRevise={revise} />}
-        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} onKirimTab={kirimKeTab} />}
+        {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} onDeleteMany={delMany} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} onKirimTab={kirimKeTab} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
@@ -4466,6 +4544,7 @@ function AppUstadz({ user, profile }) {
     setForm(normalForm(it.isi)); setEditingId(id); setTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const hapusBanyak = (ids) => { const r = store.hapusBanyak(ids); segarkan(); toast(r.ok ? `${ids.length} soal dihapus dari perangkat ini.` : (PESAN_SIMPAN[r.reason] || 'Gagal menghapus.')); if (r.ok) picuCadangan(); };
   const hapus = (id) => { const r = store.hapus(id); segarkan(); toast(r.ok ? 'Soal dihapus dari perangkat ini.' : (PESAN_SIMPAN[r.reason] || 'Gagal menghapus.')); if (r.ok) picuCadangan(); };
 
   // Dari saran bab ke form soal (sama dengan App): form kosong diisi kitab, jenjang, bab; form berisi hanya kolom Bab.
@@ -4565,7 +4644,7 @@ function AppUstadz({ user, profile }) {
           <div className="space-y-4">
             <CadanganDriveUstadz dm={dm} busy={drvBusy} err={drvErr} siap={drvSiap} jumlah={items.length} sidik={CD.sidikDaftar(items)} daftar={drvDaftar}
               onAktifkan={() => cadangkan({ aktifkan: true })} onSekarang={() => cadangkan()} onMatikan={matikanCadangan} onDaftar={muatDaftarDrive} onPulih={pulihDariDrive} onTutupDaftar={() => setDrvDaftar(null)} />
-            <SoalSaya store={store} semuaQ={semuaQ} onEdit={edit} onDelete={hapus} onChanged={() => { segarkan(); picuCadangan(); }} toast={toast} />
+            <SoalSaya store={store} semuaQ={semuaQ} onEdit={edit} onDelete={hapus} onDeleteMany={hapusBanyak} onChanged={() => { segarkan(); picuCadangan(); }} toast={toast} />
           </div>
         )}
         {tab === 'export' && <Export all={semuaQ} toast={toast} />}
@@ -4586,11 +4665,12 @@ function AppUstadz({ user, profile }) {
 }
 
 /* ---------- Soal Saya (peran Ustadz): daftar soal di perangkat ini + cadangan berkas ---------- */
-function SoalSaya({ store, semuaQ, onEdit, onDelete, onChanged, toast }) {
+function SoalSaya({ store, semuaQ, onEdit, onDelete, onDeleteMany, onChanged, toast }) {
   const [f, setF] = useState({ mapel: '', tingkat: '', kelas: '', periode: '', bentuk: '' });
   const [konfirm, setKonfirm] = useState(null); // id soal, atau '*' untuk semua
   const berkas = useRef(null);
   const list = applyFilter(semuaQ, f);
+  const pl = usePilihan(list);
   const unduhCadangan = () => {
     if (!semuaQ.length) { toast('Belum ada soal untuk dicadangkan.'); return; }
     simpanBerkas(`soal-saya-${new Date().toISOString().slice(0, 10)}.json`, new Blob([store.ekspor()], { type: 'application/json' }));
@@ -4620,9 +4700,17 @@ function SoalSaya({ store, semuaQ, onEdit, onDelete, onChanged, toast }) {
           : <Btn kind="ghost" onClick={() => setKonfirm('*')} disabled={!semuaQ.length}><Trash2 size={15} />Hapus semua</Btn>}
       </div>
       <Filters f={f} setF={setF} count={list.length} qs={semuaQ} />
+      <BilahPilih pl={pl} total={list.length}>
+        <Btn kind="ghost" disabled={pl.dipilih.length !== 1} onClick={() => { const q = pl.dipilih[0]; pl.tutup(); onEdit(q.id); }}><Pencil size={15} />Edit</Btn>
+        {pl.konfirm
+          ? <><Btn kind="danger" onClick={() => { onDeleteMany(pl.dipilih.map((q) => q.id)); pl.tutup(); }}><Trash2 size={15} />Ya, hapus {pl.dipilih.length} soal</Btn><Btn kind="ghost" onClick={() => pl.setKonfirm(false)}>Batal</Btn></>
+          : <Btn kind="ghost" disabled={!pl.dipilih.length} onClick={() => pl.setKonfirm(true)}><Trash2 size={15} />Hapus ({pl.dipilih.length})</Btn>}
+        {pl.konfirm && <p className="w-full text-xs text-mute">Soal hanya ada di perangkat ini. Unduh cadangan dulu bila ragu.</p>}
+      </BilahPilih>
       {!list.length ? <Empty icon={Library} title={semuaQ.length ? 'Tidak ada soal yang cocok' : 'Belum ada soal'} text={semuaQ.length ? 'Ubah filter di atas.' : 'Susun soal di tab Penyusunan Soal, lalu tekan Simpan ke Soal Saya.'} /> :
         list.map((q) => (
-          <article key={q.id} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+          <article key={q.id} className={'rounded-2xl border bg-surface p-4 sm:p-5 ' + (pl.aktif && pl.dipilih.some((x) => x.id === q.id) ? 'border-brand ring-2 ring-brand/30' : 'border-line')}>
+            <KotakPilih pl={pl} q={q} />
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2"><Meta q={q} /></div>
               <span className="text-xs text-mute">{refText(q)}<RefArab q={q} /></span>
