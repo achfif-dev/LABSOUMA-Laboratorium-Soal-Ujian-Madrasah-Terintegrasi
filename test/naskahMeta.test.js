@@ -23,8 +23,9 @@ test('tahun ajaran hijriah: berganti pada Syawal, bukan Muharram', () => {
 
 test('opsiTahunAjaran: terbaru di atas, nilai tersimpan tidak hilang, tanpa duplikat', () => {
   const t = new Date('2026-10-26T05:00:00Z');
-  assert.deepEqual(opsiTahunAjaran(t), ['1448 – 1449', '1447 – 1448', '1446 – 1447', '1445 – 1446']);
-  assert.deepEqual(opsiTahunAjaran(t, '1447 – 1448'), ['1448 – 1449', '1447 – 1448', '1446 – 1447', '1445 – 1446']);
+  const semua = ['1450 – 1451', '1449 – 1450', '1448 – 1449', '1447 – 1448', '1446 – 1447', '1445 – 1446'];
+  assert.deepEqual(opsiTahunAjaran(t), semua); // 3 tahun ajaran ke depan, bukan hanya 1448 – 1449
+  assert.deepEqual(opsiTahunAjaran(t, '1447 – 1448'), semua);
   assert.equal(opsiTahunAjaran(t, '1440 – 1441').at(-1), '1440 – 1441');
 });
 
