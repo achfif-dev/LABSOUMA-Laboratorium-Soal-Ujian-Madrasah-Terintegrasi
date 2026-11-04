@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, BookOpen, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { hashBaca, idHalaman } from './lib/rujukan.js';
-import { MAKS_PERTANYAAN } from './lib/telaahKitab.js';
+import { buatPemuat } from './lib/perpus.js';
+import { SIMPANAN } from './PemilihKitab.jsx';
+import { MAKS_PERTANYAAN, MAKS_KITAB_TANYA, alihkanPilihanKitab, saringPilihanKitab } from './lib/telaahKitab.js';
 
 export const LABEL_VERIFIKASI = { cocok: 'Cocok dengan halaman', mirip: 'Mirip, cek manual', tidak_cocok: 'Tidak ditemukan di halaman', tanpa_kutipan: 'Tanpa kutipan', halaman_tidak_dikenal: 'Halaman tidak dikenal' };
 export const BANNER_STATUS = {
@@ -16,16 +18,17 @@ const kelasPoin = { cocok: 'bg-ok-bg text-ok', mirip: 'bg-warn-bg text-warn' };
 
 export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
   const [daftar, setDaftar] = useState([]);
-  const [kitabId, setKitabId] = useState('');          // '' = semua kitab aktif (server membatasi 4 kitab pertama)
+  const [terpilih, setTerpilih] = useState([]);        // [] = semua kitab aktif (server membatasi 4 kitab pertama menurut abjad); selain itu 1-4 kitab pilihan
   const [pertanyaan, setPertanyaan] = useState('');
   const [busy, setBusy] = useState(false);
   const [hasil, setHasil] = useState(null);
   const [err, setErr] = useState(null);
-  useEffect(() => { let batal = false; callApi('/api/kitab', { aksi: 'perpus-daftar' }).then((d) => { if (!batal) setDaftar(d.kitab || []); }).catch(() => { /* daftar gagal dimuat: "semua kitab" tetap bisa dipakai */ }); return () => { batal = true; }; }, []);
+  // Daftar kitab memakai simpanan memori yang sama dengan Pemilih Kitab: tab dibuka-tutup tidak membaca ulang seluruh koleksi `kitab` di Firestore.
+  useEffect(() => { let batal = false; buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN).daftar().then((k) => { if (!batal) { const l = Array.isArray(k) ? k : []; setDaftar(l); setTerpilih((t) => saringPilihanKitab(t, l)); } }).catch(() => { /* daftar gagal dimuat: "semua kitab" tetap bisa dipakai */ }); return () => { batal = true; }; }, []);
   const tanya = async () => {
     setBusy(true); setErr(null); setHasil(null);
     try {
-      const d = await callApi('/api/assist', { aksi: 'tanyakitab', pertanyaan, ...(kitabId ? { kitabIds: [kitabId] } : {}) });
+      const d = await callApi('/api/assist', { aksi: 'tanyakitab', pertanyaan, ...(terpilih.length ? { kitabIds: terpilih } : {}) });
       setHasil(d.hasil);
     } catch (e) { const x = apiErr(e); if (x) setErr(x); } finally { setBusy(false); }
   };
@@ -35,11 +38,32 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
     <section className="space-y-3 rounded-2xl border border-line bg-surface p-4" aria-label="Tanya kitab">
       <h2 className="flex items-center gap-2 text-sm font-bold text-ink"><Sparkles size={15} />Tanya kitab (AI, bersumber)</h2>
       <p className="text-xs text-mute">AI hanya menjawab dari halaman kitab di perpustakaan dan wajib menyertakan kutipan. Kutipan dicocokkan oleh mesin; yang tidak cocok ditandai. Ini telaah teks, bukan fatwa.</p>
-      <label className="block text-sm">Kitab yang dicari
-        <select className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" value={kitabId} onChange={(e) => setKitabId(e.target.value)}>
-          <option value="">Semua kitab aktif (maksimal 4)</option>
-          {daftar.map((k) => <option key={k.id} value={k.id}>{k.judulLatin}</option>)}
-        </select></label>
+      <fieldset className="space-y-2 text-sm">
+        <legend className="font-medium">Kitab yang dicari</legend>
+        <label className="flex items-start gap-2 rounded-lg border border-line px-3 py-2">
+          <input type="radio" name="tk-mode" className="mt-1 accent-[var(--brand)]" checked={terpilih.length === 0} onChange={() => setTerpilih([])} />
+          <span>Semua kitab aktif (maksimal {MAKS_KITAB_TANYA})
+            {daftar.length > MAKS_KITAB_TANYA && terpilih.length === 0 && <span className="block text-xs text-warn">Ada {daftar.length} kitab aktif, tetapi hanya {MAKS_KITAB_TANYA} kitab pertama menurut abjad yang dicari. Pilih kitabnya sendiri di bawah.</span>}
+          </span>
+        </label>
+        {daftar.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-mute">Atau pilih sendiri kitabnya ({terpilih.length}/{MAKS_KITAB_TANYA} dipilih):</p>
+            <ul className="max-h-56 space-y-1 overflow-auto rounded-lg border border-line p-2" aria-label="Pilih kitab yang dicari">
+              {daftar.map((k) => {
+                const centang = terpilih.includes(k.id); const penuh = !centang && terpilih.length >= MAKS_KITAB_TANYA;
+                return (
+                  <li key={k.id}>
+                    <label className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${penuh ? 'opacity-50' : ''}`}>
+                      <input type="checkbox" className="accent-[var(--brand)]" checked={centang} disabled={penuh} onChange={() => setTerpilih((t) => alihkanPilihanKitab(t, k.id))} />
+                      <span className="min-w-0 flex-1">{k.judulLatin}</span>
+                    </label>
+                  </li>);
+              })}
+            </ul>
+            {terpilih.length >= MAKS_KITAB_TANYA && <p className="text-xs text-mute">Batas {MAKS_KITAB_TANYA} kitab tercapai. Hapus centang satu kitab untuk memilih yang lain.</p>}
+          </div>)}
+      </fieldset>
       <label className="block text-sm">Pertanyaan
         <textarea className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2" rows={3} maxLength={MAKS_PERTANYAAN} value={pertanyaan} onChange={(e) => setPertanyaan(e.target.value)} placeholder="Contoh: Apa saja yang membatalkan wudhu?" /></label>
       <Btn onClick={tanya} disabled={busy || !ok}>{busy ? 'Mencari dan membaca…' : 'Tanya'}</Btn>
