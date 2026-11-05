@@ -4174,12 +4174,31 @@ function App({ user, profile }) {
       delete c.rubrik;
       return { ...c, status: meta.status === 'pending' ? 'pending' : 'draft', catatan: '', authorUid: user.uid, authorName: potong(displayName, 120), createdAt: ts(), updatedAt: ts() };
     };
-    const gagal = (e, tersimpan) => {
+    // Diagnosis otomatis saat satu dokumen ditolak: tulis dokumen uji (tanpa kolom opsional, lalu tambah satu kelompok kolom
+    // per percobaan) dan hapus lagi. Hasilnya menunjuk kelompok kolom yang ditolak aturan yang BENAR-BENAR terbit di proyek ini.
+    const diagnosa = async (dok) => {
+      const KELOMPOK = [['paket', 'dawr', 'cakupan', 'urut'], ['kelas', 'periode'], ['bab'], ['kitabId', 'halId', 'halIdAkhir'], ['bentuk', 'jawaban']];
+      let proyek = ''; try { proyek = firebase.app().options.projectId || ''; } catch (e) { proyek = ''; }
+      const semua = new Set(KELOMPOK.flat());
+      const dasar = Object.fromEntries(Object.entries(dok).filter(([k]) => !semua.has(k)));
+      const coba = async (d) => { try { const r = await col.add(d); try { await r.delete(); } catch (e) { /* dokumen uji draft milik sendiri; abaikan bila gagal dihapus */ } return true; } catch (e) { return e && e.code === 'permission-denied' ? false : null; } };
+      const awal = `Proyek Firebase aplikasi ini: "${proyek || 'tidak terbaca'}" (harus sama dengan proyek tempat Anda menerbitkan firestore.rules).`;
+      const okDasar = await coba(dasar);
+      if (okDasar === false) return `${awal} Diagnosis: dokumen dasar TANPA kolom paket pun ditolak. Penyebabnya bukan kolom Paket Dauri, melainkan aturan dasar atau profil: periksa dokumen users/${user.uid} (field role harus tepat "admin"/"editor"/"penyusun"), dan pastikan aturan diterbitkan di proyek dan database "(default)" yang dipakai aplikasi.`;
+      if (okDasar === null) return `${awal} Diagnosis tidak bisa dijalankan (galat jaringan).`;
+      const ditolak = [];
+      for (const g of KELOMPOK) {
+        const ada = g.filter((k) => k in dok); if (!ada.length) continue;
+        const d = { ...dasar }; for (const k of ada) d[k] = dok[k];
+        if ((await coba(d)) === false) ditolak.push(ada.join('+'));
+      }
+      return ditolak.length
+        ? `${awal} Diagnosis: aturan yang terbit MENOLAK kolom: ${ditolak.join(', ')}. Berarti isi firestore.rules di Firebase bukan versi terbaru dari repo ini.`
+        : `${awal} Diagnosis: dokumen dasar dan tiap kelompok kolom diterima satu per satu, jadi penyebabnya kombinasi nilai pada butir ini (bukan satu kolom). Kirimkan teks butir pertama ke saya.`;
+    };
+    const gagal = (e, tersimpan, rincian = '') => {
       const awal = tersimpan > 0 ? `Sebagian tersimpan (${tersimpan} dari ${butir.length} butir) lalu gagal.` : 'Belum ada butir yang tersimpan.';
-      const petunjuk = e && e.code === 'permission-denied'
-        ? ' Bila peran Anda penyusun/editor/admin, hampir pasti isi firestore.rules yang terbit di Firebase lebih lama daripada aplikasi (Paket Dauri memakai kolom paket, dawr, urut, bentuk, kitabId). Terbitkan ulang firestore.rules lalu coba lagi.'
-        : '';
-      return new Error(`${awal} ${failMsg(e)}${petunjuk}`);
+      return new Error(`${awal} ${failMsg(e)}${rincian ? ' ' + rincian : ''}`);
     };
     const UKURAN_BATCH = 8; let n = 0;
     for (let i = 0; i < butir.length; i += UKURAN_BATCH) {
@@ -4191,7 +4210,7 @@ function App({ user, profile }) {
       } catch (e) {
         if (!(e && e.code === 'permission-denied')) throw gagal(e, n);
         for (const dok of dokumen) { // batch atomik: tidak ada yang tersimpan, jadi aman diulang satu per satu
-          try { await col.add(dok); n++; } catch (e2) { throw gagal(e2, n); }
+          try { await col.add(dok); n++; } catch (e2) { throw gagal(e2, n, e2 && e2.code === 'permission-denied' ? await diagnosa(dok) : ''); }
         }
       }
     }
