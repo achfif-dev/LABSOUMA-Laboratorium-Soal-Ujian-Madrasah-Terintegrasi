@@ -136,3 +136,17 @@ test('server: mintaRevisi wajib catatan; bukan pending ditolak; penyusun sendiri
   await mintaRevisi(db, TS, arg('s3', ed.baru, { catatan: 'ok' })); // mapel satu tahap: perilaku lama
   assert.equal(db.data['soal/s3'].status, 'revision'); assert.ok(!('tahap' in db.data['soal/s3'])); assert.ok(!('tinjauan' in db.data['soal/s3']));
 });
+
+test('server: tahap berubah sejak dibaca (balapan dua peninjau) = ditolak, tidak menyetujui tanpa pemeriksaan sumber', async () => {
+  const db = fakeDb({ 'soal/s1': soal({ tahap: 2 }) });
+  const asli = db.runTransaction;
+  db.runTransaction = async (fn) => { db.data['soal/s1'].tahap = 3; return asli(fn); }; // editor lain meloloskan ke tahap akhir tepat sebelum transaksi
+  await assert.rejects(() => setujui(db, TS, { id: 's1', uid: 'a', nama: 'A', role: 'admin', alur: ALUR3 }), (x) => x.code === 'SOAL_BERUBAH');
+  assert.equal(db.data['soal/s1'].status, 'pending');
+});
+
+test('klien: filter tahap diabaikan bila alur nonaktif (tidak menyembunyikan soal diam-diam)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  assert.match(app, /\(!f\.tahap \|\| !alur\.aktif \|\|/);
+});
