@@ -32,41 +32,41 @@ service cloud.firestore {
       function d() { return request.resource.data; }
       function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
-      function validContent() {
+      function validContent(x) {
         // Tingkat boleh buatan admin (menu Konfigurasi), jadi hanya dibatasi bentuknya.
-        return d().tingkat is string && d().tingkat.size() > 0 && d().tingkat.size() <= 40
-          && d().level in ['L1', 'L2', 'L3']
-          && d().mapel is string && d().mapel.size() <= 60
-          && (!('kelas' in d()) || (d().kelas is string && d().kelas.size() <= 20))
-          && (!('periode' in d()) || (d().periode is string && d().periode.size() <= 20))
-          && (!('bab' in d()) || (d().bab is string && d().bab.size() <= 120))
+        return x.tingkat is string && x.tingkat.size() > 0 && x.tingkat.size() <= 40
+          && x.level in ['L1', 'L2', 'L3']
+          && x.mapel is string && x.mapel.size() <= 60
+          && (!('kelas' in x) || (x.kelas is string && x.kelas.size() <= 20))
+          && (!('periode' in x) || (x.periode is string && x.periode.size() <= 20))
+          && (!('bab' in x) || (x.bab is string && x.bab.size() <= 120))
           // Tautan balik ke halaman kitab di perpustakaan (web/lib/rujukan.js): opsional; bila ada harus berbentuk id kitab dan id halaman "p00040".
-          && (!('kitabId' in d()) || (d().kitabId is string && d().kitabId.matches('^[a-z0-9][a-z0-9-]{1,59}$')))
-          && (!('halId' in d()) || (d().halId is string && d().halId.matches('^p[0-9]{5}$')))
-          && (!('halIdAkhir' in d()) || (d().halIdAkhir is string && (d().halIdAkhir == '' || d().halIdAkhir.matches('^p[0-9]{5}$'))))
-          && (!('halId' in d()) || 'kitabId' in d())
+          && (!('kitabId' in x) || (x.kitabId is string && x.kitabId.matches('^[a-z0-9][a-z0-9-]{1,59}$')))
+          && (!('halId' in x) || (x.halId is string && x.halId.matches('^p[0-9]{5}$')))
+          && (!('halIdAkhir' in x) || (x.halIdAkhir is string && (x.halIdAkhir == '' || x.halIdAkhir.matches('^p[0-9]{5}$'))))
+          && (!('halId' in x) || 'kitabId' in x)
           // Paket Dauri: penanda kelompok (id paket, nomor Dauri, batas materi dari Konfigurasi, urutan di naskah). Opsional.
-          && (!('paket' in d()) || (d().paket is string && d().paket.size() >= 1 && d().paket.size() <= 40))
-          && (!('dawr' in d()) || d().dawr in ['1', '2', '3', '4'])
-          && (!('cakupan' in d()) || (d().cakupan is string && d().cakupan.size() <= 120))
-          && (!('urut' in d()) || (d().urut is int && d().urut >= 1 && d().urut <= 200))
-          && (!('bentuk' in d()) || d().bentuk in ['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'])
-          && (!('jawaban' in d()) || (d().jawaban is string && d().jawaban.size() <= 2000))
-          && (!('rubrik' in d()) || (d().rubrik is string && d().rubrik.size() <= 2000))
-          && d().nama is string && d().nama.size() <= 120
-          && d().juz is string && d().juz.size() <= 20
-          && d().hal is string && d().hal.size() <= 20
-          && d().teks is string && d().teks.size() <= 8000
-          && d().stimulus is string && d().stimulus.size() <= 3000
-          && d().pertanyaan is string && d().pertanyaan.size() <= 2000
-          && d().pembahasan is string && d().pembahasan.size() <= 4000
-          && d().indikator is string && d().indikator.size() <= 1000
-          && d().sumberUrl is string && d().sumberUrl.size() <= 500
-          && (d().sumberUrl == '' || d().sumberUrl.matches('https://.*'))
-          && validAi()
-          && validOpsi()
-          && d().kunci in ['', 'A', 'B', 'C', 'D', 'E']
-          && d().catatan is string && d().catatan.size() <= 1000;
+          && (!('paket' in x) || (x.paket is string && x.paket.size() >= 1 && x.paket.size() <= 40))
+          && (!('dawr' in x) || x.dawr in ['1', '2', '3', '4'])
+          && (!('cakupan' in x) || (x.cakupan is string && x.cakupan.size() <= 120))
+          && (!('urut' in x) || (x.urut is int && x.urut >= 1 && x.urut <= 200))
+          && (!('bentuk' in x) || x.bentuk in ['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'])
+          && (!('jawaban' in x) || (x.jawaban is string && x.jawaban.size() <= 2000))
+          && (!('rubrik' in x) || (x.rubrik is string && x.rubrik.size() <= 2000))
+          && x.nama is string && x.nama.size() <= 120
+          && x.juz is string && x.juz.size() <= 20
+          && x.hal is string && x.hal.size() <= 20
+          && x.teks is string && x.teks.size() <= 8000
+          && x.stimulus is string && x.stimulus.size() <= 3000
+          && x.pertanyaan is string && x.pertanyaan.size() <= 2000
+          && x.pembahasan is string && x.pembahasan.size() <= 4000
+          && x.indikator is string && x.indikator.size() <= 1000
+          && x.sumberUrl is string && x.sumberUrl.size() <= 500
+          && (x.sumberUrl == '' || x.sumberUrl.matches('https://.*'))
+          && validAi(x)
+          && validOpsi(x)
+          && x.kunci in ['', 'A', 'B', 'C', 'D', 'E']
+          && x.catatan is string && x.catatan.size() <= 1000;
       }
 
       // Isi salinan dibatasi seperti isi soal (tanpa ini, satu simpan bisa menulis dokumen riwayat mendekati 1 MB).
@@ -92,28 +92,28 @@ service cloud.firestore {
 
       // Jejak audit AI: soal ini dibuat AI? model apa? hasil pemeriksaan kutipan dan uji jawab buta.
       // Dihitung klien (bukan jaminan keamanan terhadap penyusun yang curang); fungsinya jejak audit dan gerbang persetujuan.
-      function validAi() {
-        return d().ai is map
-          && d().ai.keys().hasOnly(['dibuat', 'model', 'verifikasi', 'buta'])
-          && d().ai.keys().hasAll(['dibuat', 'model', 'verifikasi', 'buta'])
-          && d().ai.dibuat is bool
-          && d().ai.model is string && d().ai.model.size() <= 60
-          && d().ai.verifikasi in ['', 'lolos', 'periksa', 'gagal', 'tanpa_teks']
-          && d().ai.buta in ['', 'sepakat', 'beda'];
+      function validAi(x) {
+        return x.ai is map
+          && x.ai.keys().hasOnly(['dibuat', 'model', 'verifikasi', 'buta'])
+          && x.ai.keys().hasAll(['dibuat', 'model', 'verifikasi', 'buta'])
+          && x.ai.dibuat is bool
+          && x.ai.model is string && x.ai.model.size() <= 60
+          && x.ai.verifikasi in ['', 'lolos', 'periksa', 'gagal', 'tanpa_teks']
+          && x.ai.buta in ['', 'sepakat', 'beda'];
       }
 
       // PERSETUJUAN (status approved) TIDAK lagi lewat aturan ini: hanya lewat /api/assist aksi "setujui" (Admin SDK), yang menghitung ulang
       // kutipan dan uji buta di server. Dulu gerbang "perlu alasan" membaca ai.verifikasi/ai.buta yang ditulis penyusun sendiri, sehingga bisa dipalsukan.
 
       // Opsi: hanya kunci A-E, tiap nilai string <= 1000 karakter (mencegah dokumen membengkak).
-      function validOpsi() {
-        return d().opsi is map
-          && d().opsi.keys().hasOnly(['A', 'B', 'C', 'D', 'E'])
-          && d().opsi.get('A', '') is string && d().opsi.get('A', '').size() <= 1000
-          && d().opsi.get('B', '') is string && d().opsi.get('B', '').size() <= 1000
-          && d().opsi.get('C', '') is string && d().opsi.get('C', '').size() <= 1000
-          && d().opsi.get('D', '') is string && d().opsi.get('D', '').size() <= 1000
-          && d().opsi.get('E', '') is string && d().opsi.get('E', '').size() <= 1000;
+      function validOpsi(x) {
+        return x.opsi is map
+          && x.opsi.keys().hasOnly(['A', 'B', 'C', 'D', 'E'])
+          && x.opsi.get('A', '') is string && x.opsi.get('A', '').size() <= 1000
+          && x.opsi.get('B', '') is string && x.opsi.get('B', '').size() <= 1000
+          && x.opsi.get('C', '') is string && x.opsi.get('C', '').size() <= 1000
+          && x.opsi.get('D', '') is string && x.opsi.get('D', '').size() <= 1000
+          && x.opsi.get('E', '') is string && x.opsi.get('E', '').size() <= 1000;
       }
 
       function createKeys() {
@@ -158,7 +158,7 @@ service cloud.firestore {
         && d().catatan == ''
         && d().createdAt == request.time
         && d().updatedAt == request.time
-        && validContent();
+        && validContent(d());
 
       allow update: if isStaff() && d().updatedAt == request.time && (
         // 1) Penyusun mengubah soalnya sendiri selama masih draft atau perlu revisi.
@@ -166,7 +166,7 @@ service cloud.firestore {
           && resource.data.status in ['draft', 'revision']
           && d().status in ['draft', 'pending']
           && changed().hasOnly(authorKeys().concat(opsiKeys()))
-          && validContent() )
+          && validContent(d()) )
         ||
         // 2) Editor/admin MEMINTA REVISI soal pending (menyetujui: lewat server, lihat catatan di atas).
         //    Editor tidak boleh meninjau soalnya sendiri.
@@ -189,7 +189,7 @@ service cloud.firestore {
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']
           && (d().status != 'approved' || resource.data.status == 'approved') // naik ke approved hanya lewat server
-          && validContent() )
+          && validContent(d()) )
       );
 
       allow delete: if isStaff() && (
