@@ -4192,9 +4192,15 @@ function App({ user, profile }) {
         const d = { ...dasar }; for (const k of ada) d[k] = dok[k];
         if ((await coba(d)) === false) ditolak.push(ada.join('+'));
       }
-      return ditolak.length
-        ? `${awal} Diagnosis: aturan yang terbit MENOLAK kolom: ${ditolak.join(', ')}. Berarti isi firestore.rules di Firebase bukan versi terbaru dari repo ini.`
-        : `${awal} Diagnosis: dokumen dasar dan tiap kelompok kolom diterima satu per satu, jadi penyebabnya kombinasi nilai pada butir ini (bukan satu kolom). Kirimkan teks butir pertama ke saya.`;
+      if (ditolak.length) return `${awal} Diagnosis: aturan yang terbit MENOLAK kolom: ${ditolak.join(', ')}. Berarti isi firestore.rules di Firebase bukan versi terbaru dari repo ini.`;
+      // Semua kelompok lolos sendiri-sendiri: tambahkan kumulatif untuk mencari titik mulai ditolak (dugaan: batas 1.000 ekspresi per permintaan pada aturan).
+      let kum = { ...dasar }; const urut = [];
+      for (const g of KELOMPOK) {
+        const ada = g.filter((k) => k in dok); if (!ada.length) continue;
+        for (const k of ada) kum[k] = dok[k]; urut.push(ada.join('+'));
+        if ((await coba({ ...kum })) === false) return `${awal} Diagnosis: ditolak mulai setelah kelompok kolom ditambahkan berurutan sampai "${urut.join(' > ')}". Tiap kelompok lolos sendiri, jadi ini batas evaluasi aturan (terlalu banyak kolom sekaligus). Terbitkan firestore.rules terbaru dari berkas yang saya kirim.`;
+      }
+      return `${awal} Diagnosis: dokumen dasar, tiap kelompok, dan gabungannya diterima pada percobaan ini, jadi penyebabnya nilai spesifik pada butir ini. Kirimkan teks butir pertama ke saya.`;
     };
     const gagal = (e, tersimpan, rincian = '') => {
       const awal = tersimpan > 0 ? `Sebagian tersimpan (${tersimpan} dari ${butir.length} butir) lalu gagal.` : 'Belum ada butir yang tersimpan.';
