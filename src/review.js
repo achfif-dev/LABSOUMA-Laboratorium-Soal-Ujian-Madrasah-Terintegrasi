@@ -79,6 +79,8 @@ export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, am
     if (!izin.ok) throw new ApiError(403, izin.kode, izin.alasan);
     if (sidikIsiSumber(q) !== sidikIsiSumber(q0)) throw new ApiError(409, 'SOAL_BERUBAH', 'Soal diubah saat diperiksa. Muat ulang lalu coba lagi.');
     const langkah = langkahSetelah(q, alur, 'lolos');
+    // Pemeriksaan sumber di atas diputuskan dari tahap saat dibaca. Bila tahap berubah sejak itu (mis. editor lain baru meloloskan), jangan menyetujui tanpa pemeriksaan itu.
+    if ((langkah.status === 'approved') !== akhir0) throw new ApiError(409, 'SOAL_BERUBAH', 'Tahap soal berubah saat diperiksa. Muat ulang lalu coba lagi.');
     const jejak = (hasil) => (izin.total > 1 ? { tahap: langkah.tahap, tinjauan: catatTinjauan(q.tinjauan, { tahap: izin.tahap, uid, nama, hasil, at: Date.now(), catatan: note }) } : {});
     if (langkah.status === 'pending') { // lolos ke editor tahap berikutnya; belum Approved
       tx.update(ref, { ...jejak('lolos'), reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
