@@ -4148,32 +4148,52 @@ function App({ user, profile }) {
     } catch (e) { toast(failMsg(e)); return false; } // gagal: isian dan drafnya tetap ada
   };
   const saveDraft = async () => { if (await commit('draft')) toast('Draft tersimpan (status Draft). Cari di tab Bank Soal.'); };
-  // Simpan massal hasil Paket Dauri sebagai Draft. Status ai.verifikasi dihitung ulang terhadap segmen sumbernya (kutipan ada di pembahasan).
+  // Simpan massal hasil Paket Dauri (Draft atau Pending). Status ai.verifikasi dihitung ulang terhadap segmen sumbernya (kutipan ada di pembahasan).
+  // Aturan Firestore memanggil exists() + get() ke profil peran untuk SETIAP dokumen, dan satu permintaan batch dibatasi 20 panggilan akses.
+  // Karena itu batch dibatasi 8 dokumen (16 panggilan). Bila batch tetap ditolak, bagian itu diulang per dokumen (batch bersifat atomik,
+  // jadi tidak ada dokumen ganda) supaya jelas apakah penyebabnya batas batch atau memang aturan/isi butir.
   const simpanPaket = async (butir, meta) => {
-    const K = window.Kutipan; let n = 0;
-    for (let i = 0; i < butir.length; i += 400) { // batch Firestore maksimal 500 operasi
-      const batch = db.batch();
-      for (const x of butir.slice(i, i + 400)) {
-        const q = x.soal; const bt = Bt.bentukDari(q.bentuk);
-        let v = ''; try { v = K ? K.periksaKutipan(K.bidangDariSoal(q), x.segmenTeks).status : ''; } catch (e) { v = ''; }
-        const c = {
-          tingkat: meta.tingkat, mapel: meta.mapel, level: q.level, nama: String(meta.nama || '').slice(0, 120), juz: String(meta.juz || '').slice(0, 20),
-          hal: String(x.segmenHal || '').slice(0, 20), teks: x.segmenTeks, stimulus: '', pertanyaan: q.pertanyaan, indikator: q.indikator, sumberUrl: '',
-          opsi: q.opsi, kunci: q.kunci || '', pembahasan: q.pembahasan.slice(0, 4000), bentuk: bt, jawaban: q.jawaban || '', rubrik: '',
-          ai: { dibuat: true, model: String(x.model || '').slice(0, 60), verifikasi: ['lolos', 'periksa', 'gagal', 'tanpa_teks'].includes(v) ? v : '', buta: '' },
-        };
-        if (meta.kelas) c.kelas = meta.kelas;
-        if (meta.periode) c.periode = meta.periode;
-        if (meta.tautan) Object.assign(c, meta.tautan); // bab (kisi-kisi) dan kitabId/halId/halIdAkhir (tautan balik ke perpustakaan), hanya bila ada
-        // Penanda kelompok: seluruh butir satu kali simpan menjadi satu paket (Bank Soal dan Ekspor menampilkannya sebagai satu kesatuan).
-        if (meta.paketId) Object.assign(c, PK.penandaPaket({ id: meta.paketId, dawr: meta.dawr, cakupan: meta.cakupan, urut: meta.urut && meta.urut.get(x.uid) }));
-        if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
-        if (!c.jawaban) delete c.jawaban;
-        delete c.rubrik;
-        batch.set(col.doc(), { ...c, status: meta.status === 'pending' ? 'pending' : 'draft', catatan: '', authorUid: user.uid, authorName: displayName, createdAt: ts(), updatedAt: ts() });
-        n++;
+    const K = window.Kutipan; const potong = (v, m) => String(v || '').slice(0, m);
+    const bangun = (x) => {
+      const q = x.soal; const bt = Bt.bentukDari(q.bentuk);
+      let v = ''; try { v = K ? K.periksaKutipan(K.bidangDariSoal(q), x.segmenTeks).status : ''; } catch (e) { v = ''; }
+      const c = {
+        tingkat: potong(meta.tingkat, 40), mapel: potong(meta.mapel, 60), level: q.level, nama: potong(meta.nama, 120), juz: potong(meta.juz, 20),
+        hal: potong(x.segmenHal, 20), teks: potong(x.segmenTeks, 8000), stimulus: '', pertanyaan: potong(q.pertanyaan, 2000), indikator: potong(q.indikator, 1000), sumberUrl: '',
+        opsi: Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map((k) => [k, potong(q.opsi && q.opsi[k], 1000)])),
+        kunci: q.kunci || '', pembahasan: potong(q.pembahasan, 4000), bentuk: bt, jawaban: potong(q.jawaban, 2000), rubrik: '',
+        ai: { dibuat: true, model: potong(x.model, 60), verifikasi: ['lolos', 'periksa', 'gagal', 'tanpa_teks'].includes(v) ? v : '', buta: '' },
+      };
+      if (meta.kelas) c.kelas = potong(meta.kelas, 20);
+      if (meta.periode) c.periode = potong(meta.periode, 20);
+      if (meta.tautan) Object.assign(c, meta.tautan); // bab (kisi-kisi) dan kitabId/halId/halIdAkhir (tautan balik ke perpustakaan), hanya bila ada
+      // Penanda kelompok: seluruh butir satu kali simpan menjadi satu paket (Bank Soal dan Ekspor menampilkannya sebagai satu kesatuan).
+      if (meta.paketId) Object.assign(c, PK.penandaPaket({ id: meta.paketId, dawr: meta.dawr, cakupan: meta.cakupan, urut: meta.urut && meta.urut.get(x.uid) }));
+      if (bt === 'pilgan') delete c.bentuk; // pilihan ganda = bawaan, sama persis dengan soal biasa
+      if (!c.jawaban) delete c.jawaban;
+      delete c.rubrik;
+      return { ...c, status: meta.status === 'pending' ? 'pending' : 'draft', catatan: '', authorUid: user.uid, authorName: potong(displayName, 120), createdAt: ts(), updatedAt: ts() };
+    };
+    const gagal = (e, tersimpan) => {
+      const awal = tersimpan > 0 ? `Sebagian tersimpan (${tersimpan} dari ${butir.length} butir) lalu gagal.` : 'Belum ada butir yang tersimpan.';
+      const petunjuk = e && e.code === 'permission-denied'
+        ? ' Bila peran Anda penyusun/editor/admin, hampir pasti isi firestore.rules yang terbit di Firebase lebih lama daripada aplikasi (Paket Dauri memakai kolom paket, dawr, urut, bentuk, kitabId). Terbitkan ulang firestore.rules lalu coba lagi.'
+        : '';
+      return new Error(`${awal} ${failMsg(e)}${petunjuk}`);
+    };
+    const UKURAN_BATCH = 8; let n = 0;
+    for (let i = 0; i < butir.length; i += UKURAN_BATCH) {
+      const dokumen = butir.slice(i, i + UKURAN_BATCH).map(bangun);
+      try {
+        const batch = db.batch();
+        for (const dok of dokumen) batch.set(col.doc(), dok);
+        await batch.commit(); n += dokumen.length;
+      } catch (e) {
+        if (!(e && e.code === 'permission-denied')) throw gagal(e, n);
+        for (const dok of dokumen) { // batch atomik: tidak ada yang tersimpan, jadi aman diulang satu per satu
+          try { await col.add(dok); n++; } catch (e2) { throw gagal(e2, n); }
+        }
       }
-      try { await batch.commit(); } catch (e) { throw new Error(n > i ? `Sebagian tersimpan (${i} butir) lalu gagal. ${failMsg(e)}` : failMsg(e)); }
     }
     return n;
   };
