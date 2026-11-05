@@ -210,9 +210,9 @@ test('kisi-kisi: bentuk soal ikut tercatat per butir dan di ringkasan', () => {
 test('firestore.rules: bentuk, jawaban, rubrik opsional dan dibatasi; kunci wajib tidak berubah', () => {
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
   const soal = rules.slice(rules.indexOf('match /soal/{id}'), rules.indexOf('match /kamusPegon/{id}'));
-  assert.match(soal, /d\(\)\.bentuk in \['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'\]/);
-  assert.match(soal, /d\(\)\.jawaban\.size\(\) <= 2000/);
-  assert.match(soal, /d\(\)\.rubrik\.size\(\) <= 2000/);
+  assert.match(soal, /x\.bentuk in \['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'\]/);
+  assert.match(soal, /x\.jawaban\.size\(\) <= 2000/);
+  assert.match(soal, /x\.rubrik\.size\(\) <= 2000/);
   assert.match(soal, /function opsiKeys\(\) \{ return \[[^\]]*'bentuk', 'jawaban', 'rubrik'(, 'kitabId', 'halId', 'halIdAkhir')?\]/);
 });
 

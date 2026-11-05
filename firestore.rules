@@ -21,11 +21,13 @@ service cloud.firestore {
       allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
       allow create, delete: if false;
-      // Hanya admin, hanya field role, dan tidak boleh mengubah perannya sendiri.
+      // Hanya admin, hanya field role dan tahapEditor (tahap peninjauan 1-3 yang ditugaskan ke editor), dan tidak boleh mengubah akunnya sendiri.
       allow update: if isAdmin()
         && request.auth.uid != uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
-        && request.resource.data.role in ['pending', 'penyusun', 'editor', 'admin', 'ustadz', 'nonaktif'];
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'tahapEditor'])
+        && request.resource.data.role in ['pending', 'penyusun', 'editor', 'admin', 'ustadz', 'nonaktif']
+        && (!('tahapEditor' in request.resource.data)
+            || (request.resource.data.tahapEditor is list && request.resource.data.tahapEditor.size() <= 3 && request.resource.data.tahapEditor.hasOnly([1, 2, 3])));
     }
 
     match /soal/{id} {
@@ -168,23 +170,14 @@ service cloud.firestore {
           && changed().hasOnly(authorKeys().concat(opsiKeys()))
           && validContent(d()) )
         ||
-        // 2) Editor/admin MEMINTA REVISI soal pending (menyetujui: lewat server, lihat catatan di atas).
-        //    Editor tidak boleh meninjau soalnya sendiri.
-        ( isReviewer()
-          && resource.data.status == 'pending'
-          && (resource.data.authorUid != request.auth.uid || isAdmin())
-          && d().status == 'revision'
-          && changed().hasOnly(reviewKeys())
-          && d().reviewerUid == request.auth.uid
-          && d().reviewedAt == request.time
-          && d().catatan is string && d().catatan.size() > 0 && d().catatan.size() <= 1000 )
-        ||
+        // 2) (dihapus) Meminta revisi dan menyetujui kini KEDUANYA lewat server (api/assist.js aksi "revisi" dan "setujui"),
+        //    agar tahap editor (alur bertingkat) ditegakkan. Klien tidak boleh menulis status revision/approved sendiri.
         // 3) Admin boleh mengubah isi dan status, tetapi tidak identitas penyusun.
         ( isAdmin()
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                               'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
-                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'])
+                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'].concat(['tahap', 'tinjauan'])) // tahap, tinjauan: jejak alur editor bertingkat, ditulis server
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']

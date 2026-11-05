@@ -169,9 +169,10 @@ test('bersihkanSoal: menolak entri yang akan ditolak aturan Firestore', () => {
 
 test('bersihkanSoal: hasilnya hanya berisi kunci yang diizinkan aturan Firestore untuk admin (tidak melenceng dari firestore.rules)', () => {
   const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-  const blok = /isAdmin\(\)\s*&& d\(\)\.keys\(\)\.hasOnly\(\[([^\]]+)\]\)/.exec(rules);
+  // Daftar kunci admin boleh disambung .concat([...]) (kunci jejak alur editor bertingkat: tahap, tinjauan).
+  const blok = /isAdmin\(\)\s*&& d\(\)\.keys\(\)\.hasOnly\(\[([^\]]+)\](?:\.concat\(\[([^\]]+)\]\))?\)/.exec(rules);
   assert.ok(blok, 'pola aturan admin tidak ditemukan; sesuaikan tes ini bila aturan diubah');
-  const boleh = new Set([...blok[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]));
+  const boleh = new Set([...(blok[1] + ',' + (blok[2] || '')).matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]));
   const { data } = bersihkanSoal(SOAL());
   for (const k of Object.keys(data)) assert.ok(boleh.has(k), `kunci ${k} tidak diizinkan aturan Firestore`);
 });

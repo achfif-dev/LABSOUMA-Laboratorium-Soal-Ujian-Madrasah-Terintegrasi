@@ -63,7 +63,10 @@ test('catatButa: hanya sepakat/beda yang dicatat, kunci dokumen = sidik isi', as
 /* ---------------- handler /api/assist aksi "setujui" ---------------- */
 const mkRes = () => { const r = { h: {}, setHeader(k, v) { r.h[k] = v; }, status(c) { r.code = c; return r; }, json(b) { r.body = b; return r; } }; return r; };
 const req = (tok, body) => ({ method: 'POST', headers: { authorization: 'Bearer ' + tok }, body });
+import appConfigHandler from '../api/app-config.js';
+import { invalidateAlur } from '../src/alurEditor.js';
 function pasang(extra = {}) {
+  invalidateAlur(); // pengaturan alur di-cache 30 dtk per proses; tiap tes memulai dari keadaan bersih
   const data = {
     'users/u_editor': { role: 'editor' }, 'users/u_admin': { role: 'admin' }, 'users/u_penyusun': { role: 'penyusun' }, 'users/u_penyusun2': { role: 'penyusun' },
     'soal/s1': soalAsli(), ...extra,
@@ -136,7 +139,9 @@ const RULES = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8
 
 test('rules: klien tidak lagi bisa menyetujui, dan gerbang lama yang bisa dipalsukan sudah hilang', () => {
   assert.doesNotMatch(RULES, /perluAlasan/);
-  assert.match(RULES, /d\(\)\.status == 'revision'/);
+  // Meminta revisi juga lewat server sejak alur editor bertingkat: tidak ada lagi aturan klien yang menulis status revision.
+  assert.doesNotMatch(RULES, /d\(\)\.status == 'revision'/);
+  assert.match(RULES, /aksi "revisi"/);
   assert.match(RULES, /naik ke approved hanya lewat server/);
   assert.match(RULES, /match \/cekbutaHasil\/\{doc\}\s*\{\s*allow read, write: if false;/);
 });
@@ -209,4 +214,74 @@ test('setujui: teks atau sumber berubah selama pemeriksaan sumber = 409, tidak d
   const ambilSambilDiubah = async () => { db.data['soal/s1'].teks = KARANGAN; return { teks: HALAMAN, terpotong: false }; };
   await assert.rejects(() => setujui(db, { serverTimestamp: () => 'TS' }, { id: 's1', uid: 'u_editor', nama: 'E', role: 'editor', ambilSumber: ambilSambilDiubah }), (e) => e.code === 'SOAL_BERUBAH');
   assert.equal(db.data['soal/s1'].status, 'pending');
+});
+
+/* ---------------- alur editor bertahap lewat handler API (autentikasi, penugasan tahap, pengaturan admin) ---------------- */
+const ALUR_DOK = { 'config/alur': { alur: { aktif: true, standar: 1, perMapel: { Fiqih: 3 } } } };
+const EDITOR_DOK = { 'users/u_e1': { role: 'editor', tahapEditor: [1] }, 'users/u_e2': { role: 'editor', tahapEditor: [2] }, 'users/u_e3': { role: 'editor', tahapEditor: [3] } };
+
+test('alur bertahap via API: tahap ditegakkan, revisi lewat server mencatat tahap berikut, meloloskan ke tahap berikut', async () => {
+  const db = pasang({ ...ALUR_DOK, ...EDITOR_DOK, 'soal/s1': soalAsli({ mapel: 'Fiqih' }) });
+  try {
+    let r = await jalan('tok_e2', { aksi: 'revisi', id: 's1', catatan: 'x' });
+    assert.equal(r.code, 403); assert.equal(r.body.error.code, 'BUKAN_TAHAPMU');
+    r = await jalan('tok_e1', { aksi: 'revisi', id: 's1', catatan: '   ' });
+    assert.equal(r.code, 422); assert.equal(r.body.error.code, 'CATATAN_WAJIB');
+    r = await jalan('tok_e1', { aksi: 'revisi', id: 's1', catatan: 'perbaiki kunci' });
+    assert.equal(r.code, 200);
+    assert.deepEqual([db.data['soal/s1'].status, db.data['soal/s1'].tahap, db.data['soal/s1'].catatan], ['revision', 2, 'perbaiki kunci']);
+    db.data['soal/s1'].status = 'pending'; // penyusun mengirim ulang
+    r = await jalan('tok_e1', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 403); assert.equal(r.body.error.code, 'BUKAN_TAHAPMU'); // editor 1 tidak bisa meninjau tahap 2
+    r = await jalan('tok_e2', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 200); assert.deepEqual([r.body.lanjut, r.body.tahap, r.body.total], [true, 3, 3]);
+    assert.equal(db.data['soal/s1'].status, 'pending');
+    r = await jalan('tok_e3', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 200); assert.equal(db.data['soal/s1'].status, 'approved');
+  } finally { __setFirebaseForTest(null); invalidateAlur(); }
+});
+
+test('alur bertahap via API: penyusun tidak bisa meminta revisi; mapel lain (satu tahap) tetap boleh editor mana pun', async () => {
+  const db = pasang({ ...ALUR_DOK, ...EDITOR_DOK, 'soal/s1': soalAsli({ mapel: 'Fiqih' }), 'soal/s2': soalAsli({ mapel: 'Tauhid' }) });
+  try {
+    let r = await jalan('tok_penyusun2', { aksi: 'revisi', id: 's1', catatan: 'x' });
+    assert.equal(r.code, 403);
+    r = await jalan('tok_e3', { aksi: 'setujui', id: 's2' });
+    assert.equal(r.code, 200); assert.equal(db.data['soal/s2'].status, 'approved');
+    assert.ok(!('tahap' in db.data['soal/s2'])); // mapel satu tahap: tidak ada jejak tahap
+  } finally { __setFirebaseForTest(null); invalidateAlur(); }
+});
+
+test('alur bertahap via API: pengaturan alur tidak terbaca = ditolak (503), bukan diam-diam melonggarkan pemeriksaan', async () => {
+  const db = pasang({ ...ALUR_DOK, ...EDITOR_DOK, 'soal/s1': soalAsli({ mapel: 'Fiqih' }) });
+  const asli = db.doc;
+  db.doc = (p) => (p === 'config/alur' ? { get: async () => { throw new Error('firestore down'); } } : asli(p));
+  try {
+    const r = await jalan('tok_e3', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 503); assert.equal(r.body.error.code, 'ALUR_TIDAK_TERBACA');
+    assert.equal(db.data['soal/s1'].status, 'pending');
+  } finally { __setFirebaseForTest(null); invalidateAlur(); }
+});
+
+test('app-config: admin menyimpan alur (dinormalkan), non-admin ditolak, semua pengguna aktif membacanya lewat "baca"', async () => {
+  const db = pasang({ ...EDITOR_DOK });
+  const panggil = async (tok, body) => { const r = mkRes(); await appConfigHandler(req(tok, body), r); return r; };
+  try {
+    let r = await panggil('tok_e1', { aksi: 'alursimpan', alur: { aktif: true } });
+    assert.equal(r.code, 403);
+    r = await panggil('tok_admin', { aksi: 'alursimpan', alur: { aktif: true, standar: 9, perMapel: { Fiqih: 3, Nahwu: 7 } } });
+    assert.equal(r.code, 200); assert.deepEqual(r.body.alur, { aktif: true, standar: 1, perMapel: { Fiqih: 3 } });
+    assert.deepEqual(db.data['config/alur'].alur, { aktif: true, standar: 1, perMapel: { Fiqih: 3 } });
+    r = await panggil('tok_e1', { aksi: 'baca' });
+    assert.equal(r.code, 200); assert.deepEqual(r.body.alur, { aktif: true, standar: 1, perMapel: { Fiqih: 3 } });
+    assert.ok(r.body.config && Array.isArray(r.body.config.mapel)); // konfigurasi utama tetap ikut
+  } finally { __setFirebaseForTest(null); invalidateAlur(); }
+});
+
+test('klien: revisi dan persetujuan lewat server; tidak ada lagi tulis status revision langsung dari klien', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  assert.match(app, /aksi: 'revisi', id, catatan: note/);
+  assert.match(app, /aksi: 'alursimpan'/);
+  assert.doesNotMatch(app, /col\.doc\(id\)\.update\(\{ status, catatan: note/);
 });

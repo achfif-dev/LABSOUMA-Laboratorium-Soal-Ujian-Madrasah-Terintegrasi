@@ -1,6 +1,7 @@
 // POST /api/assist: tanya-jawab bersumber atas perpustakaan (tanyakitab), pemeriksaan soal terhadap halaman rujukan (periksarujukan, gratis), terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
 import { route, authenticateAuthor, authenticateReviewer, enforceAi, enforceRate, withRefund, aiPool, firestoreAdmin, num } from '../src/platform.js';
-import { setujui, catatButa } from '../src/review.js';
+import { setujui, mintaRevisi, catatButa } from '../src/review.js';
+import { bacaAlur } from '../src/alurEditor.js';
 import { bentukSah } from '../src/bentuk.js';
 import { parseList } from '../src/access.js';
 import { DEFAULT_HOSTS } from '../src/kitabFetch.js';
@@ -34,11 +35,13 @@ const ASSIST = {
 
 export default route(async (req) => {
   // Persetujuan soal: bukan pemakaian AI (tanpa kuota AI), hanya editor/admin. Ada di sini agar jumlah fungsi Vercel tidak bertambah.
-  if (req.body && req.body.aksi === 'setujui') {
+  if (req.body && (req.body.aksi === 'setujui' || req.body.aksi === 'revisi')) {
     const r = await authenticateReviewer(req);
     await enforceRate(`${r.uid}_review`, { perMinute: num('LIMIT_REVIEW_PER_MINUTE', 30), perDay: num('LIMIT_REVIEW_PER_DAY', 1000) });
     const { db, FieldValue } = await firestoreAdmin();
-    return setujui(db, FieldValue, { id: req.body.id, uid: r.uid, nama: r.name || r.email, role: r.role, catatan: req.body.catatan,
+    const alur = await bacaAlur({ ketat: true }); // gagal baca = tolak (jangan melonggarkan pemeriksaan bertingkat)
+    if (req.body.aksi === 'revisi') return mintaRevisi(db, FieldValue, { id: req.body.id, uid: r.uid, nama: r.name || r.email, role: r.role, catatan: req.body.catatan, alur, tahapEditor: r.tahapEditor });
+    return setujui(db, FieldValue, { id: req.body.id, uid: r.uid, nama: r.name || r.email, role: r.role, catatan: req.body.catatan, alur, tahapEditor: r.tahapEditor,
       hosts: parseList(process.env.KITAB_ALLOWED_HOSTS).length ? parseList(process.env.KITAB_ALLOWED_HOSTS) : DEFAULT_HOSTS, sumberWajib: process.env.SUMBER_WAJIB === '1' });
   }
   const u = await authenticateAuthor(req);

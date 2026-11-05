@@ -307,9 +307,9 @@ test('paket: aturan Firestore dan validasi pemulihan mengenal penanda paket (ops
   const { readFileSync } = await import('node:fs');
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
   assert.match(rules, /function opsiKeys\(\) \{ return \['paket', 'dawr', 'cakupan', 'urut',/);
-  assert.match(rules, /!\('paket' in d\(\)\) \|\| \(d\(\)\.paket is string && d\(\)\.paket\.size\(\) >= 1 && d\(\)\.paket\.size\(\) <= 40\)/);
-  assert.match(rules, /!\('dawr' in d\(\)\) \|\| d\(\)\.dawr in \['1', '2', '3', '4'\]/);
-  assert.match(rules, /!\('urut' in d\(\)\) \|\| \(d\(\)\.urut is int && d\(\)\.urut >= 1 && d\(\)\.urut <= 200\)/);
+  assert.match(rules, /!\('paket' in x\) \|\| \(x\.paket is string && x\.paket\.size\(\) >= 1 && x\.paket\.size\(\) <= 40\)/);
+  assert.match(rules, /!\('dawr' in x\) \|\| x\.dawr in \['1', '2', '3', '4'\]/);
+  assert.match(rules, /!\('urut' in x\) \|\| \(x\.urut is int && x\.urut >= 1 && x\.urut <= 200\)/);
   assert.match(rules, /'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas'/); // admin
   // Kunci wajib tidak berubah: klien lama dan soal lama tetap sah.
   assert.doesNotMatch(rules.match(/function createKeys\(\) \{[\s\S]*?\}/)[0], /paket|dawr|cakupan|urut/);

@@ -9,6 +9,7 @@ import { periksaKutipan, bidangDariSoal } from './kutipan.js';
 import { bentukSah } from './bentuk.js';
 import { periksaSumber } from './sumber.js';
 import { DEFAULT_HOSTS } from './kitabFetch.js';
+import { ALUR_BAWAAN, bolehTinjau, langkahSetelah, catatTinjauan } from './alurSoal.js';
 
 export const KOLEKSI_BUTA = 'cekbutaHasil';
 const norm = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
@@ -51,8 +52,12 @@ export function alasanPerluCatatan(q, rekamButa, { sumber, sumberWajib = false }
 
 const sidikIsiSumber = (q) => createHash('sha256').update(JSON.stringify([q.teks || '', q.sumberUrl || ''])).digest('hex');
 
-/** Setujui satu soal Pending. Menggantikan penulisan langsung dari klien (aturan Firestore tidak lagi mengizinkannya). */
-export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, ambilSumber, hosts = DEFAULT_HOSTS, sumberWajib = false }) {
+/**
+ * Setujui satu soal Pending. Menggantikan penulisan langsung dari klien (aturan Firestore tidak lagi mengizinkannya).
+ * Dengan alur editor bertahap (alur.aktif, jumlah tahap mapel > 1): di tahap sebelum terakhir, "setujui" HANYA meloloskan soal ke
+ * editor tahap berikutnya (tetap Pending); status Approved dan gerbang kutipan/uji buta/sumber baru berlaku di tahap terakhir.
+ */
+export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, ambilSumber, hosts = DEFAULT_HOSTS, sumberWajib = false, alur = ALUR_BAWAAN, tahapEditor = [] }) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new ApiError(400, 'BAD_REQUEST', 'Id soal tidak valid.');
   const note = String(catatan ?? '').trim().slice(0, 1000);
   const ref = db.doc(`soal/${id}`);
@@ -60,20 +65,55 @@ export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, am
   const awal = await ref.get();
   if (!awal.exists) throw new ApiError(404, 'SOAL_NOT_FOUND', 'Soal tidak ditemukan.');
   const q0 = awal.data();
-  const sumber = q0.status === 'pending' ? await periksaSumber(q0, { ...(ambilSumber ? { ambil: ambilSumber } : {}), hosts }) : { status: 'tanpa_sumber', total: 0, cocok: 0 };
+  // Pemeriksaan sumber (jaringan) hanya perlu pada persetujuan akhir; meloloskan ke tahap berikutnya tidak memerlukannya.
+  const akhir0 = q0.status !== 'pending' || langkahSetelah(q0, alur, 'lolos').status === 'approved';
+  const sumber = q0.status === 'pending' && akhir0 ? await periksaSumber(q0, { ...(ambilSumber ? { ambil: ambilSumber } : {}), hosts }) : { status: 'tanpa_sumber', total: 0, cocok: 0 };
   let alasanDipakai = [];
+  let lanjut = null;
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new ApiError(404, 'SOAL_NOT_FOUND', 'Soal tidak ditemukan.');
     const q = snap.data();
     if (q.status !== 'pending') throw new ApiError(409, 'STATUS_BERUBAH', 'Soal ini tidak lagi berstatus Pending (mungkin sudah ditinjau orang lain). Muat ulang daftar.');
-    if (q.authorUid === uid && role !== 'admin') throw new ApiError(403, 'REVIEW_SENDIRI', 'Editor tidak boleh menyetujui soal buatannya sendiri.');
+    const izin = bolehTinjau({ uid, role, tahapEditor }, q, alur);
+    if (!izin.ok) throw new ApiError(403, izin.kode, izin.alasan);
     if (sidikIsiSumber(q) !== sidikIsiSumber(q0)) throw new ApiError(409, 'SOAL_BERUBAH', 'Soal diubah saat diperiksa. Muat ulang lalu coba lagi.');
+    const langkah = langkahSetelah(q, alur, 'lolos');
+    const jejak = (hasil) => (izin.total > 1 ? { tahap: langkah.tahap, tinjauan: catatTinjauan(q.tinjauan, { tahap: izin.tahap, uid, nama, hasil, at: Date.now(), catatan: note }) } : {});
+    if (langkah.status === 'pending') { // lolos ke editor tahap berikutnya; belum Approved
+      tx.update(ref, { ...jejak('lolos'), reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      lanjut = { tahap: langkah.tahap, total: izin.total };
+      return;
+    }
     const rek = await tx.get(db.doc(`${KOLEKSI_BUTA}/${sidikButaSoal(q)}`));
     const alasan = alasanPerluCatatan(q, rek.exists ? rek.data() : null, { sumber, sumberWajib });
     if (alasan.length && !note) throw new ApiError(422, 'ALASAN_WAJIB', `Soal ini perlu catatan alasan sebelum disetujui: ${alasan.join('; ')}.`);
     alasanDipakai = alasan;
-    tx.update(ref, { status: 'approved', catatan: note, reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { status: 'approved', ...jejak('setuju'), catatan: note, reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
   });
+  if (lanjut) return { ok: true, id, lanjut: true, tahap: lanjut.tahap, total: lanjut.total };
   return { ok: true, id, dengan_catatan: alasanDipakai.length > 0, sumber: sumber.status };
+}
+
+/** Minta revisi satu soal Pending (ke penyusun). Lewat server agar tahap editor ditegakkan; klien tidak lagi menulis status 'revision' langsung. */
+export async function mintaRevisi(db, FieldValue, { id, uid, nama, role, catatan, alur = ALUR_BAWAAN, tahapEditor = [] }) {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new ApiError(400, 'BAD_REQUEST', 'Id soal tidak valid.');
+  const note = String(catatan ?? '').trim().slice(0, 1000);
+  if (!note) throw new ApiError(422, 'CATATAN_WAJIB', 'Tulis catatan revisi untuk penyusun.');
+  const ref = db.doc(`soal/${id}`);
+  let hasil = null;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new ApiError(404, 'SOAL_NOT_FOUND', 'Soal tidak ditemukan.');
+    const q = snap.data();
+    if (q.status !== 'pending') throw new ApiError(409, 'STATUS_BERUBAH', 'Soal ini tidak lagi berstatus Pending (mungkin sudah ditinjau orang lain). Muat ulang daftar.');
+    const izin = bolehTinjau({ uid, role, tahapEditor }, q, alur);
+    if (!izin.ok) throw new ApiError(403, izin.kode, izin.alasan);
+    const langkah = langkahSetelah(q, alur, 'revisi');
+    const upd = { status: 'revision', catatan: note, reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
+    if (izin.total > 1) { upd.tahap = langkah.tahap; upd.tinjauan = catatTinjauan(q.tinjauan, { tahap: izin.tahap, uid, nama, hasil: 'revisi', at: Date.now() }); }
+    tx.update(ref, upd);
+    hasil = { ok: true, id, tahapBerikut: langkah.tahap, total: izin.total };
+  });
+  return hasil;
 }

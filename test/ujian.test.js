@@ -187,9 +187,9 @@ test('firestore.rules: kelas dan periode OPSIONAL pada soal (klien dan soal lama
   assert.doesNotMatch(soal.slice(soal.indexOf('function createKeys'), soal.indexOf('function authorKeys')), /kelas|periode|bab|bentuk|jawaban|rubrik/, 'bukan bagian kunci wajib');
   assert.match(soal, /changed\(\)\.hasOnly\(authorKeys\(\)\.concat\(opsiKeys\(\)\)\)/, 'penyusun boleh mengisi kelas/periode saat mengubah');
   assert.match(soal, /'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'\]/, 'admin');
-  assert.match(soal, /d\(\)\.kelas is string && d\(\)\.kelas\.size\(\) <= 20/);
-  assert.match(soal, /d\(\)\.periode is string && d\(\)\.periode\.size\(\) <= 20/);
-  assert.match(soal, /d\(\)\.bab is string && d\(\)\.bab\.size\(\) <= 120/, 'bab: batas sama dengan cadangan (120)');
+  assert.match(soal, /x\.kelas is string && x\.kelas\.size\(\) <= 20/);
+  assert.match(soal, /x\.periode is string && x\.periode\.size\(\) <= 20/);
+  assert.match(soal, /x\.bab is string && x\.bab\.size\(\) <= 120/, 'bab: batas sama dengan cadangan (120)');
   // peninjau (editor) tidak boleh mengubah kelas/periode: reviewKeys tidak memuatnya
   assert.doesNotMatch(soal.slice(soal.indexOf('function reviewKeys'), soal.indexOf('allow read')), /kelas|periode|bab|bentuk|jawaban|rubrik/);
 });

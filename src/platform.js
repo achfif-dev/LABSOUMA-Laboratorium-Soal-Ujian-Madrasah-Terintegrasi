@@ -1,6 +1,7 @@
 // Penghubung server: Firebase Admin (login + Firestore), pembungkus rute, batas pemakaian.
 // firebase-admin dimuat saat dibutuhkan agar modul ini tetap bisa diuji tanpa paketnya.
 import { ApiError, toApiError } from './soalService.js';
+import { tahapDitugaskan } from './alurSoal.js';
 import { STAFF, AUTHORS, parseList, initialRole, domainAllowed, rateDecision, shouldPromote, refundable, refundState } from './access.js';
 
 export const num = (name, def) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
@@ -103,7 +104,7 @@ export async function authenticateReviewer(req) {
   if (!snap.exists || !['editor', 'admin'].includes(snap.data().role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk editor dan admin.');
   }
-  return { ...u, role: snap.data().role };
+  return { ...u, role: snap.data().role, tahapEditor: tahapDitugaskan(snap.data()) };
 }
 
 /** Membuat/menyegarkan dokumen users/{uid}. Admin pertama berasal dari ADMIN_EMAILS. */

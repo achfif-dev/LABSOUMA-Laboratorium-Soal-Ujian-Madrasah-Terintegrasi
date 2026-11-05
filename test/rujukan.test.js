@@ -87,10 +87,10 @@ test('aturan Firestore dan riwayat: tiga bidang tautan diizinkan, dibatasi ukura
 
 test('aturan Firestore: isi tautan divalidasi bentuknya pada simpan (bukan hanya nama kuncinya)', () => {
   const soal = RULES.slice(RULES.indexOf('match /soal/{id}'), RULES.indexOf('match /kamusPegon/{id}'));
-  assert.match(soal, /d\(\)\.kitabId\.matches\('\^\[a-z0-9\]\[a-z0-9-\]\{1,59\}\$'\)/);
-  assert.match(soal, /d\(\)\.halId\.matches\('\^p\[0-9\]\{5\}\$'\)/);
-  assert.match(soal, /d\(\)\.halIdAkhir == '' \|\| d\(\)\.halIdAkhir\.matches/);
-  assert.match(soal, /'halId' in d\(\)\) \|\| 'kitabId' in d\(\)/, 'halId tanpa kitabId ditolak');
+  assert.match(soal, /x\.kitabId\.matches\('\^\[a-z0-9\]\[a-z0-9-\]\{1,59\}\$'\)/);
+  assert.match(soal, /x\.halId\.matches\('\^p\[0-9\]\{5\}\$'\)/);
+  assert.match(soal, /x\.halIdAkhir == '' \|\| x\.halIdAkhir\.matches/);
+  assert.match(soal, /'halId' in x\) \|\| 'kitabId' in x/, 'halId tanpa kitabId ditolak');
   // pola di aturan sama dengan pola di kode klien
   assert.equal(R.RE_KITAB_ID.source, '^[a-z0-9][a-z0-9-]{1,59}$'); assert.equal(R.RE_HAL_ID.source, '^p\\d{5}$');
 });

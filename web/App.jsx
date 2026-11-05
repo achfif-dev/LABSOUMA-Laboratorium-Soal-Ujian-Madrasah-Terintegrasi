@@ -22,6 +22,7 @@ import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
 import * as SH from './lib/serahTerima.js';
 import * as SK from './lib/saringKitab.js';
+import * as AL from './lib/alurSoal.js';
 import { buatNaskah } from './lib/naskahDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -59,6 +60,9 @@ const AppCfgCtx = React.createContext(FALLBACK_CFG);
 // Catatan wajib pada setiap ekspor ('' untuk tim penyusun; terisi untuk peran Ustadz, yang soalnya tidak ditelaah editor). Lihat web/lib/ustadz.js.
 const CatatanCtx = React.createContext('');
 const useCfg = () => React.useContext(AppCfgCtx);
+// Alur peninjauan bertahap (diatur admin; lihat web/lib/alurSoal.js). Bawaan: nonaktif = satu editor mana pun, seperti sebelumnya.
+const AlurCtx = React.createContext(AL.ALUR_BAWAAN);
+const useAlur = () => React.useContext(AlurCtx);
 // Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
 const KamusCtx = React.createContext({ docs: [], ver: 0, err: null, canShare: false, simpan: async () => {}, hapus: async () => {} });
 const useKamus = () => React.useContext(KamusCtx);
@@ -387,6 +391,10 @@ const FORMATS = [
 const Badge = ({ status }) => (
   <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ring-black/5 ${STATUS[status].cls}`}>{STATUS[status].label}</span>
 );
+const TahapChip = ({ q }) => {
+  const t = AL.labelTahap(q, useAlur());
+  return t ? <span className="inline-flex items-center rounded-full bg-soft px-2.5 py-0.5 text-xs font-semibold text-soft-ink ring-1 ring-inset ring-black/5">{t}</span> : null;
+};
 const Chip = ({ children }) => (
   <span className="inline-flex items-center rounded-md border border-line px-2 py-0.5 text-xs font-medium text-mute">{children}</span>
 );
@@ -1385,6 +1393,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
 /* ---------- Tab 2: Review ---------- */
 function ReviewCard({ q, onApprove, onRevise, me }) {
   const own = q.authorUid === me.uid && me.role !== 'admin';
+  const alur = useAlur();
+  const izin = AL.bolehTinjau(me, q, alur); // bukan penentu (server yang menentukan); hanya agar tombol dan pesannya jujur
+  const akhir = izin.tahap >= izin.total; // tahap terakhir (atau alur satu tahap): Setujui = Approved
+  const terkunci = !izin.ok;
   const [note, setNote] = useState(() => { const d = Draft.read('catatan:' + q.id); return typeof d === 'string' ? d.slice(0, 1000) : ''; });
   useDraftSync('catatan:' + q.id, note, !note.trim());
   const [err, setErr] = useState(false);
@@ -1406,8 +1418,9 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     } catch (e) { const er = apiErr(e); setButa(er ? { error: er } : null); }
   };
   const setujui = () => {
-    if (alasanOverride.length && !note.trim()) { setErrOk(true); return; }
-    onApprove(q.id, alasanOverride.length ? `[Disetujui dengan catatan] ${note.trim()}`.slice(0, 1000) : '');
+    if (akhir && alasanOverride.length && !note.trim()) { setErrOk(true); return; }
+    // Meloloskan ke editor berikutnya: catatan opsional (tersimpan di jejak tinjauan). Persetujuan akhir: catatan override bila ada peringatan.
+    onApprove(q.id, !akhir ? note.trim().slice(0, 300) : (alasanOverride.length ? `[Disetujui dengan catatan] ${note.trim()}`.slice(0, 1000) : ''));
   };
   const runTelaah = async () => {
     setTl({ loading: true });
@@ -1422,7 +1435,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
   return (
     <article className="overflow-hidden rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
-        <Meta q={q} />
+        <div className="flex flex-wrap items-center gap-2"><TahapChip q={q} /><Meta q={q} /></div>
         <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} /></span>
       </header>
       <div className="grid md:grid-cols-2">
@@ -1453,7 +1466,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
         {alasanOverride.length > 0 && (
           <div role="alert" className="mb-3 rounded-lg bg-bad-bg px-3 py-2 text-xs text-bad">
             <p className="font-semibold">Peringatan sebelum menyetujui: {alasanOverride.join('; ')}.</p>
-            <p className="mt-1">Soal ini baru bisa disetujui bila Anda menulis catatan alasan di kolom di bawah (override). Catatan tersimpan bersama soal.</p>
+            <p className="mt-1">{akhir ? 'Soal ini baru bisa disetujui bila Anda menulis catatan alasan di kolom di bawah (override). Catatan tersimpan bersama soal.' : 'Catatan alasan akan diwajibkan saat persetujuan akhir. Pertimbangkan meminta revisi sekarang.'}</p>
             {errOk && <p className="mt-1 font-semibold">Tulis catatan alasan lebih dulu.</p>}
           </div>
         )}
@@ -1463,9 +1476,10 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
           value={note} onChange={(e) => { setNote(e.target.value); setErr(false); setErrOk(false); }} />
         {err && <p className="mt-1 text-xs font-medium text-bad">Tulis catatan revisi agar penyusun tahu apa yang diperbaiki.</p>}
         {own && <p className="mt-2 text-xs font-medium text-warn">Anda penyusun soal ini. Soal harus ditinjau editor lain.</p>}
+        {!own && terkunci && <p className="mt-2 text-xs font-medium text-warn">{izin.alasan}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
-          <Btn kind="primary" disabled={own} onClick={setujui}><CheckCircle2 size={16} />Setujui Soal</Btn>
-          <Btn kind="danger" disabled={own} onClick={() => { if (!note.trim()) { setErr(true); return; } onRevise(q.id, note.trim()); }}><RotateCcw size={16} />Minta Revisi</Btn>
+          <Btn kind="primary" disabled={own || terkunci} onClick={setujui}><CheckCircle2 size={16} />{akhir ? 'Setujui Soal' : `Loloskan ke Editor ${izin.tahap + 1}`}</Btn>
+          <Btn kind="danger" disabled={own || terkunci} onClick={() => { if (!note.trim()) { setErr(true); return; } onRevise(q.id, note.trim()); }}><RotateCcw size={16} />Minta Revisi</Btn>
         </div>
       </footer>
     </article>
@@ -1498,8 +1512,15 @@ function Review({ list, all = [], onApprove, onRevise, me }) {
 // Nama ringkas satu paket Dauri untuk pilihan filter dan judul kelompok.
 const labelPaket = (cfg, g) => [NK.PRESET_DAURI[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
 
-function Filters({ f, setF, withStatus, count, qs = [] }) {
+function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
   const cfg = useCfg();
+  const alur = useAlur();
+  // Penyusun: dari soal yang dimuat (nama dan jumlah soalnya), agar editor/admin bisa menelusuri soal per penyusun dan penyusun bisa memilih "Anda".
+  const penyusunOpsi = useMemo(() => {
+    const m = new Map();
+    for (const q of qs) if (q.authorUid) { const x = m.get(q.authorUid) || { uid: q.authorUid, nama: q.authorName || 'Tanpa nama', n: 0 }; x.n++; m.set(q.authorUid, x); }
+    return [...m.values()].sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+  }, [qs]);
   // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
   const mapelOpsi = [...new Set([...mapelUntuk(cfg, f.tingkat), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.mapel).filter(Boolean)])];
   // Kelas dan ujian: milik tingkat terpilih; tanpa tingkat, gabungan semua tingkat plus yang sudah dipakai soal tersimpan (soal lama tetap bisa difilter).
@@ -1531,6 +1552,16 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
           <Select id={'f-paket' + (withStatus ? 'b' : 'e')} value={f.paket || ''} onChange={(v) => { const g = paketOpsi.find((x) => x.id === v); setF(g ? { ...f, paket: v, tingkat: g.tingkat, mapel: g.mapel, kelas: g.kelas, periode: g.periode } : { ...f, paket: '' }); }}>
             <option value="">Semua (paket dan soal lepas)</option>{paketOpsi.map((g) => <option key={g.id} value={g.id}>{labelPaket(cfg, g)}</option>)}</Select></div>
       )}
+      {withStatus && penyusunOpsi.length > 0 && (
+        <div className="min-w-[160px] flex-1"><Label htmlFor="f-penyusun">Penyusun</Label>
+          <Select id="f-penyusun" value={f.penyusun || ''} onChange={(v) => setF({ ...f, penyusun: v })}>
+            <option value="">Semua</option>{penyusunOpsi.map((p) => <option key={p.uid} value={p.uid}>{p.nama}{p.uid === uid ? ' (Anda)' : ''} ({p.n})</option>)}</Select></div>
+      )}
+      {withStatus && alur.aktif && (
+        <div className="min-w-[150px] flex-1"><Label htmlFor="f-tahap">Tahap Editor</Label>
+          <Select id="f-tahap" value={f.tahap || ''} onChange={(v) => setF({ ...f, tahap: v })}>
+            <option value="">Semua</option>{Array.from({ length: AL.MAKS_TAHAP }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>Menunggu editor {n}</option>)}</Select></div>
+      )}
       {withStatus && (
         <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
           <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
@@ -1540,7 +1571,7 @@ function Filters({ f, setF, withStatus, count, qs = [] }) {
     </div>
   );
 }
-const applyFilter = (qs, f) => qs.filter((q) => (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
+const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
 
 /* ---------- Tab 3: Bank ---------- */
 /* ---------- Riwayat versi soal (hanya baca; versi lama bisa dimuat kembali ke form, belum tersimpan sampai penyusun menyimpan) ---------- */
@@ -1630,6 +1661,7 @@ function BilahPilih({ pl, total, children }) {
 }
 
 function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim, onKirimTab }) {
+  const alur = useAlur();
   const FAWAL = { mapel: '', tingkat: '', kelas: '', periode: '', status: 'approved', paket: '', kitab: '', bab: '' };
   const [f, setF] = useState(() => bacaPref('bankFilter', FAWAL));
   useDraftSync('bankFilter', f, JSON.stringify(f) === JSON.stringify(FAWAL));
@@ -1637,9 +1669,9 @@ function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim,
   const [kirimBusy, setKirimBusy] = useState('');
   const cfg = useCfg();
   const [kata, setKata] = useState(''); // pencarian teks: sengaja tidak disimpan sebagai preferensi
-  const list = useMemo(() => CS.saring(applyFilter(all, f), kata), [all, f, kata]);
+  const list = useMemo(() => CS.saring(applyFilter(all, f, alur), kata), [all, f, kata, alur]);
   // Opsi Kitab/Bab menghitung soal yang lolos filter lain (mapel, tingkat, status, dst.), supaya jumlahnya sama dengan yang akan tampil.
-  const dasarKB = useMemo(() => applyFilter(all, { ...f, kitab: '', bab: '' }), [all, f]);
+  const dasarKB = useMemo(() => applyFilter(all, { ...f, kitab: '', bab: '' }, alur), [all, f, alur]);
   const opsiKitab = useMemo(() => SK.opsiKitab(dasarKB), [dasarKB]);
   const opsiBab = useMemo(() => SK.opsiBab(dasarKB, f.kitab), [dasarKB, f.kitab]);
   useEffect(() => { // pilihan yang sudah tidak ada (filter lain berubah, data dihapus) dilepas agar daftar tidak kosong tanpa sebab
@@ -1661,7 +1693,7 @@ function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim,
           <article key={q.id} className={'rounded-2xl border bg-surface p-4 sm:p-5 ' + (pl.aktif && pl.dipilih.some((x) => x.id === q.id) ? 'border-brand ring-2 ring-brand/30' : 'border-line')}>
             <KotakPilih pl={pl} q={q} />
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><Meta q={q} /></div>
+              <div className="flex flex-wrap items-center gap-2"><Badge status={q.status} /><TahapChip q={q} /><Meta q={q} /></div>
               <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} />{q.status === 'approved' && q.reviewerName ? ` · Disetujui ${q.reviewerName}` : ''}</span>
             </div>
             {q.status === 'revision' && q.catatan && (
@@ -1692,7 +1724,7 @@ function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim,
   );
   return (
     <div className="fade-in space-y-4">
-      <Filters f={f} setF={setF} withStatus count={list.length} qs={all} />
+      <Filters f={f} setF={setF} withStatus count={list.length} qs={all} uid={uid} />
       {(opsiKitab.length > 1 || f.kitab) && (
         <div className="flex flex-wrap gap-3">
           <div className="min-w-[200px] flex-1"><Label htmlFor="f-kitab">Kitab</Label>
@@ -2908,6 +2940,74 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
   );
 }
 
+/* ---------- Tahap editor: penugasan per akun (Pengguna) dan pengaturan alur (Konfigurasi), keduanya khusus admin ---------- */
+function TahapEditorPilih({ r, onSet, disabled }) {
+  const sel = AL.tahapDitugaskan(r);
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className="text-mute">Tahap editor:</span>
+      {Array.from({ length: AL.MAKS_TAHAP }, (_, i) => i + 1).map((n) => (
+        <label key={n} className="inline-flex items-center gap-1">
+          <input type="checkbox" className="h-4 w-4" disabled={disabled} checked={sel.includes(n)} onChange={(e) => onSet(r.id, e.target.checked ? [...sel, n].sort() : sel.filter((x) => x !== n))} aria-label={`Editor tahap ${n}: ${r.name || r.email}`} />{n}
+        </label>
+      ))}
+    </div>
+  );
+}
+function AlurEditorAdmin({ alur, mapel, onSaved, toast }) {
+  const [d, setD] = useState(alur);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setD(alur); }, [alur]);
+  const kanon = (a) => { const n = AL.normalisasiAlur(a); return JSON.stringify([n.aktif, n.standar, Object.entries(n.perMapel).sort(([x], [y]) => (x < y ? -1 : 1))]); };
+  const dirty = kanon(d) !== kanon(alur);
+  const namaMapel = mapel.filter((m) => m.aktif !== false).map((m) => m.nama);
+  const setMapel = (nama, v) => setD((x) => { const p = { ...x.perMapel }; if (!v) delete p[nama]; else p[nama] = Number(v); return { ...x, perMapel: p }; });
+  const simpan = async () => {
+    setBusy(true);
+    try { const r = await callApi('/api/app-config', { aksi: 'alursimpan', alur: AL.normalisasiAlur(d) }); onSaved(AL.normalisasiAlur(r.alur)); toast('Pengaturan alur editor disimpan.'); }
+    catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : 'Gagal menyimpan pengaturan alur editor.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="space-y-4 rounded-2xl border border-line bg-surface p-4 sm:p-5" aria-label="Alur editor bertahap">
+      <div>
+        <h2 className="text-base font-bold">Alur Editor Bertahap</h2>
+        <p className="mt-1 text-xs leading-relaxed text-mute">Nonaktif: satu editor mana pun menyetujui soal (seperti sebelumnya). Aktif: jumlah tahap (1 sampai 3) diatur per mata pelajaran. Tiap tahap dikerjakan editor berbeda yang Anda tugaskan di menu Pengguna.
+          Alur: penyusun, editor 1, revisi ke penyusun, editor 2, revisi, editor 3. Setelah revisi tahap terakhir, soal kembali ke editor terakhir untuk disetujui. Editor boleh juga meloloskan tanpa revisi.</p>
+      </div>
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" className="h-5 w-5" checked={d.aktif} onChange={(e) => setD({ ...d, aktif: e.target.checked })} />Aktifkan peninjauan bertahap
+      </label>
+      {d.aktif && (
+        <div className="space-y-3">
+          <div className="max-w-xs"><Label htmlFor="alur-standar">Jumlah tahap standar</Label>
+            <select id="alur-standar" className="field" value={d.standar} onChange={(e) => setD({ ...d, standar: Number(e.target.value) })}>
+              {[1, 2, 3].map((n) => <option key={n} value={n}>{n} editor</option>)}
+            </select></div>
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Per mata pelajaran (fan)</p>
+            <ul className="divide-y divide-line rounded-xl border border-line">
+              {namaMapel.map((nama) => (
+                <li key={nama} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span className="text-sm font-medium">{nama}</span>
+                  <select aria-label={'Jumlah tahap ' + nama} className="field !w-auto" value={Object.hasOwn(d.perMapel, nama) ? String(d.perMapel[nama]) : ''} onChange={(e) => setMapel(nama, e.target.value)}>
+                    <option value="">Ikuti standar ({d.standar})</option>{[1, 2, 3].map((n) => <option key={n} value={String(n)}>{n} editor</option>)}
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn kind="primary" disabled={!dirty || busy} onClick={simpan}>{busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}Simpan Alur Editor</Btn>
+        {dirty && <Btn kind="ghost" disabled={busy} onClick={() => setD(alur)}>Batalkan</Btn>}
+        {dirty && <span className="text-xs text-warn">Ada perubahan yang belum disimpan.</span>}
+      </div>
+    </section>
+  );
+}
+
 /* ---------- Pengguna (admin) ---------- */
 function UserAdmin({ me, toast }) {
   const [rows, setRows] = useState(null);
@@ -2918,6 +3018,10 @@ function UserAdmin({ me, toast }) {
   const setRole = async (id, role) => {
     try { await firebase.firestore().doc('users/' + id).update({ role }); toast('Peran diperbarui.'); }
     catch (e) { toast('Gagal mengubah peran.'); }
+  };
+  const setTahap = async (id, tahapEditor) => {
+    try { await firebase.firestore().doc('users/' + id).update({ tahapEditor }); toast('Tahap editor diperbarui.'); }
+    catch (e) { toast('Gagal mengubah tahap editor. Pastikan firestore.rules terbaru sudah diterbitkan.'); }
   };
   if (!rows) return <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>;
   const waiting = rows.filter((r) => r.role === 'pending').length;
@@ -2934,6 +3038,7 @@ function UserAdmin({ me, toast }) {
             <select aria-label={'Peran ' + (r.name || r.email)} className="field" value={r.role} disabled={r.id === me.uid} onChange={(e) => setRole(r.id, e.target.value)}>
               {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {r.role === 'editor' && <TahapEditorPilih r={r} disabled={r.id === me.uid} onSet={setTahap} />}
             <p className="text-xs text-mute">{r.id === me.uid ? '(Anda) · ' : ''}Terakhir masuk: {(() => { try { const d = r.lastLoginAt && r.lastLoginAt.toDate ? r.lastLoginAt.toDate() : null; return d ? d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'; } catch (e) { return '-'; } })()}</p>
           </li>
         ))}
@@ -2952,6 +3057,7 @@ function UserAdmin({ me, toast }) {
                     {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
                   {r.id === me.uid && <span className="ml-2 text-xs text-mute">(Anda)</span>}
+                  {r.role === 'editor' && <TahapEditorPilih r={r} disabled={r.id === me.uid} onSet={setTahap} />}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-xs text-mute">{(() => { try { const d = r.lastLoginAt && r.lastLoginAt.toDate ? r.lastLoginAt.toDate() : null; return d ? d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'; } catch (e) { return '-'; } })()}</td>
               </tr>
@@ -3913,7 +4019,7 @@ function App({ user, profile }) {
   const db = firebase.firestore();
   const col = db.collection('soal');
   const ts = () => firebase.firestore.FieldValue.serverTimestamp();
-  const me = { uid: user.uid, role: profile.role };
+  const me = { uid: user.uid, role: profile.role, tahapEditor: profile.tahapEditor };
   // Draf otomatis dipisah per akun. Dijalankan sebelum state di bawah dibaca, dan sekali per akun.
   const drafUid = useRef(null); if (drafUid.current !== user.uid) { Draft.setUser(user.uid); drafUid.current = user.uid; }
   const displayName = user.displayName || user.email;
@@ -3970,9 +4076,10 @@ function App({ user, profile }) {
     return () => { document.removeEventListener('mousedown', klikLuar); document.removeEventListener('touchstart', klikLuar); document.removeEventListener('keydown', tekanEsc); };
   }, [menuOpen]);
   const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
+  const [alur, setAlur] = useState(AL.ALUR_BAWAAN);
   const [cfgInfo, setCfgInfo] = useState({ kustom: false });
   const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
-  const terapkanCfg = (d) => { setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
+  const terapkanCfg = (d) => { if (Object.hasOwn(d, 'alur')) setAlur(AL.normalisasiAlur(d.alur)); setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
   useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
   // Bank soal dimuat berhalaman agar hemat kuota baca Firestore (paket Spark: 50.000 baca/hari):
   //  - recent : HALAMAN soal terbaru (realtime), bisa dipersempit per tingkat (lingkup)
@@ -4245,23 +4352,24 @@ function App({ user, profile }) {
   // Setelah paket disimpan: buka Bank Soal langsung pada paket itu (semua status), agar bisa ditelaah dan dikirim ke editor.
   const bukaPaketDiBank = (paketId) => { const r = SH.rencanaBukaPaket(paketId); if (r) { terapkanRencana(r); pilihTab('bank'); } };
   const sendEditor = async () => { if (await commit('pending')) { toast('Soal dikirim ke editor.'); setTab(canReview ? 'review' : 'bank'); } };
-  const review = async (id, status, note, okMsg) => {
-    try {
-      await col.doc(id).update({ status, catatan: note, reviewerUid: user.uid, reviewerName: displayName, reviewedAt: ts(), updatedAt: ts() });
-      Draft.remove('catatan:' + id); // catatan sudah tersimpan bersama soal
-      toast(okMsg);
-    } catch (e) { toast(failMsg(e)); }
-  };
   // Persetujuan lewat server: gerbang kutipan dan uji buta dihitung ulang di sana (klaim di dokumen soal tidak dipercaya).
   const approve = async (id, note = '') => {
     try {
       const d = await callApi('/api/assist', { aksi: 'setujui', id, catatan: note });
       Draft.remove('catatan:' + id);
+      if (d && d.lanjut) { toast(`Soal diloloskan ke editor tahap ${d.tahap} dari ${d.total}.`); return; }
       const SUMBER_INFO = { tanpa_sumber: ' Teks kitab tidak dicocokkan ke sumber (tanpa tautan sumber).', tidak_terjangkau: ' Situs sumber tidak terjangkau, teks kitab tidak dicocokkan.', sebagian: ' Sebagian baris teks tidak ada di halaman sumber (wajar bila gabungan beberapa halaman).' };
       toast('Soal disetujui dan masuk Bank Soal.' + (SUMBER_INFO[d && d.sumber] || ''));
     } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : failMsg(e)); }
   };
-  const revise = (id, note) => review(id, 'revision', note, 'Permintaan revisi dikirim ke penyusun.');
+  // Permintaan revisi juga lewat server (bukan tulis Firestore langsung): tahap editor ditegakkan di sana dan tahap berikutnya dicatat.
+  const revise = async (id, note) => {
+    try {
+      await callApi('/api/assist', { aksi: 'revisi', id, catatan: note });
+      Draft.remove('catatan:' + id); // catatan sudah tersimpan bersama soal
+      toast('Permintaan revisi dikirim ke penyusun.');
+    } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : failMsg(e)); }
+  };
   const edit = (q) => {
     // Memuat soal lain ke form menimpa isian di form; jangan diam-diam membuang isian yang belum disimpan.
     if (editingId !== q.id && formBerisi(form) && !window.confirm('Form Penyusunan Soal berisi isian yang belum disimpan. Mengedit soal ini akan menggantinya. Lanjutkan?')) return;
@@ -4299,11 +4407,13 @@ function App({ user, profile }) {
   const saranCtx = { saran, setSaran, pakaiBab };
 
   const pending = qs.filter((q) => q.status === 'pending');
+  // Antrean editor: dengan alur bertingkat, editor hanya melihat soal yang menunggu tahapnya (admin dan mapel satu tahap: semua).
+  const antrian = pending.filter((q) => AL.masukAntrean(me, q, alur));
   const approvedN = qs.filter((q) => q.status === 'approved').length;
   const TABS = [
     { id: 'compose', label: 'Penyusunan Soal', icon: PenLine },
     { id: 'paket', label: 'Paket Dauri', icon: Layers },
-    ...(canReview ? [{ id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: pending.length }] : []), // penyusun memantau soalnya lewat Bank Soal
+    ...(canReview ? [{ id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: antrian.length }] : []), // penyusun memantau soalnya lewat Bank Soal
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
@@ -4323,7 +4433,7 @@ function App({ user, profile }) {
   const NAV = NV.bangunNav(TABS);
   const grupAktif = NAV.find((g) => g.items.some((t) => t.id === tab)) || null;
   const tampilGrup = (g) => (g.items.length === 1 ? { label: g.items[0].label, Ikon: g.items[0].icon } : { label: g.label, Ikon: IKON_GRUP[g.id] || Menu });
-  const pendingBadge = canReview ? pending.length : 0;
+  const pendingBadge = canReview ? antrian.length : 0;
   const kuotaGenting = !!(isAdmin && kuotaRingkas && kuotaRingkas.peringatan > 0);
 
   return (
@@ -4383,7 +4493,7 @@ function App({ user, profile }) {
       </div>
 
       <main id="konten" tabIndex={-1} className="mx-auto max-w-6xl py-6 outline-none sm:py-8">
-        <AppCfgCtx.Provider value={appCfg}>
+        <AppCfgCtx.Provider value={appCfg}><AlurCtx.Provider value={alur}>
         <KamusCtx.Provider value={kamusCtx}>
         <SaranCtx.Provider value={saranCtx}>
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
@@ -4404,7 +4514,7 @@ function App({ user, profile }) {
             {tab !== 'bank' && masihAda && <span className="text-xs text-mute">Ekspor dan Fokus Ujian hanya memakai soal yang sudah dimuat.</span>}
           </div>
         )}
-        {loaded && tab === 'review' && <Review list={pending} all={qs} me={me} onApprove={approve} onRevise={revise} />}
+        {loaded && tab === 'review' && <Review list={antrian} all={qs} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} onDeleteMany={delMany} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} onKirimTab={kirimKeTab} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
@@ -4415,12 +4525,12 @@ function App({ user, profile }) {
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
-        {tab === 'cfg' && isAdmin && (cfgReady ? <AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <div className="space-y-6"><AlurEditorAdmin alur={alur} mapel={appCfg.mapel} onSaved={setAlur} toast={toast} /><AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /></div> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'perpus' && isAdmin && <KitabImpor Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </SaranCtx.Provider>
         </KamusCtx.Provider>
-        </AppCfgCtx.Provider>
+        </AlurCtx.Provider></AppCfgCtx.Provider>
       </main>
       <footer className="mx-auto max-w-6xl px-4 pt-2 text-center text-xs text-mute" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}>
         <p>Powered By Achmad Afifuddin / achfif-dev</p>
