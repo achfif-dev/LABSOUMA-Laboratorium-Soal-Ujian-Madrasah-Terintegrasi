@@ -32,6 +32,9 @@ export function fakeDb(data = {}) {
     data,
     doc: ref,
     collection: (name) => query(name),
+    // Kelompok koleksi: semua dokumen yang jalurnya berakhir .../<name>/<id> (dua segmen terakhir).
+    collectionGroup: (name) => { const st = {}; const q = { select: () => q, limit: (n) => { st.n = n; return q; }, get: async () => { let ps = Object.keys(data).filter((p) => { const s = p.split('/'); return s.length >= 2 && s.length % 2 === 0 && s[s.length - 2] === name; }); if (st.n) ps = ps.slice(0, st.n); return { docs: ps.map((p) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => ({}) })) }; } }; return q; },
+    getAll: async (...refs) => Promise.all(refs.map((r) => r.get())),
     batch: () => { const ops = []; return { set: (r, v) => ops.push({ t: 'set', path: r.path, v }), delete: (r) => ops.push({ t: 'del', path: r.path }), commit: async () => terapkan(ops) }; },
     runTransaction: async (fn) => {
       const ops = [];

@@ -3013,6 +3013,35 @@ function AlurEditorAdmin({ alur, mapel, onSaved, toast }) {
   );
 }
 
+/* ---------- Pemeliharaan data (admin): riwayat versi soal yang soalnya sudah dihapus ---------- */
+function PemeliharaanAdmin({ toast }) {
+  const [hasil, setHasil] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const jalan = async (hapus) => {
+    if (hapus && !window.confirm(`Hapus ${hasil.riwayatYatim} riwayat versi dari ${hasil.soalYatim} soal yang sudah dihapus? Tidak bisa dibatalkan.`)) return;
+    setBusy(true);
+    try {
+      const r = await callApi('/api/backup', { aksi: 'bersihriwayat', hapus });
+      setHasil(hapus ? { ...r, riwayatYatim: 0, soalYatim: 0 } : r);
+      toast(hapus ? `${r.dihapus} riwayat yatim dihapus.` : (r.riwayatYatim ? `Ditemukan ${r.riwayatYatim} riwayat yatim.` : 'Tidak ada riwayat yatim.'));
+    } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : 'Gagal memindai riwayat.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="space-y-3 rounded-2xl border border-line bg-surface p-4 sm:p-5" aria-label="Pemeliharaan data">
+      <div>
+        <h2 className="text-base font-bold">Pemeliharaan Data</h2>
+        <p className="mt-1 text-xs leading-relaxed text-mute">Menghapus soal tidak otomatis menghapus riwayat versinya. Pindai mencari riwayat milik soal yang sudah tidak ada. Setiap pindai membaca seluruh riwayat (memakai kuota baca Firestore), jadi cukup sesekali.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn kind="ghost" disabled={busy} onClick={() => jalan(false)}>{busy ? <Loader2 size={16} className="spin" /> : <Search size={16} />}Pindai riwayat yatim</Btn>
+        {hasil && hasil.riwayatYatim > 0 && <Btn kind="danger" disabled={busy} onClick={() => jalan(true)}><Trash2 size={16} />Hapus {hasil.riwayatYatim} riwayat yatim</Btn>}
+      </div>
+      {hasil && <p className="text-xs text-mute">Total riwayat: {hasil.riwayatTotal}. Yatim: {hasil.riwayatYatim}{hasil.terpotong ? '. Pindai dibatasi 20.000 dokumen; ulangi setelah menghapus.' : '.'}</p>}
+    </section>
+  );
+}
+
 /* ---------- Pengguna (admin) ---------- */
 function UserAdmin({ me, toast }) {
   const [rows, setRows] = useState(null);
@@ -4384,7 +4413,12 @@ function App({ user, profile }) {
     setEditingId(q.id); setTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const del = async (id) => { try { await col.doc(id).delete(); setExtra((e) => e.filter((x) => x.id !== id)); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
+  // Firestore tidak menghapus subkoleksi otomatis. Setelah soal terhapus, hapus riwayat versinya satu per satu (aturan mengizinkan hanya bila soalnya sudah tidak ada).
+  // Best effort: gagal di sini tidak membatalkan penghapusan soal; admin bisa menyapu sisanya (Konfigurasi, Pemeliharaan data).
+  const hapusRiwayat = async (id) => {
+    try { const s = await col.doc(id).collection('riwayat').get(); await Promise.allSettled(s.docs.map((d) => d.ref.delete())); } catch (e) { /* disapu admin kemudian */ }
+  };
+  const del = async (id) => { try { await col.doc(id).delete(); hapusRiwayat(id); setExtra((e) => e.filter((x) => x.id !== id)); toast('Soal dihapus.'); } catch (e) { toast(failMsg(e)); } };
   const delMany = async (ids) => {
     const gagal = [];
     for (let i = 0; i < ids.length; i += 25) {
@@ -4392,6 +4426,7 @@ function App({ user, profile }) {
       hasil.forEach((r, j) => { if (r.status === 'rejected') gagal.push(ids[i + j]); });
     }
     const ok = ids.filter((id) => !gagal.includes(id));
+    for (const id of ok) await hapusRiwayat(id);
     setExtra((e) => e.filter((x) => !ok.includes(x.id)));
     toast(gagal.length ? `${ok.length} soal dihapus, ${gagal.length} gagal (ditolak server atau jaringan). Coba lagi untuk sisanya.` : `${ok.length} soal dihapus.`);
     return ok.length;
@@ -4530,7 +4565,7 @@ function App({ user, profile }) {
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
-        {tab === 'cfg' && isAdmin && (cfgReady ? <div className="space-y-6"><AlurEditorAdmin alur={alur} mapel={appCfg.mapel} onSaved={setAlur} toast={toast} /><AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /></div> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <div className="space-y-6"><AlurEditorAdmin alur={alur} mapel={appCfg.mapel} onSaved={setAlur} toast={toast} /><PemeliharaanAdmin toast={toast} /><AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /></div> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'perpus' && isAdmin && <KitabImpor Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </SaranCtx.Provider>

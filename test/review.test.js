@@ -285,3 +285,19 @@ test('klien: revisi dan persetujuan lewat server; tidak ada lagi tulis status re
   assert.match(app, /aksi: 'alursimpan'/);
   assert.doesNotMatch(app, /col\.doc\(id\)\.update\(\{ status, catatan: note/);
 });
+
+test('api/backup bersihriwayat: hanya admin; pindai tidak menghapus; hapus=true menghapus riwayat yatim saja', async () => {
+  const { default: backupHandler } = await import('../api/backup.js');
+  const db = pasang({ ...EDITOR_DOK, 'soal/ada': soalAsli(), 'soal/ada/riwayat/r1': { snapshot: {}, oleh: 'u', namaOleh: 'n', at: 1 }, 'soal/hilang/riwayat/r1': { snapshot: {}, oleh: 'u', namaOleh: 'n', at: 1 } });
+  const panggil = async (tok, body) => { const r = mkRes(); await backupHandler(req(tok, body), r); return r; };
+  try {
+    let r = await panggil('tok_e1', { aksi: 'bersihriwayat', hapus: true });
+    assert.equal(r.code, 403); assert.ok('soal/hilang/riwayat/r1' in db.data);
+    r = await panggil('tok_admin', { aksi: 'bersihriwayat' });
+    assert.equal(r.code, 200); assert.deepEqual([r.body.riwayatYatim, r.body.dihapus], [1, 0]); assert.ok('soal/hilang/riwayat/r1' in db.data);
+    r = await panggil('tok_admin', { aksi: 'bersihriwayat', hapus: 'true' }); // bukan boolean true: tidak menghapus
+    assert.equal(r.body.dihapus, 0);
+    r = await panggil('tok_admin', { aksi: 'bersihriwayat', hapus: true });
+    assert.equal(r.body.dihapus, 1); assert.ok(!('soal/hilang/riwayat/r1' in db.data)); assert.ok('soal/ada/riwayat/r1' in db.data);
+  } finally { __setFirebaseForTest(null); invalidateAlur(); }
+});

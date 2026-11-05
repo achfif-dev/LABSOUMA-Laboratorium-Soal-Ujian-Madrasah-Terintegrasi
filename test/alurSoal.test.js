@@ -150,3 +150,42 @@ test('klien: filter tahap diabaikan bila alur nonaktif (tidak menyembunyikan soa
   const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
   assert.match(app, /\(!f\.tahap \|\| !alur\.aktif \|\|/);
 });
+
+/* ---------------- riwayat yatim ---------------- */
+import { bersihkanRiwayatYatim } from '../src/riwayat.js';
+const riw = (n) => ({ snapshot: { pertanyaan: 'v' + n }, oleh: 'u', namaOleh: 'n', at: n });
+
+test('riwayat yatim: pindai menghitung tanpa menghapus; hapus hanya yang soalnya sudah tidak ada', async () => {
+  const db = fakeDb({
+    'soal/ada': soal(), 'soal/ada/riwayat/r1': riw(1), 'soal/ada/riwayat/r2': riw(2),
+    'soal/hilang1/riwayat/r1': riw(1), 'soal/hilang1/riwayat/r2': riw(2), 'soal/hilang2/riwayat/r1': riw(1),
+  });
+  let r = await bersihkanRiwayatYatim(db);
+  assert.deepEqual([r.riwayatTotal, r.soalYatim, r.riwayatYatim, r.dihapus, r.terpotong], [5, 2, 3, 0, false]);
+  assert.equal(Object.keys(db.data).filter((p) => p.includes('/riwayat/')).length, 5); // pindai tidak menghapus
+  r = await bersihkanRiwayatYatim(db, { hapus: true });
+  assert.equal(r.dihapus, 3);
+  assert.deepEqual(Object.keys(db.data).sort(), ['soal/ada', 'soal/ada/riwayat/r1', 'soal/ada/riwayat/r2']);
+  r = await bersihkanRiwayatYatim(db, { hapus: true });
+  assert.deepEqual([r.riwayatYatim, r.dihapus], [0, 0]);
+});
+
+test('riwayat yatim: riwayat milik soal yang masih ada tidak pernah dihapus, termasuk saat ada banyak soal', async () => {
+  const data = {};
+  for (let i = 0; i < 350; i++) { data[`soal/s${i}`] = soal(); data[`soal/s${i}/riwayat/r1`] = riw(1); }
+  data['soal/x/riwayat/r1'] = riw(1);
+  const db = fakeDb(data);
+  const r = await bersihkanRiwayatYatim(db, { hapus: true });
+  assert.deepEqual([r.riwayatTotal, r.soalYatim, r.dihapus], [351, 1, 1]);
+  assert.equal(Object.keys(db.data).filter((p) => p.includes('/riwayat/')).length, 350);
+});
+
+test('riwayat yatim: aturan Firestore hanya mengizinkan hapus riwayat bila soal induknya tidak ada; klien membersihkan setelah hapus soal', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  assert.match(rules, /allow delete: if isStaff\(\) && !exists\(\/databases\/\$\(database\)\/documents\/soal\/\$\(id\)\);/);
+  assert.doesNotMatch(rules, /allow update, delete: if false;\n\s*\}\n\n\s*allow read: if isStaff\(\);/);
+  assert.match(app, /collection\('riwayat'\)\.get\(\)/);
+  assert.match(app, /aksi: 'bersihriwayat'/);
+});
