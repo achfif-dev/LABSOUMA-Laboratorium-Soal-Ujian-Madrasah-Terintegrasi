@@ -28,7 +28,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import {
-  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, ChevronDown, CheckSquare, Square
+  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Search, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, ChevronDown, CheckSquare, Square
 } from 'lucide-react';
 import * as NV from './lib/navigasi.js';
 // Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).

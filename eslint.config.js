@@ -21,6 +21,7 @@ export default [
       'no-dupe-keys': 'error',
       'react/jsx-uses-vars': 'error',
       'react/jsx-uses-react': 'error',
+      'react/jsx-no-undef': 'error', // komponen JSX yang tidak diimpor/didefinisikan: no-undef biasa TIDAK menangkapnya
       'react-hooks/rules-of-hooks': 'error',
       // Peringatan: patut dibersihkan, tetapi tidak memblokir.
       'no-unused-vars': ['warn', { args: 'none', ignoreRestSiblings: true, caughtErrors: 'none', varsIgnorePattern: '^_' }],
