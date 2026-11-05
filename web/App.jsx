@@ -1487,9 +1487,12 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
 }
 function Review({ list, all = [], onApprove, onRevise, me }) {
   const cfg = useCfg();
+  const alur = useAlur();
   const kel = useMemo(() => PK.kelompokPaket(list, all), [list, all]);
   if (me.role !== 'editor' && me.role !== 'admin') return <Empty icon={ShieldCheck} title="Tab ini untuk editor" text="Hanya editor dan admin yang dapat meninjau soal. Pantau status soal Anda di tab Bank Soal dengan filter status." />;
-  if (!list.length) return <Empty icon={ClipboardCheck} title="Tidak ada soal yang menunggu review" text="Soal yang dikirim dari tab Penyusunan Soal akan muncul di sini." />;
+  // Editor baru belum punya tahap: pada mapel bertahap antreannya kosong. Beri tahu sebabnya, jangan tampak seolah tidak ada pekerjaan.
+  const belumDitugaskan = alur.aktif && me.role === 'editor' && AL.tahapDitugaskan(me).length === 0;
+  if (!list.length) return <Empty icon={ClipboardCheck} title={belumDitugaskan ? 'Anda belum ditugaskan ke tahap editor' : 'Tidak ada soal yang menunggu review'} text={belumDitugaskan ? 'Peninjauan bertahap sedang aktif. Soal pada mapel bertahap baru muncul setelah admin menugaskan Anda ke tahap 1, 2, atau 3 (menu Pengguna).' : 'Soal yang dikirim dari tab Penyusunan Soal akan muncul di sini.'} />;
   return (
     <div className="fade-in space-y-5">
       {kel.paket.map((g) => (
@@ -1532,6 +1535,8 @@ function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
     return [...m].map(([kode, label]) => ({ kode, label }));
   })();
   const paketOpsi = useMemo(() => PK.kelompokPaket(qs).paket, [qs]);
+  // Filter penyusun yang tersimpan di perangkat tetapi penyusunnya tidak ada di data yang dimuat (mis. akun lain di perangkat yang sama): kembali ke Semua, bukan menyaring diam-diam.
+  useEffect(() => { if (f.penyusun && qs.length && !penyusunOpsi.some((p) => p.uid === f.penyusun)) setF({ ...f, penyusun: '' }); }, [f.penyusun, penyusunOpsi, qs.length]);
   // Pilihan paket yang tersimpan tetapi sudah tidak ada (paket dihapus atau belum Approved di Ekspor): kembali ke Semua.
   useEffect(() => { if (f.paket && qs.length && !paketOpsi.some((g) => g.id === f.paket)) setF({ ...f, paket: '' }); }, [f.paket, paketOpsi, qs.length]);
   return (
@@ -1571,7 +1576,7 @@ function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
     </div>
   );
 }
-const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
+const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || !alur.aktif || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
 
 /* ---------- Tab 3: Bank ---------- */
 /* ---------- Riwayat versi soal (hanya baca; versi lama bisa dimuat kembali ke form, belum tersimpan sampai penyusun menyimpan) ---------- */
