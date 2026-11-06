@@ -1,11 +1,36 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import ImporExcel from './ImporExcel.jsx';
-import AnalisisButir from './AnalisisButir.jsx';
-import KitabImpor from './KitabImpor.jsx';
-import PemilihKitab from './PemilihKitab.jsx';
-import PembacaKitab from './PembacaKitab.jsx';
-import TanyaKitab from './TanyaKitab.jsx';
-import PeriksaRujukan from './PeriksaRujukan.jsx';
+// Tab dan panel besar dimuat saat pertama dibuka, bukan saat aplikasi dibuka (memangkas unduhan awal, penting di HP).
+// Kegagalan memuat potongan (mis. offline dan belum pernah dibuka) hanya menampilkan pesan di panel itu, bukan merobohkan seluruh aplikasi.
+class GagalMuatPanel extends React.Component {
+  constructor(p) { super(p); this.state = { gagal: false }; }
+  static getDerivedStateFromError() { return { gagal: true }; }
+  render() {
+    if (!this.state.gagal) return this.props.children;
+    return (
+      <div role="alert" className="rounded-xl border border-line bg-white p-4 text-sm text-mute">
+        Bagian ini gagal dimuat (mungkin sinyal terputus).{' '}
+        <button type="button" className="font-semibold text-ink underline" onClick={() => this.setState({ gagal: false })}>Coba lagi</button>
+      </div>
+    );
+  }
+}
+const lazyPanel = (muat) => {
+  const C = React.lazy(() => muat().catch((e) => { throw e; }));
+  return function PanelMalas(props) {
+    return (
+      <GagalMuatPanel>
+        <React.Suspense fallback={<div className="p-4 text-sm text-mute" aria-busy="true">Memuat…</div>}><C {...props} /></React.Suspense>
+      </GagalMuatPanel>
+    );
+  };
+};
+const ImporExcel = lazyPanel(() => import('./ImporExcel.jsx'));
+const AnalisisButir = lazyPanel(() => import('./AnalisisButir.jsx'));
+const KitabImpor = lazyPanel(() => import('./KitabImpor.jsx'));
+const PemilihKitab = lazyPanel(() => import('./PemilihKitab.jsx'));
+const PembacaKitab = lazyPanel(() => import('./PembacaKitab.jsx'));
+const TanyaKitab = lazyPanel(() => import('./TanyaKitab.jsx'));
+const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
 import { samaKitab, cariKitabDi } from './lib/kitabNama.js';
@@ -23,7 +48,7 @@ import * as CS from './lib/cariSoal.js';
 import * as SH from './lib/serahTerima.js';
 import * as SK from './lib/saringKitab.js';
 import * as AL from './lib/alurSoal.js';
-import { buatNaskah } from './lib/naskahDocx.js';
+import { muatDocx } from './lib/muatDocx.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -241,8 +266,7 @@ const buildCsvRdm = (qs, catatan = '') =>
   qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, q.paket, q.dawr, q.cakupan, q.urut, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
 const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
-  const D = window.docx;
-  if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+  const D = await muatDocx();
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
   const T = (text, o = {}) => new TextRun({ text: String(text || ''), font: 'Calibri', size: 24, ...o });
   const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
@@ -1876,7 +1900,7 @@ function Export({ all, toast }) {
     if (!naskah) return;
     setBusy(true);
     try {
-      const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+      const [D, { buatNaskah }] = await Promise.all([muatDocx(), import('./lib/naskahDocx.js')]);
       let logo = null;
       try { const r = await fetch('/logo-madrasah.png'); if (r.ok) logo = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* tanpa logo: kop tetap tercetak */ }
       saveFile(NK.namaBerkasNaskah(nm, kunci), await D.Packer.toBlob(buatNaskah(D, naskah, nm, { kunci, logo, pegon: nkUbah ? (t) => nkUbah(t).pegon : null, narasi: nkNarasi })));
@@ -2163,7 +2187,7 @@ function FokusUjian({ all, toast }) {
     try {
       if (mode === 'csv') simpanBerkas(`kisi-kisi-${slug}.csv`, new Blob([K.kisiKeCsv(kisi, catatan)], { type: 'text/csv;charset=utf-8' }));
       else {
-        const D = window.docx; if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+        const D = await muatDocx();
         simpanBerkas(`kisi-kisi-${slug}-${mode}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, mode, catatan)));
       }
       toast('File diunduh.');
@@ -3303,9 +3327,8 @@ const simpanBerkas = (nama, blob) => {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 };
 
-const pegonDocx = (teks) => {
-  const D = window.docx;
-  if (!D) throw new Error('Pustaka DOCX tidak termuat.');
+const pegonDocx = async (teks) => {
+  const D = await muatDocx();
   const paras = String(teks || '').split(/\n+/).filter((p) => p.trim()).map((p) => new D.Paragraph({
     bidirectional: true, spacing: { after: 160 },
     children: [new D.TextRun({ text: p, font: 'Traditional Arabic', size: 36, rightToLeft: true })],
