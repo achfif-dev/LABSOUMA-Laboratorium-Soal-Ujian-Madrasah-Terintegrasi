@@ -33,11 +33,12 @@ const AiConfig = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({
 const AppCfgAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AppCfgAdmin })));
 const AlurEditorAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AlurEditorAdmin })));
 const PemeliharaanAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.PemeliharaanAdmin })));
+const Export = lazyPanel(() => import('./ExportTab.jsx'));
 const TanyaKitab = lazyPanel(() => import('./TanyaKitab.jsx'));
 const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
-import { samaKitab, cariKitabDi } from './lib/kitabNama.js';
+import { samaKitab } from './lib/kitabNama.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
 import * as DUP from './lib/duplikat.js';
@@ -45,7 +46,6 @@ import * as CD from './lib/cadanganDrive.js';
 import * as DR from './lib/drive.js';
 import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
-import * as NM from './lib/naskahMeta.js';
 import * as PK from './lib/paket.js';
 import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
@@ -53,73 +53,33 @@ import * as SH from './lib/serahTerima.js';
 import * as SK from './lib/saringKitab.js';
 import * as AL from './lib/alurSoal.js';
 import { muatDocx } from './lib/muatDocx.js';
-import { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
+import { Bt, FALLBACK_CFG, KEYS, LEVEL, STATUS, bacaPref, cariKitab, ejaanTersimpan, levelLabel, namaArabKitab, optsOf, mapelUntuk } from './lib/dasar.js';
+
+import { AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
-import {
-  BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, FileCode, Loader2, Filter, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, CheckSquare, Square
-} from 'lucide-react';
+import { BarChart3, BookOpen, LibraryBig, PenLine, ClipboardCheck, Library, Download, Sparkles, Save, Send, Check, X, Copy, Trash2, Pencil, FileText, FileSpreadsheet, Loader2, Quote, RotateCcw, AlertTriangle, CheckCircle2, Info, Layers, Users, LogOut, ShieldCheck, LogIn, Languages, Mic, Camera, Upload, Menu, CloudUpload, ListChecks, Target, LayoutDashboard, RefreshCw, Settings, CheckSquare, Square } from 'lucide-react';
 import * as NV from './lib/navigasi.js';
 // Ikon grup navigasi (grup dengan satu tab memakai ikon tab itu sendiri).
 const IKON_GRUP = { susun: PenLine, bank: Library, ujian: ListChecks, kelola: Settings, lainnya: Menu };
 
-/* ---------- Data & constants ---------- */
-const TINGKAT = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah'];
-const MAPEL = ['Fiqih', 'Akidah', 'Akhlak', 'Tarikh (SKI)', "Qur'an Hadits", 'Bahasa Arab', 'Lainnya'];
-// Cadangan bila /api/app-config belum terbaca. Nilai sebenarnya diatur admin di menu Konfigurasi (src/appConfig.js).
-const FALLBACK_CFG = {
-  tingkat: TINGKAT.map((n) => ({ nama: n, label: n, singkat: '', kelas: [], aktif: true })),
-  mapel: MAPEL.map((n) => ({ nama: n, tingkat: TINGKAT, aktif: true })),
-  kitab: ['Fathul Qarib', 'Kifayatul Akhyar', 'Safinatun Naja', 'Taqrib (Matan Abu Syuja)', "Arba'in Nawawi", 'Riyadhus Shalihin', "Ta'lim al-Muta'allim", 'Aqidatul Awam']
-    .map((n) => ({ nama: n, pengarang: '', mapel: '', tingkat: TINGKAT, aktif: true })),
-};
-// Bentuk soal (public/bentuk.js, window.Bentuk). Dinamai Bt agar tidak bentrok dengan window.Bentuk. Bila modul tidak termuat, semua soal dibaca sebagai pilihan ganda.
-const BT_NOOP = {
-  BENTUK: { pilgan: { id: 'pilgan', label: 'Pilihan ganda', singkat: 'Pilgan', opsi: ['A', 'B', 'C', 'D', 'E'], jawaban: false, rubrik: false, ket: '', contoh: '' } }, BENTUK_IDS: ['pilgan'], OPSI_BENARSALAH: { A: 'Benar', B: 'Salah' },
-  bentukDari: () => 'pilgan', punyaOpsi: () => true, kunciOpsi: () => ['A', 'B', 'C', 'D', 'E'], bentukUntukTingkat: () => ['pilgan'], dianjurkan: () => true, adaPenanda: () => true,
-  kunciTeks: (q) => String((q && q.kunci) || ''), selaraskan: (q) => q,
-  periksaSoal: (q) => { const e = []; const t = (v) => String(v || '').trim(); if (!t(q.pertanyaan)) e.push('Pertanyaan belum diisi.'); if (['A', 'B', 'C', 'D', 'E'].filter((k) => t((q.opsi || {})[k])).length < 2) e.push('Isi minimal dua opsi jawaban.'); if (!q.kunci) e.push('Pilih kunci jawaban.'); else if (!t((q.opsi || {})[q.kunci])) e.push(`Opsi ${q.kunci} kosong, tetapi dipilih sebagai kunci.`); if (!t(q.pembahasan)) e.push('Pembahasan atau dalil pendukung belum diisi.'); return e; },
-};
-const Bt = new Proxy({}, { get: (_, k) => (window.Bentuk || BT_NOOP)[k] });
-const AppCfgCtx = React.createContext(FALLBACK_CFG);
-// Catatan wajib pada setiap ekspor ('' untuk tim penyusun; terisi untuk peran Ustadz, yang soalnya tidak ditelaah editor). Lihat web/lib/ustadz.js.
-const CatatanCtx = React.createContext('');
-const useCfg = () => React.useContext(AppCfgCtx);
-// Alur peninjauan bertahap (diatur admin; lihat web/lib/alurSoal.js). Bawaan: nonaktif = satu editor mana pun, seperti sebelumnya.
-const AlurCtx = React.createContext(AL.ALUR_BAWAAN);
-const useAlur = () => React.useContext(AlurCtx);
 // Kamus Pegon bersama (Firestore kamusPegon). docs: dokumen mentah untuk daftar; ver: naik tiap kali kamus berubah agar Pegon dirender ulang.
 const KamusCtx = React.createContext({ docs: [], ver: 0, err: null, canShare: false, simpan: async () => {}, hapus: async () => {} });
 const useKamus = () => React.useContext(KamusCtx);
 const tingkatAktif = (cfg) => cfg.tingkat.filter((t) => t.aktif);
 const labelTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).label) || nama;
-const mapelUntuk = (cfg, tingkat) => cfg.mapel.filter((m) => m.aktif && (!tingkat || m.tingkat.includes(tingkat))).map((m) => m.nama);
 // Kitab di dropdown = kitab aktif di Konfigurasi untuk tingkat dan mapel terpilih. Kitab "(tanpa mapel)" berlaku untuk semua mapel.
 // Tanpa cadangan: kalau tidak ada yang cocok, daftar kosong (pengguna bisa memilih "Lainnya").
 // Kelas dan periode ujian (opsional) mempersempit lagi lewat penempatan kitab per kelas (public/ujian.js).
 const kitabUntuk = (cfg, tingkat, mapel, kelas = '', periode = '') =>
   cfg.kitab.filter((k) => k.aktif && (!tingkat || k.tingkat.includes(tingkat)) && (!mapel || !k.mapel || k.mapel === mapel) && Uj.kitabCocok(k, { tingkat, kelas, periode }));
 const KITAB_LAIN = '__lain__';
-const cariKitab = (cfg, nama) => cariKitabDi(cfg.kitab, nama); // definisi "kitab yang sama" satu untuk semua tab: web/lib/kitabNama.js
-const namaArabKitab = (cfg, nama) => (cariKitab(cfg, nama) || {}).namaArab || '';
 const labelArabTingkat = (cfg, nama) => ((cfg.tingkat.find((t) => t.nama === nama) || {}).labelArab) || '';
 // Teks Arab di tengah kalimat Latin: font Amiri, arah RTL terisolasi.
 const ArNama = ({ children, className = '' }) => (children ? <span dir="rtl" lang="ar" className={'ar-nama ' + className}>{children}</span> : null);
 // Tambahan setelah rujukan kitab: " · نama Arab" bila kitab ada di katalog dan punya nama Arab.
 const RefArab = ({ q }) => { const a = namaArabKitab(useCfg(), q.nama); return a ? <> · <ArNama>{a}</ArNama></> : null; };
-const LEVEL = [
-  { v: 'L1', label: 'L1 – Ingatan' },
-  { v: 'L2', label: 'L2 – Aplikasi' },
-  { v: 'L3', label: 'L3 – HOTS' },
-];
-const KEYS = ['A', 'B', 'C', 'D', 'E'];
-const STATUS = {
-  draft:    { label: 'Draft',          cls: 'bg-soft text-mute' },
-  pending:  { label: 'Pending Review', cls: 'bg-warn-bg text-warn' },
-  approved: { label: 'Approved',       cls: 'bg-ok-bg text-ok' },
-  revision: { label: 'Perlu Revisi',   cls: 'bg-bad-bg text-bad' },
-};
 const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', ustadz: 'Ustadz', nonaktif: 'Nonaktif' };
 const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'];
 
@@ -135,14 +95,6 @@ const emptyForm = () => ({
   ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
 });
 
-// Baca pengaturan kecil (filter, format): hanya kunci yang dikenal dan bertipe sama yang dipakai; selebihnya nilai awal.
-const bacaPref = (nama, awal) => {
-  const s = Draft.read(nama); if (!s || typeof s !== 'object') return awal;
-  const o = { ...awal }; for (const k of Object.keys(awal)) if (typeof s[k] === typeof awal[k]) o[k] = s[k];
-  return o;
-};
-// Ejaan huruf Pegon (Al-Qolam '24 atau klasik) yang dipakai tab Pegonizer, pratinjau Pegonkan, dan ekspor Soal Pegon; disimpan per perangkat.
-const ejaanTersimpan = () => (window.Pegon ? window.Pegon.ejaanSah(bacaPref('pegonEjaan', { ejaan: 'alqolam' }).ejaan) : 'alqolam');
 function useEjaan() {
   const [e, setE] = useState(ejaanTersimpan);
   const ubah = (v) => { const s = window.Pegon ? window.Pegon.ejaanSah(v) : 'alqolam'; setE(s); Draft.save('pegonEjaan', { ejaan: s }); };
@@ -186,219 +138,13 @@ function DraftNote({ names, className = '' }) {
   return <p role="status" className={'text-xs text-mute ' + className}>Draf otomatis tersimpan di perangkat ini · {new Date(st.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>;
 }
 
-/* ---------- Export builders ---------- */
-const optsOf = (q) => KEYS.filter((k) => (q.opsi[k] || '').trim());
-const levelLabel = (v) => (LEVEL.find((l) => l.v === v) || {}).label || v;
-// Sel berawalan = + - @ (atau tab/CR) dibaca Excel/Sheets sebagai rumus: awali apostrof agar tampil sebagai teks biasa (OWASP CSV injection).
-const csvEsc = (s) => { let t = String(s == null ? '' : s); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
-const giftEsc = (s) => String(s || '').replace(/([\\~=#{}:])/g, '\\$1').replace(/\r?\n/g, ' '); // "\\" ikut di-escape (GIFT memakainya sebagai pelepas)
-const xmlEsc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const fullQ = (q) => [q.stimulus, q.pertanyaan].filter(Boolean).join(' ');
 
-// Bentuk non-pilihan di format Moodle: benar-salah -> {TRUE}/{FALSE}, isian -> jawaban singkat, uraian -> esai (tanpa jawaban otomatis).
-// Format GIFT dan Moodle XML untuk bentuk baru ini belum diuji di Moodle sungguhan; coba impor beberapa soal dulu.
-const giftJawaban = (q) => {
-  const b = Bt.bentukDari(q);
-  if (b === 'benarsalah') return q.kunci === 'A' ? 'TRUE' : 'FALSE';
-  if (b === 'isian') return String(q.jawaban || '').split(/\s*\/\s*/).filter(Boolean).map((x) => '=' + giftEsc(x)).join(' ');
-  return '';
-};
-const umpanUraian = (q) => [q.pembahasan, q.jawaban && `Jawaban model: ${q.jawaban}`, q.rubrik && `Pedoman penskoran: ${q.rubrik}`].filter(Boolean).join(' | ');
 
-const buildGift = (qs, catatan = '') =>
-  '// LABSOUMA, format Moodle GIFT\n' + (catatan ? `// ${catatan}\n` : '') + '\n' +
-  qs.map((q, i) => {
-    const b = Bt.bentukDari(q);
-    const o = optsOf(q);
-    const kepala = `// ${q.mapel} | ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? ' | ' + q.ujian : ''} | ${levelLabel(q.level)} | ${Bt.BENTUK[b].label} | ${q.nama || '-'} hal. ${q.hal || '-'}\n` +
-      `::Soal ${i + 1} ${q.mapel}::${giftEsc(fullQ(q))}`;
-    if (b === 'benarsalah' || b === 'isian') return `${kepala}{${giftJawaban(q)}####${giftEsc(q.pembahasan)}}`;
-    if (b === 'uraian') return `${kepala}{####${giftEsc(umpanUraian(q))}}`;
-    return `${kepala}{\n` +
-      o.map((k) => `${k === q.kunci ? '=' : '~'}${giftEsc(q.opsi[k])}`).join('\n') +
-      `\n####${giftEsc(q.pembahasan)}\n}`;
-  }).join('\n\n') + '\n' + (catatan ? `\n// ${catatan}\n` : '');
 
-const buildMoodleXml = (qs, catatan = '') =>
-  '<?xml version="1.0" encoding="UTF-8"?>\n' + (catatan ? `<!-- ${xmlEsc(catatan)} -->\n` : '') + '<quiz>\n' +
-  qs.map((q, i) => {
-    const b = Bt.bentukDari(q);
-    const tipe = b === 'benarsalah' ? 'truefalse' : b === 'isian' ? 'shortanswer' : b === 'uraian' ? 'essay' : 'multichoice';
-    const kepala = `  <question type="${tipe}">\n    <name><text>Soal ${i + 1} ${xmlEsc(q.mapel)}</text></name>\n` +
-      `    <questiontext format="html"><text><![CDATA[<p>${xmlEsc(fullQ(q))}</p>]]></text></questiontext>\n` +
-      `    <generalfeedback format="html"><text><![CDATA[${xmlEsc(b === 'uraian' ? q.pembahasan : q.pembahasan)}]]></text></generalfeedback>\n` +
-      '    <defaultgrade>1</defaultgrade>\n';
-    if (b === 'benarsalah') {
-      return kepala + `    <penalty>1</penalty>\n    <answer fraction="${q.kunci === 'A' ? 100 : 0}" format="moodle_auto_format"><text>true</text></answer>\n    <answer fraction="${q.kunci === 'B' ? 100 : 0}" format="moodle_auto_format"><text>false</text></answer>\n  </question>`;
-    }
-    if (b === 'isian') {
-      return kepala + '    <usecase>0</usecase>\n' +
-        String(q.jawaban || '').split(/\s*\/\s*/).filter(Boolean).map((x) => `    <answer fraction="100" format="moodle_auto_format"><text>${xmlEsc(x)}</text></answer>`).join('\n') + '\n  </question>';
-    }
-    if (b === 'uraian') {
-      return kepala + '    <responseformat>editor</responseformat>\n    <responserequired>1</responserequired>\n    <responsefieldlines>10</responsefieldlines>\n' +
-        `    <graderinfo format="html"><text><![CDATA[${xmlEsc(`Jawaban model: ${q.jawaban || '-'}${q.rubrik ? ' | Pedoman penskoran: ' + q.rubrik : ''}`)}]]></text></graderinfo>\n  </question>`;
-    }
-    return kepala + '    <single>true</single>\n    <shuffleanswers>1</shuffleanswers>\n    <answernumbering>ABCD</answernumbering>\n' +
-      optsOf(q).map((k) => `    <answer fraction="${k === q.kunci ? 100 : 0}" format="html"><text>${xmlEsc(q.opsi[k])}</text></answer>`).join('\n') +
-      '\n  </question>';
-  }).join('\n') + '\n</quiz>\n';
 
-// Google Forms: kolom Kunci Jawaban berisi huruf (pilihan), Benar/Salah, atau jawaban bertulis (isian/uraian). Pedoman skor uraian ikut di Pembahasan.
-// Catatan wajib (peran Ustadz) masuk sebagai kolom terakhir 'Catatan', bukan baris tambahan, supaya tidak terbaca sebagai soal saat diimpor.
-const buildCsvForms = (qs, catatan = '') =>
-  '\uFEFF' + ['Pertanyaan', 'Opsi A', 'Opsi B', 'Opsi C', 'Opsi D', 'Opsi E', 'Kunci Jawaban', 'Pembahasan', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
-  qs.map((q) => [fullQ(q), ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), Bt.bentukDari(q) === 'uraian' ? umpanUraian(q) : q.pembahasan, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
-const buildCsvRdm = (qs, catatan = '') =>
-  '\uFEFF' + ['No', 'Tingkat', 'Mapel', 'Level', 'Stimulus', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan', 'Kitab', 'Kitab (Arab)', 'Juz', 'Halaman', 'Indikator', 'Kelas', 'Ujian', 'Bab', 'Bentuk', 'Jawaban', 'Rubrik', 'Paket', 'Dauri', 'Batas materi', 'No. paket', ...(catatan ? ['Catatan'] : [])].map(csvEsc).join(',') + '\n' +
-  qs.map((q, i) => [i + 1, q.tingkat, q.mapel, levelLabel(q.level), q.stimulus, q.pertanyaan, ...KEYS.map((k) => q.opsi[k]), Bt.kunciTeks(q), q.pembahasan, q.nama, q.namaArab, q.juz, q.hal, q.indikator, q.kelas, q.ujian, q.bab, Bt.BENTUK[Bt.bentukDari(q)].label, q.jawaban, q.rubrik, q.paket, q.dawr, q.cakupan, q.urut, ...(catatan ? [catatan] : [])].map(csvEsc).join(',')).join('\n') + '\n';
 
-const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
-  const D = await muatDocx();
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
-  const T = (text, o = {}) => new TextRun({ text: String(text || ''), font: 'Calibri', size: 24, ...o });
-  const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
-  const AR = (text, size = 40) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children: [new TextRun({ text: String(text || ''), font: 'Traditional Arabic', size, rightToLeft: true })] });
-  const kids = [];
-  const komen = []; // komentar Word (hanya mode Pegon)
-  const date = new Date().toLocaleDateString('id-ID', { dateStyle: 'long' });
-  kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(mode === 'kartu' ? 'KARTU SOAL' : 'NASKAH SOAL', { bold: true, size: 32 })] }));
-  kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date}`, { size: 20, color: '555555' })] }));
-  const border = { style: BorderStyle.SINGLE, size: 6, color: '0F6B4F' };
-  const borders = { top: border, bottom: border, left: border, right: border };
 
-  if (mode === 'pegon' || mode === 'pegonlatin') {
-    // Teks soal dialihaksarakan dengan mesin Pegon (aksara Arab, angka, nominal, URL tidak diubah). Kata yang diragukan
-    // mesin disorot kuning dan, bila pustaka mendukung, diberi komentar Word berisi alasannya.
-    // 'pegonlatin' menambahkan baris Latin asli (abu-abu) di bawah tiap paragraf Pegon agar mudah diperiksa.
-    const dua = mode === 'pegonlatin';
-    const FONT = 'Traditional Arabic';
-    const un = (h) => String(h || '').replace(/<br>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    const bisaKomen = !!(D.CommentRangeStart && D.CommentRangeEnd && D.CommentReference);
-    const runs = (text, o = {}) => {
-      const { html } = window.Pegon.convertTextEjaan(String(text || '').replace(/\s*\n+\s*/g, ' '), ejaan);
-      const out = []; const re = /<span class="flag"(?: title="([^"]*)")?[^>]*>(.*?)<\/span>/g; let last = 0, m;
-      const push = (t, flag, note) => {
-        if (!t) return;
-        const run = new TextRun({ text: un(t), font: FONT, size: 32, rightToLeft: true, ...(flag ? { highlight: 'yellow' } : {}), ...o });
-        if (flag && bisaKomen) {
-          const id = komen.length;
-          komen.push({ id, author: 'Pegonizer', initials: 'PG', date: new Date(), children: [new Paragraph({ children: [new TextRun({ text: un(note) || 'perlu diperiksa' })] })] });
-          out.push(new D.CommentRangeStart(id), run, new D.CommentRangeEnd(id), new TextRun({ children: [new D.CommentReference(id)] }));
-        } else out.push(run);
-      };
-      while ((m = re.exec(html))) { push(html.slice(last, m.index)); push(m[2], true, m[1]); last = re.lastIndex; }
-      push(html.slice(last));
-      return out;
-    };
-    const RP = (children, o = {}) => new Paragraph({ bidirectional: true, spacing: { after: 120 }, children, ...o });
-    const LP = (t, o = {}) => new Paragraph({ spacing: { after: 120 }, children: [T(t, { size: 20, color: '777777', italics: true })], ...o });
-    const adaLatin = (t) => /[A-Za-z]/.test(t); // baris Arab murni tidak perlu diulang
-    const baris = (t) => String(t || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
-    const HURUF = { A: 'أ', B: 'ب', C: 'ج', D: 'د', E: 'ه' };
-    const NUM = (t, o = {}) => new TextRun({ text: t, font: FONT, size: 32, rightToLeft: true, ...o });
-    // Satu entri per baris sumber: stimulus dan pertanyaan tetap paragraf terpisah, baris baru dipertahankan.
-    const blok = (items, awalan, o = {}, oLatin = {}) => {
-      items.forEach((ln, idx) => {
-        kids.push(RP([...(idx === 0 && awalan ? [awalan] : []), ...runs(ln)], o));
-        if (dua && adaLatin(ln)) kids.push(LP(ln, oLatin));
-      });
-    };
-    kids.length = 0;
-    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [T(dua ? 'NASKAH SOAL (PEGON + LATIN)' : 'NASKAH SOAL (PEGON)', { bold: true, size: 32 })] }));
-    kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 240 }, children: [T(`LABSOUMA · ${qs.length} soal · ${date} · kata bersorot kuning perlu diperiksa${bisaKomen ? ' (lihat komentar)' : ''}`, { size: 20, color: '555555' })] }));
-    qs.forEach((q, i) => {
-      const items = [...baris(q.stimulus), ...baris(q.pertanyaan)];
-      blok(items, NUM(`${i + 1}. `, { bold: true }), { keepNext: true });
-      optsOf(q).forEach((k) => {
-        kids.push(RP([NUM(`${HURUF[k]}. `), ...runs(q.opsi[k])], { indent: { start: 400 } }));
-        if (dua) kids.push(LP(`${k}. ${q.opsi[k]}`, { indent: { left: 400 } }));
-      });
-      kids.push(P(T('')));
-    });
-    kids.push(new Paragraph({ pageBreakBefore: true, bidirectional: true, spacing: { after: 160 }, children: runs('Kunci jawaban dan pembahasan', { bold: true }) }));
-    qs.forEach((q, i) => {
-      const lines = baris(q.pembahasan);
-      const bt = Bt.bentukDari(q);
-      const kLabel = bt === 'pilgan' || bt === 'lanjutan' ? (HURUF[q.kunci] || q.kunci) : bt === 'benarsalah' ? Bt.kunciTeks(q) : '';
-      if (Bt.BENTUK[bt].jawaban) {
-        kids.push(RP([NUM(`${i + 1}. `, { bold: true }), ...runs(bt === 'uraian' ? 'Jawaban model:' : 'Jawaban:', { bold: true }), ...runs(' ' + (q.jawaban || ''))]));
-        if (bt === 'uraian' && q.rubrik) { kids.push(RP(runs('Pedoman penskoran:', { bold: true }), { indent: { start: 400 } })); baris(q.rubrik).forEach((ln) => kids.push(RP(runs(ln), { indent: { start: 400 } }))); }
-        lines.forEach((ln) => { kids.push(RP(runs(ln), { indent: { start: 400 } })); if (dua && adaLatin(ln)) kids.push(LP(ln, { indent: { left: 400 } })); });
-      } else {
-        kids.push(RP([NUM(`${i + 1}. ${kLabel}  `, { bold: true }), ...(lines[0] ? runs(lines[0]) : [])]));
-        if (dua && lines[0] && adaLatin(lines[0])) kids.push(LP(lines[0]));
-      }
-      (Bt.BENTUK[bt].jawaban ? [] : lines.slice(1)).forEach((ln) => { kids.push(RP(runs(ln), { indent: { start: 400 } })); if (dua && adaLatin(ln)) kids.push(LP(ln, { indent: { left: 400 } })); });
-      const kecil = { size: 26, color: '555555' };
-      if (q.nama) kids.push(RP(runs(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, kecil), { indent: { start: 400 } }));
-      if (q.namaArab) kids.push(AR(q.namaArab, 28));
-      if (q.indikator) kids.push(RP(runs(`Indikator: ${q.indikator}`, kecil), { indent: { start: 400 } }));
-      if (q.teks) kids.push(AR(q.teks));
-    });
-  } else if (mode === 'daftar') {
-    qs.forEach((q, i) => {
-      kids.push(P([T(`${i + 1}. `, { bold: true }), T(fullQ(q))], { keepNext: true }));
-      optsOf(q).forEach((k) => kids.push(P(T(`${k}. ${q.opsi[k]}`), { indent: { left: 400 } })));
-      kids.push(P(T('')));
-    });
-    kids.push(new Paragraph({ pageBreakBefore: true, children: [T('KUNCI JAWABAN & PEMBAHASAN', { bold: true, size: 28 })], spacing: { after: 160 } }));
-    qs.forEach((q, i) => {
-      const bt = Bt.bentukDari(q);
-      kids.push(P([T(`${i + 1}. ${bt === 'uraian' ? '' : Bt.kunciTeks(q)}`, { bold: true }), T(`  ${q.pembahasan}`)]));
-      if (bt === 'uraian') {
-        kids.push(P([T('Jawaban model: ', { bold: true }), T(q.jawaban)], { indent: { left: 400 } }));
-        if (q.rubrik) kids.push(P([T('Pedoman penskoran: ', { bold: true }), T(q.rubrik)], { indent: { left: 400 } }));
-      }
-      if (q.nama) kids.push(P(T(`Rujukan: ${q.nama}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555', italics: true }), { indent: { left: 400 } }));
-      if (q.namaArab) kids.push(AR(q.namaArab, 32));
-    });
-  } else {
-    qs.forEach((q, i) => {
-      const cell = (children, shade) => new TableCell({ borders, margins: { top: 100, bottom: 100, left: 160, right: 160 }, width: { size: 100, type: WidthType.PERCENTAGE }, shading: shade ? { fill: shade } : undefined, children });
-      const rows = [
-        new TableRow({ children: [cell([P(T(`No. ${i + 1}  |  ${q.mapel}  |  ${q.tingkat}${q.kelas ? ' kelas ' + q.kelas : ''}${q.ujian ? '  |  ' + q.ujian : ''}  |  ${levelLabel(q.level)}${Bt.bentukDari(q) !== 'pilgan' ? '  |  ' + Bt.BENTUK[Bt.bentukDari(q)].label : ''}`, { bold: true, color: 'FFFFFF' }))], '0F6B4F')] }),
-        new TableRow({ children: [cell([
-          ...(q.stimulus ? [P(T(q.stimulus, { italics: true }))] : []),
-          P(T(q.pertanyaan, { bold: true })),
-          ...optsOf(q).map((k) => P(T(`${k}. ${q.opsi[k]}`), { indent: { left: 300 } })),
-        ])] }),
-        new TableRow({ children: [cell([
-          ...(Bt.BENTUK[Bt.bentukDari(q)].jawaban
-            ? [P([T(Bt.bentukDari(q) === 'uraian' ? 'Jawaban model: ' : 'Jawaban: ', { bold: true }), T(q.jawaban, { bold: true, color: '0F6B4F' })]), ...(q.rubrik ? [P([T('Pedoman penskoran: ', { bold: true }), T(q.rubrik)])] : [])]
-            : [P([T('Kunci: ', { bold: true }), T(Bt.kunciTeks(q), { bold: true, color: '0F6B4F' })])]),
-          P([T('Pembahasan: ', { bold: true }), T(q.pembahasan)]),
-          ...(q.indikator ? [P([T('Indikator: ', { bold: true }), T(q.indikator)])] : []),
-        ], 'E2F1E9')] }),
-        new TableRow({ children: [cell([
-          P(T(`Rujukan: ${q.nama || '-'}${q.juz ? ', juz ' + q.juz : ''}${q.hal ? ', hal. ' + q.hal : ''}`, { size: 20, color: '555555' })),
-          ...(q.namaArab ? [AR(q.namaArab, 32)] : []),
-          ...(q.teks ? [AR(q.teks)] : []),
-        ])] }),
-      ];
-      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }));
-      kids.push(P(T('')));
-    });
-  }
-  // Catatan wajib (peran Ustadz): satu baris di bawah judul dan di kaki setiap halaman. Judul dan subjudul selalu dua paragraf pertama di semua mode.
-  const kaki = catatan && D.Footer ? { footers: { default: new D.Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [T(catatan, { size: 18, italics: true, color: '555555' })] })] }) } } : {};
-  if (catatan) kids.splice(2, 0, new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [T(catatan, { size: 20, italics: true, color: '8A4B00' })] }));
-  const doc = new Document({ ...(komen.length ? { comments: { children: komen } } : {}), sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, ...kaki, children: kids }] });
-  return Packer.toBlob(doc);
-};
-
-const FORMATS = [
-  { id: 'pegon', label: 'Soal Pegon (DOCX)', sub: 'Teks soal ditulis Pegon, kata ragu disorot', icon: Languages, ext: 'docx' },
-  { id: 'pegonlatin', label: 'Soal Pegon + Latin (DOCX)', sub: 'Pegon dengan baris Latin asli di bawahnya, untuk diperiksa', icon: Languages, ext: 'docx' },
-  { id: 'docx',  label: 'Word (DOCX)',        sub: 'Naskah soal + kunci jawaban',   icon: FileText,        ext: 'docx' },
-  { id: 'naskah', label: 'Naskah Ujian IMDA (DOCX)', sub: 'Template Dauri I–IV: tiga bagian, total nilai 100', icon: FileText, ext: 'docx' },
-  { id: 'kartu', label: 'Kartu Soal (DOCX)',  sub: 'Satu kartu per soal, ada teks kitab', icon: Layers,    ext: 'docx' },
-  { id: 'gift',  label: 'Moodle GIFT',        sub: 'Impor via Question bank',       icon: FileCode,        ext: 'txt', build: buildGift },
-  { id: 'mxml',  label: 'Moodle XML',         sub: 'Disimpan sebagai .txt, ganti ke .xml', icon: FileCode, ext: 'txt', build: buildMoodleXml },
-  { id: 'gforms', label: 'CSV Google Forms',  sub: 'Pertanyaan, opsi, kunci',       icon: FileSpreadsheet, ext: 'csv', build: buildCsvForms },
-  { id: 'rdm',   label: 'CSV RDM / Excel',    sub: 'Semua kolom metadata',          icon: FileSpreadsheet, ext: 'csv', build: buildCsvRdm },
-];
 
 /* ---------- Small UI parts ---------- */
 const Badge = ({ status }) => (
@@ -1448,72 +1194,7 @@ function Review({ list, all = [], onApprove, onRevise, me }) {
   );
 }
 
-/* ---------- Filters ---------- */
-// Nama ringkas satu paket Dauri untuk pilihan filter dan judul kelompok.
-const labelPaket = (cfg, g) => [NK.PRESET_DAURI[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
 
-function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
-  const cfg = useCfg();
-  const alur = useAlur();
-  // Penyusun: dari soal yang dimuat (nama dan jumlah soalnya), agar editor/admin bisa menelusuri soal per penyusun dan penyusun bisa memilih "Anda".
-  const penyusunOpsi = useMemo(() => {
-    const m = new Map();
-    for (const q of qs) if (q.authorUid) { const x = m.get(q.authorUid) || { uid: q.authorUid, nama: q.authorName || 'Tanpa nama', n: 0 }; x.n++; m.set(q.authorUid, x); }
-    return [...m.values()].sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
-  }, [qs]);
-  // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
-  const mapelOpsi = [...new Set([...mapelUntuk(cfg, f.tingkat), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.mapel).filter(Boolean)])];
-  // Kelas dan ujian: milik tingkat terpilih; tanpa tingkat, gabungan semua tingkat plus yang sudah dipakai soal tersimpan (soal lama tetap bisa difilter).
-  const kelasOpsiFilter = [...new Set([...(f.tingkat ? Uj.kelasUntuk(cfg, f.tingkat) : cfg.tingkat.flatMap((t) => Uj.kelasUntuk(cfg, t.nama))), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.kelas).filter(Boolean)])];
-  const periodeOpsiFilter = (() => {
-    const m = new Map(); const tambah = (x) => { if (!m.has(x.kode)) m.set(x.kode, x.label); };
-    if (f.tingkat) Uj.periodeUntuk(cfg, f.tingkat).forEach(tambah); else cfg.tingkat.forEach((t) => Uj.periodeUntuk(cfg, t.nama).forEach(tambah));
-    qs.filter((q) => q.periode && (!f.tingkat || q.tingkat === f.tingkat)).forEach((q) => tambah({ kode: q.periode, label: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
-    return [...m].map(([kode, label]) => ({ kode, label }));
-  })();
-  const paketOpsi = useMemo(() => PK.kelompokPaket(qs).paket, [qs]);
-  // Filter penyusun yang tersimpan di perangkat tetapi penyusunnya tidak ada di data yang dimuat (mis. akun lain di perangkat yang sama): kembali ke Semua, bukan menyaring diam-diam.
-  useEffect(() => { if (f.penyusun && qs.length && !penyusunOpsi.some((p) => p.uid === f.penyusun)) setF({ ...f, penyusun: '' }); }, [f.penyusun, penyusunOpsi, qs.length]);
-  // Pilihan paket yang tersimpan tetapi sudah tidak ada (paket dihapus atau belum Approved di Ekspor): kembali ke Semua.
-  useEffect(() => { if (f.paket && qs.length && !paketOpsi.some((g) => g.id === f.paket)) setF({ ...f, paket: '' }); }, [f.paket, paketOpsi, qs.length]);
-  return (
-    <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
-      <Filter size={16} className="mb-2.5 hidden text-mute sm:block" />
-      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-mapel' + (withStatus ? 'b' : 'e')}>Mata Pelajaran</Label>
-        <Select id={'f-mapel' + (withStatus ? 'b' : 'e')} value={f.mapel} onChange={(v) => setF({ ...f, mapel: v })}><option value="">Semua</option>{mapelOpsi.map((m) => <option key={m}>{m}</option>)}</Select></div>
-      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-tingkat' + (withStatus ? 'b' : 'e')}>Tingkat</Label>
-        <Select id={'f-tingkat' + (withStatus ? 'b' : 'e')} value={f.tingkat} onChange={(v) => setF({ ...f, tingkat: v, kelas: '', periode: '' })}><option value="">Semua</option>{cfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.label}</option>)}</Select></div>
-      <div className="min-w-[110px] flex-1"><Label htmlFor={'f-kelas' + (withStatus ? 'b' : 'e')}>Kelas</Label>
-        <Select id={'f-kelas' + (withStatus ? 'b' : 'e')} value={f.kelas || ''} onChange={(v) => setF({ ...f, kelas: v })}><option value="">Semua</option>{kelasOpsiFilter.map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
-      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-periode' + (withStatus ? 'b' : 'e')}>Ujian</Label>
-        <Select id={'f-periode' + (withStatus ? 'b' : 'e')} value={f.periode || ''} onChange={(v) => setF({ ...f, periode: v })}><option value="">Semua</option>{periodeOpsiFilter.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
-      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-bentuk' + (withStatus ? 'b' : 'e')}>Bentuk Soal</Label>
-        <Select id={'f-bentuk' + (withStatus ? 'b' : 'e')} value={f.bentuk || ''} onChange={(v) => setF({ ...f, bentuk: v })}><option value="">Semua</option>{Bt.BENTUK_IDS.map((id) => <option key={id} value={id}>{Bt.BENTUK[id].label}</option>)}</Select></div>
-      {paketOpsi.length > 0 && (
-        <div className="min-w-[200px] flex-1"><Label htmlFor={'f-paket' + (withStatus ? 'b' : 'e')}>Paket Dauri</Label>
-          <Select id={'f-paket' + (withStatus ? 'b' : 'e')} value={f.paket || ''} onChange={(v) => { const g = paketOpsi.find((x) => x.id === v); setF(g ? { ...f, paket: v, tingkat: g.tingkat, mapel: g.mapel, kelas: g.kelas, periode: g.periode } : { ...f, paket: '' }); }}>
-            <option value="">Semua (paket dan soal lepas)</option>{paketOpsi.map((g) => <option key={g.id} value={g.id}>{labelPaket(cfg, g)}</option>)}</Select></div>
-      )}
-      {withStatus && penyusunOpsi.length > 0 && (
-        <div className="min-w-[160px] flex-1"><Label htmlFor="f-penyusun">Penyusun</Label>
-          <Select id="f-penyusun" value={f.penyusun || ''} onChange={(v) => setF({ ...f, penyusun: v })}>
-            <option value="">Semua</option>{penyusunOpsi.map((p) => <option key={p.uid} value={p.uid}>{p.nama}{p.uid === uid ? ' (Anda)' : ''} ({p.n})</option>)}</Select></div>
-      )}
-      {withStatus && alur.aktif && (
-        <div className="min-w-[150px] flex-1"><Label htmlFor="f-tahap">Tahap Editor</Label>
-          <Select id="f-tahap" value={f.tahap || ''} onChange={(v) => setF({ ...f, tahap: v })}>
-            <option value="">Semua</option>{Array.from({ length: AL.MAKS_TAHAP }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>Menunggu editor {n}</option>)}</Select></div>
-      )}
-      {withStatus && (
-        <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
-          <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
-            <option value="">Semua</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></div>
-      )}
-      <p className="mb-2.5 ml-auto text-sm font-semibold text-soft-ink">{count} soal</p>
-    </div>
-  );
-}
-const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || !alur.aktif || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
 
 /* ---------- Tab 3: Bank ---------- */
 /* ---------- Riwayat versi soal (hanya baca; versi lama bisa dimuat kembali ke form, belum tersimpan sampai penyusun menyimpan) ---------- */
@@ -1738,250 +1419,6 @@ function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', onKirim,
   );
 }
 
-/* ---------- Tab 4: Export ---------- */
-function Export({ all, toast }) {
-  const cfg = useCfg();
-  const catatan = React.useContext(CatatanCtx);
-  const approved = useMemo(() => all.filter((q) => q.status === 'approved'), [all]);
-  const EAWAL = { f: { mapel: '', tingkat: '', kelas: '', periode: '' }, fmt: 'gift', picked: null };
-  const eAwal = useRef(null); if (eAwal.current === null) { const d = Draft.read('exportPrefs'); eAwal.current = d && typeof d === 'object' ? d : {}; }
-  const [f, setF] = useState(() => bacaPref('exportFilter', EAWAL.f));
-  const [fmt, setFmt] = useState(() => (FORMATS.some((x) => x.id === eAwal.current.fmt) ? eAwal.current.fmt : EAWAL.fmt));
-  const [picked, setPicked] = useState(() => (Array.isArray(eAwal.current.picked) ? new Set(eAwal.current.picked.filter((x) => typeof x === 'string')) : null)); // null = semua hasil filter
-  useDraftSync('exportFilter', f, JSON.stringify(f) === JSON.stringify(EAWAL.f));
-  const ePref = useMemo(() => ({ fmt, picked: picked ? [...picked] : null }), [fmt, picked]);
-  useDraftSync('exportPrefs', ePref, fmt === EAWAL.fmt && picked === null);
-  const [busy, setBusy] = useState(false);
-  // Kop dan pengaturan naskah ujian IMDA (hanya dipakai bila format Naskah dipilih); disimpan sebagai draf agar tidak diketik ulang.
-  // Tahun ajaran awal = tahun ajaran hijriah yang sedang berjalan (bukan angka tetap); pilihan tingkat/kelas/mapel mengikuti filter di atas.
-  const nmAwal = useMemo(() => ({ ...NK.META_AWAL, dawr: 1, tahun: NM.tahunAjaranBawaan(new Date(), NK.META_AWAL.tahun) }), []);
-  const [nm, setNm] = useState(() => { const d = bacaPref('naskahMeta', nmAwal); return d.tingkatKey ? d : NM.selaraskanDenganFilter(cfg, d, f); });
-  useDraftSync('naskahMeta', nm, JSON.stringify(nm) === JSON.stringify(nmAwal));
-  const setN = (k, v) => setNm((x) => ({ ...x, [k]: v }));
-  // Filter Mapel/Tingkat/Kelas di atas diteruskan ke pengaturan naskah hanya saat filter berubah; pilihan manual di form tidak ditimpa tiap render.
-  const fSebelum = useRef(f);
-  useEffect(() => {
-    const p = fSebelum.current; fSebelum.current = f;
-    if (p.tingkat === f.tingkat && p.kelas === f.kelas && p.mapel === f.mapel) return;
-    setNm((x) => NM.selaraskanDenganFilter(cfg, x, f));
-  }, [f, cfg]);
-  const opsiTahun = useMemo(() => NM.opsiTahunAjaran(new Date(), nm.tahun), [nm.tahun]);
-  const opsiTingkat = NM.opsiTingkat(cfg, nm.tingkatKey);
-  const opsiKelas = NM.opsiKelas(Uj.kelasUntuk(cfg, nm.tingkatKey), nm.kelasKey);
-  const opsiMapel = NM.opsiMapel(cfg, nm.tingkatKey, nm.mapelKey);
-
-  const saveFile = (filename, data) => {
-    const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  };
-
-  // Satu paket dipilih: butirnya urut menurut nomor naskah, sehingga naskah yang diunduh sama dengan paket yang disimpan.
-  const list = useMemo(() => { const l = applyFilter(approved, f); return f.paket ? [...l].sort((a, b) => (a.urut || 999) - (b.urut || 999)) : l; }, [approved, f]);
-  const paketDipilih = useMemo(() => (f.paket ? PK.kelompokPaket(all.filter((q) => q.paket === f.paket)).paket[0] || null : null), [all, f.paket]);
-  // Memilih paket otomatis memakai Dauri paket itu pada pengaturan naskah.
-  useEffect(() => { if (paketDipilih) setNm((x) => (x.dawr === paketDipilih.dawr ? x : { ...x, dawr: paketDipilih.dawr })); }, [paketDipilih && paketDipilih.id]);
-  // Nama Arab kitab diambil dari katalog Konfigurasi (tidak disimpan pada soal) agar ikut tercetak di ekspor.
-  const chosen = (picked ? list.filter((q) => picked.has(q.id)) : list).map((q) => ({ ...q, namaArab: namaArabKitab(cfg, q.nama), ujian: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
-  const format = FORMATS.find((x) => x.id === fmt);
-  const isText = !!format.build;
-  const text = isText ? format.build(chosen, catatan) : '';
-  const toggle = (id) => {
-    const cur = new Set(picked || list.map((q) => q.id));
-    cur.has(id) ? cur.delete(id) : cur.add(id);
-    setPicked(cur);
-  };
-  const isNaskah = fmt === 'naskah';
-  const naskah = isNaskah ? NK.susunNaskah(chosen, nm.dawr) : null;
-  // Soal di bank tetap Latin; hanya berkas naskah yang ditulis Pegon (bawaan menyala). Narasi tidak dicetak kecuali dinyalakan.
-  const nkPegon = nm.pegon !== false && !!window.Pegon; const nkNarasi = nm.narasi === true;
-  const nkUbah = nkPegon ? (t) => window.Pegon.convertTextEjaan(String(t || ''), nm.ejaan) : null;
-  const nkRagu = naskah && nkUbah ? NK.kataRagu(naskah, nkUbah, { narasi: nkNarasi }) : [];
-  const isPegon = fmt === 'pegon' || fmt === 'pegonlatin';
-  const pv = (t) => (isPegon && window.Pegon ? window.Pegon.convertTextEjaan(String(t || ''), ejaanTersimpan()).pegon : t);
-  const fname = `bank-soal-${(f.mapel || 'semua').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${format.id}.${format.ext}`;
-
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(text); toast('Teks ekspor disalin.'); }
-    catch (e) { toast('Penyalinan ditolak browser. Pilih teks pratinjau lalu salin manual.'); }
-  };
-  // Naskah ujian: dua berkas, untuk peserta (tanpa unsur merah) dan untuk pengoreksi (kunci dan halaman kitab berwarna merah).
-  const unduhNaskah = async (kunci) => {
-    if (!naskah) return;
-    setBusy(true);
-    try {
-      const [D, { buatNaskah }] = await Promise.all([muatDocx(), import('./lib/naskahDocx.js')]);
-      let logo = null;
-      try { const r = await fetch('/logo-madrasah.png'); if (r.ok) logo = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* tanpa logo: kop tetap tercetak */ }
-      saveFile(NK.namaBerkasNaskah(nm, kunci), await D.Packer.toBlob(buatNaskah(D, naskah, nm, { kunci, logo, pegon: nkUbah ? (t) => nkUbah(t).pegon : null, narasi: nkNarasi })));
-      toast(kunci ? 'Naskah kunci diunduh. Jangan dibagikan kepada peserta.' : 'Naskah diunduh.');
-    } catch (e) {
-      toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.');
-    } finally { setBusy(false); }
-  };
-  const download = async () => {
-    if (!chosen.length) return;
-    if (isNaskah) { unduhNaskah(false); return; }
-    setBusy(true);
-    try {
-      const data = isText ? text : await buildDocx(chosen, fmt === 'kartu' ? 'kartu' : fmt === 'pegon' ? 'pegon' : fmt === 'pegonlatin' ? 'pegonlatin' : 'daftar', catatan, ejaanTersimpan());
-      saveFile(fname, data);
-      toast('File diunduh.');
-    } catch (e) {
-      toast(e && e.message ? 'Gagal membuat file: ' + e.message : 'Gagal membuat file.');
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="fade-in space-y-5">
-      <Filters f={f} setF={(v) => { setF(v); setPicked(null); }} count={list.length} qs={approved} />
-      <div className="grid gap-5 lg:grid-cols-12">
-        <div className="min-w-0 space-y-5 lg:col-span-5">
-          <Section title="Pilih Soal" icon={ClipboardCheck}
-            action={list.length > 0 && <button type="button" className="text-xs font-semibold text-soft-ink hover:underline"
-              onClick={() => setPicked(!picked || picked.size === list.length ? new Set() : null)}>{!picked || picked.size === list.length ? 'Kosongkan' : 'Pilih semua'}</button>}>
-            {!list.length ? <p className="text-sm text-mute">{catatan ? 'Belum ada soal tersimpan yang cocok dengan filter.' : 'Belum ada soal Approved yang cocok dengan filter.'}</p> : (
-              <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                {list.map((q) => {
-                  const on = !picked || picked.has(q.id);
-                  return (
-                    <li key={q.id}>
-                      <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-soft' : 'border-line'}`}>
-                        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(q.id)} />
-                        <span className="min-w-0">
-                          <span className="block break-words font-medium">{q.pertanyaan}</span>
-                          <span className="mt-1 block text-xs text-mute">{q.mapel} · {q.tingkat}{q.kelas ? ` · Kelas ${q.kelas}` : ''}{q.periode ? ` · ${Uj.labelPeriode(cfg, q.tingkat, q.periode)}` : ''} · {q.level}</span>
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Section>
-        </div>
-
-        <div className="min-w-0 space-y-5 lg:col-span-7">
-          <Section title="Format Ekspor" icon={Download}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FORMATS.map((x) => (
-                <button key={x.id} type="button" onClick={() => setFmt(x.id)} aria-pressed={fmt === x.id}
-                  className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${fmt === x.id ? 'border-brand bg-soft' : 'border-line hover:bg-soft'}`}>
-                  <x.icon size={20} className="mt-0.5 shrink-0 text-soft-ink" />
-                  <span className="min-w-0"><span className="block text-sm font-bold">{x.label}</span><span className="block text-xs text-mute">{x.sub}</span></span>
-                </button>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Btn kind="primary" onClick={download} disabled={!chosen.length || busy}>
-                {busy ? <Loader2 size={16} className="spin" /> : <Download size={16} />}{isNaskah ? 'Unduh naskah peserta' : `Unduh ${chosen.length} soal`}
-              </Btn>
-              {isNaskah && <Btn kind="ghost" onClick={() => unduhNaskah(true)} disabled={!chosen.length || busy}><Download size={16} />Unduh naskah kunci</Btn>}
-              {isText && <Btn kind="ghost" onClick={copy} disabled={!chosen.length}><Copy size={16} />Salin teks</Btn>}
-            </div>
-            {paketDipilih && (
-              <p className={`mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed ${paketDipilih.semuaApproved && paketDipilih.lengkap ? 'bg-soft text-soft-ink' : 'bg-warn-bg text-warn'}`}>
-                Paket {labelPaket(cfg, paketDipilih)}{paketDipilih.cakupan ? `. Batas materi: ${paketDipilih.cakupan}` : ''}. {list.length} dari {paketDipilih.jumlah} butir paket ikut diekspor (hanya yang Approved)
-                {paketDipilih.semuaApproved ? '' : `; ${paketDipilih.jumlah - paketDipilih.status.approved} butir belum Approved sehingga nomornya kosong di naskah`}
-                {paketDipilih.lengkap ? '' : `; paket hanya berisi ${paketDipilih.jumlah} dari ${paketDipilih.target} nomor`}.
-              </p>
-            )}
-            {catatan && <p className="mt-3 text-xs leading-relaxed text-mute"><b>Catatan otomatis:</b> “{catatan}” dicantumkan pada semua berkas ekspor (di bawah judul dan kaki halaman untuk DOCX, komentar untuk GIFT dan Moodle XML, kolom Catatan untuk CSV).</p>}
-          </Section>
-
-          {isNaskah && (
-            <Section title="Pengaturan Naskah Ujian" icon={FileText} lipat>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div><Label htmlFor="nk-dauri">Dauri (putaran ujian)</Label>
-                  <Select id="nk-dauri" value={String(nm.dawr)} onChange={(v) => setN('dawr', NK.dauriSah(v))}>
-                    {NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({d.bagian.map((b) => `${b.n}×${b.nilai}`).join(' + ')})</option>)}
-                  </Select></div>
-                <div><Label htmlFor="nk-tingkat-pilih">Tingkat</Label>
-                  <Select id="nk-tingkat-pilih" className="sel-ar" value={nm.tingkatKey} onChange={(v) => setNm((x) => NM.pilihTingkat(cfg, x, v))}>
-                    <option value="">Pilih dari Konfigurasi</option>{opsiTingkat.map((o) => <option key={o.kunci} value={o.kunci}>{o.arab ? `${o.label} · ${o.arab}` : o.label}</option>)}</Select>
-                  <input id="nk-tingkat" aria-label="Teks Arab tingkat di naskah" className="field ar-input mt-2" dir="rtl" lang="ar" value={nm.tingkat} maxLength={30} onChange={(e) => setN('tingkat', e.target.value)} /></div>
-                <div><Label htmlFor="nk-kelas-pilih">Kelas</Label>
-                  <Select id="nk-kelas-pilih" className="sel-ar" value={nm.kelasKey} onChange={(v) => setNm((x) => NM.pilihKelas(cfg, x, v))}>
-                    <option value="">{nm.tingkatKey ? 'Pilih dari Konfigurasi' : 'Pilih tingkat dulu'}</option>{opsiKelas.map((o) => <option key={o.kunci} value={o.kunci}>{o.arab ? `${o.kunci} · ${o.arab}` : o.kunci}</option>)}</Select>
-                  <input id="nk-kelas" aria-label="Teks Arab kelas di naskah" className="field ar-input mt-2" dir="rtl" lang="ar" value={nm.kelas} maxLength={30} onChange={(e) => setN('kelas', e.target.value)} /></div>
-                <div><Label htmlFor="nk-mapel-pilih" hint="(Arab, mis. فقه / حديث)">Mata pelajaran</Label>
-                  <Select id="nk-mapel-pilih" className="sel-ar" value={nm.mapelKey} onChange={(v) => setNm((x) => NM.pilihMapel(cfg, x, v))}>
-                    <option value="">Pilih dari Konfigurasi</option>{opsiMapel.map((o) => <option key={o.kunci} value={o.kunci}>{o.arab ? `${o.kunci} · ${o.arab}` : o.kunci}</option>)}</Select>
-                  <input id="nk-mapel" aria-label="Teks Arab mata pelajaran di naskah" className="field ar-input mt-2" dir="rtl" lang="ar" value={nm.mapel} maxLength={40} onChange={(e) => setN('mapel', e.target.value)} />
-                  {nm.mapelKey && !nm.mapel && <p role="status" className="mt-1 text-xs text-warn">Belum ada nama Arab untuk “{nm.mapelKey}”. Ketik di kolom di atas.</p>}</div>
-                <div><Label htmlFor="nk-tahun">Tahun ajaran (hijriah)</Label>
-                  {opsiTahun.length > 1
-                    ? <Select id="nk-tahun" value={nm.tahun} onChange={(v) => setN('tahun', v)}>{opsiTahun.map((t) => <option key={t} value={t}>{t}</option>)}</Select>
-                    : <input id="nk-tahun" className="field ar-input" dir="rtl" lang="ar" value={nm.tahun} maxLength={30} onChange={(e) => setN('tahun', e.target.value)} />}</div>
-                <div><Label htmlFor="nk-penanda" hint="(kaki halaman)">Penanda</Label><input id="nk-penanda" className="field" dir="ltr" value={nm.penanda} maxLength={40} onChange={(e) => setN('penanda', e.target.value)} /></div>
-                <div className="sm:col-span-2"><Label htmlFor="nk-b1">Baris kop 1 (madrasah)</Label><input id="nk-b1" className="field ar-input" dir="rtl" lang="ar" value={nm.baris1} maxLength={80} onChange={(e) => setN('baris1', e.target.value)} /></div>
-                <div className="sm:col-span-2"><Label htmlFor="nk-b2">Baris kop 2 (lembaga)</Label><input id="nk-b2" className="field ar-input" dir="rtl" lang="ar" value={nm.baris2} maxLength={80} onChange={(e) => setN('baris2', e.target.value)} /></div>
-                <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" className="mt-1" checked={nm.pegon !== false} onChange={(e) => setN('pegon', e.target.checked)} disabled={!window.Pegon} />
-                  <span><b>Tulis soal dalam Pegon</b> <span className="text-xs text-mute">(kalimat soal, opsi, dan jawaban kunci; soal di bank tetap Latin)</span></span></label>
-                <div className="sm:col-span-2"><Label htmlFor="nk-ejaan" hint="(huruf p, c, g, ng, ny)">Ejaan huruf Pegon</Label>
-                  <Select id="nk-ejaan" value={window.Pegon ? window.Pegon.ejaanSah(nm.ejaan) : 'alqolam'} onChange={(v) => setN('ejaan', v)} disabled={nm.pegon === false}>
-                    {Object.entries(window.Pegon ? window.Pegon.EJAAN : { alqolam: 'Al-Qolam' }).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
-                  </Select></div>
-                <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" className="mt-1" checked={nm.narasi === true} onChange={(e) => setN('narasi', e.target.checked)} />
-                  <span><b>Sertakan narasi/stimulus</b> <span className="text-xs text-mute">(bawaan mati: template hanya satu kalimat soal per nomor, seperti contoh)</span></span></label>
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-mute">Soal dimasukkan ke bagian menurut bentuknya, dengan urutan pilihan Anda: <b>أ</b> pilihan ganda dan lanjutan, <b>ب</b> isian, <b>ج</b> uraian. Benar–Salah tidak ada di template. Naskah peserta tidak memuat kunci; <b>naskah kunci</b> menandai jawaban dan halaman kitab (ص) dengan warna merah.</p>
-            </Section>
-          )}
-
-          <Section title="Pratinjau" lipat>
-            {!chosen.length ? <p className="text-sm text-mute">{catatan ? 'Pilih minimal satu soal.' : 'Pilih minimal satu soal Approved.'}</p> :
-              isNaskah ? (
-                <div className="space-y-3 text-sm">
-                  <p className="font-semibold" dir="rtl" lang="ar">{NK.judulDauri(nm.dawr)}</p>
-                  <ul className="divide-y divide-line rounded-xl border border-line">
-                    {naskah.bagian.map((bg) => (
-                      <li key={bg.kode} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
-                        <span><b dir="rtl" lang="ar" className="ml-1 text-base">{bg.huruf}</b> {NK.BAGIAN[bg.kode].label}</span>
-                        <span className={bg.kurang > 0 ? 'font-semibold text-warn' : 'font-semibold text-ok'}>{bg.terisi}/{bg.n} nomor × {bg.nilai} = {bg.terisi * bg.nilai}</span>
-                      </li>
-                    ))}
-                    <li className="flex items-center justify-between gap-2 bg-soft px-3 py-2.5 font-bold"><span>Total nilai</span><span className={naskah.total === naskah.maks ? 'text-ok' : 'text-warn'}>{naskah.total} / {naskah.maks}</span></li>
-                  </ul>
-                  {naskah.peringatan.map((t, i) => <p key={i} role="status" className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">{t}</p>)}
-                  {nkRagu.length > 0 && (
-                    <p role="status" className="rounded-xl bg-warn-bg px-3 py-2 text-xs leading-relaxed text-warn">
-                      <b>{nkRagu.length} kata diragukan mesin Pegon:</b> {nkRagu.map((x) => x.kata).join(', ')}. Pastikan ejaan Arabnya lalu tambahkan ke kamus di tab Pegonizer; naskah yang diunduh sesudahnya memakai ejaan itu.
-                    </p>
-                  )}
-                  {naskah.tidakDipakai.length > 0 && (
-                    <div className="rounded-xl border border-line p-3 text-xs">
-                      <p className="mb-1 font-semibold">{naskah.tidakDipakai.length} soal tidak masuk naskah</p>
-                      <ul className="space-y-1 text-mute">{naskah.tidakDipakai.map((x, i) => <li key={i}>{String(x.q.pertanyaan || '').slice(0, 60)}: {x.alasan}</li>)}</ul>
-                    </div>
-                  )}
-                </div>
-              ) :
-              isText ? (
-                <pre dir="auto" className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-bg p-4 text-xs leading-relaxed text-ink" style={{ fontFamily: "ui-monospace, Menlo, 'Amiri', monospace" }}>{text}</pre>
-              ) : (
-                <div className="max-h-[420px] space-y-4 overflow-auto rounded-xl bg-bg p-4">
-                  {chosen.map((q, i) => (
-                    <div key={q.id} className="text-sm">
-                      <p className={`font-semibold ${isPegon ? 'ar-sm' : ''}`} dir={isPegon ? 'rtl' : undefined}>{i + 1}. {pv(fullQ(q))}</p>
-                      <ul className="ml-4 mt-1" dir={isPegon ? 'rtl' : undefined}>{optsOf(q).map((k) => <li key={k} className={isPegon ? 'ar-sm' : ''}>{k}. {pv(q.opsi[k])}</li>)}</ul>
-                      {fmt === 'kartu' && <>
-                        <p className="mt-1 text-soft-ink">{Bt.BENTUK[Bt.bentukDari(q)].jawaban ? 'Jawaban' : 'Kunci'}: <b>{Bt.kunciTeks(q)}</b></p>
-                        {q.teks && <p dir="rtl" lang="ar" className="ar ar-sm">{q.teks}</p>}
-                      </>}
-                    </div>
-                  ))}
-                </div>
-              )}
-          </Section>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ---------- Tab: Fokus Ujian (saran AI bab penting + kisi-kisi dari soal) ---------- */
 // Saran AI (haluan Ahlussunnah wal Jamaah, setia pada teks kitab) hanya MENYARANKAN bab. Kisi-kisi dihitung dari soal yang sudah ada

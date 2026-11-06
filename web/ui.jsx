@@ -1,23 +1,20 @@
 // Pembantu antarmuka dan API yang dipakai bersama oleh App.jsx dan berkas tab yang dimuat malas (mis. AdminKonfigurasi.jsx).
 // Dipisah dari App.jsx agar tidak ada impor melingkar: berkas ini tidak mengimpor App.jsx.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Filter, Loader2 } from 'lucide-react';
+import * as NK from './lib/naskah.js';
+import * as PK from './lib/paket.js';
+import * as SK from './lib/saringKitab.js';
+import * as AL from './lib/alurSoal.js';
+import { Draft, Bt, FALLBACK_CFG, STATUS, mapelUntuk } from './lib/dasar.js';
 
 // Kelas, sistem ujian, dan penempatan kitab: fungsi murni dari public/ujian.js (window.Ujian). Bila modul belum/tidak termuat, fitur kelas dan ujian diam (tidak merusak halaman).
 // PENTING: dinamai Uj, bukan Ujian, agar tidak bentrok dengan window.Ujian (const tingkat atas oleh Babel menjadi var global).
 const UJ_NOOP = { daftarSistem: () => [], kelasUntuk: () => [], periodeUntuk: () => [], sistemUntuk: () => null, labelPeriode: (c, t, k) => k || '', labelSistem: () => '', kitabCocok: () => true, cakupanKitab: () => '', ringkasPenempatan: () => [], penempatanYatim: () => [], penempatanKitab: () => [] };
 const Uj = new Proxy({}, { get: (_, k) => (window.Ujian || UJ_NOOP)[k] });
 
-/* ---------- Draf otomatis (public/draft.js) ---------- */
-// Isian yang belum disimpan ke server dititipkan di localStorage per akun, supaya selamat dari muat ulang halaman.
-// Rahasia (kunci API) tidak pernah dititipkan.
-const DRAFT_NOOP = { read: () => null, save() {}, saveNow: () => false, remove() {}, clearAll() {}, flush: () => true, setUser() {}, onStatus: () => () => {}, tersedia: false };
-// PENTING: modul disimpan di window.LabDraft, BUKAN window.Draft. Babel-standalone mengubah const di tingkat atas menjadi var global,
-// jadi `const Draft` di sini menjadi window.Draft dan menimpa modul. Bila Proxy ini membaca window.Draft, ia membaca dirinya sendiri
-// tanpa henti (RangeError: Maximum call stack size exceeded) dan seluruh halaman blank.
-const Draft = new Proxy({}, { get: (_, k) => (window.LabDraft || DRAFT_NOOP)[k] });
 // Titipkan `nilai` sebagai draf `nama`; bila `bersih`, hapus drafnya. `nilai` harus stabil antar render (useMemo) agar tidak menulis berulang.
 function useDraftSync(nama, nilai, bersih) {
   useEffect(() => { if (bersih) Draft.remove(nama); else Draft.save(nama, nilai); }, [nama, nilai, bersih]);
@@ -108,4 +105,84 @@ const simpanBerkas = (nama, blob) => {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 };
 
-export { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp };
+const AppCfgCtx = React.createContext(FALLBACK_CFG);
+
+// Catatan wajib pada setiap ekspor ('' untuk tim penyusun; terisi untuk peran Ustadz, yang soalnya tidak ditelaah editor). Lihat web/lib/ustadz.js.
+const CatatanCtx = React.createContext('');
+
+const useCfg = () => React.useContext(AppCfgCtx);
+
+// Alur peninjauan bertahap (diatur admin; lihat web/lib/alurSoal.js). Bawaan: nonaktif = satu editor mana pun, seperti sebelumnya.
+const AlurCtx = React.createContext(AL.ALUR_BAWAAN);
+
+const useAlur = () => React.useContext(AlurCtx);
+
+/* ---------- Filters ---------- */
+// Nama ringkas satu paket Dauri untuk pilihan filter dan judul kelompok.
+const labelPaket = (cfg, g) => [NK.PRESET_DAURI[g.dawr].label, g.nama || g.mapel, g.kelas && `Kelas ${g.kelas}`, g.periode && Uj.labelPeriode(cfg, g.tingkat, g.periode), g.cakupan, `${g.jumlah} butir`].filter(Boolean).join(' · ');
+
+function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
+  const cfg = useCfg();
+  const alur = useAlur();
+  // Penyusun: dari soal yang dimuat (nama dan jumlah soalnya), agar editor/admin bisa menelusuri soal per penyusun dan penyusun bisa memilih "Anda".
+  const penyusunOpsi = useMemo(() => {
+    const m = new Map();
+    for (const q of qs) if (q.authorUid) { const x = m.get(q.authorUid) || { uid: q.authorUid, nama: q.authorName || 'Tanpa nama', n: 0 }; x.n++; m.set(q.authorUid, x); }
+    return [...m.values()].sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+  }, [qs]);
+  // Mapel dari konfigurasi plus mapel yang sudah dipakai soal tersimpan (supaya soal lama tetap bisa difilter walau mapelnya diganti nama).
+  const mapelOpsi = [...new Set([...mapelUntuk(cfg, f.tingkat), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.mapel).filter(Boolean)])];
+  // Kelas dan ujian: milik tingkat terpilih; tanpa tingkat, gabungan semua tingkat plus yang sudah dipakai soal tersimpan (soal lama tetap bisa difilter).
+  const kelasOpsiFilter = [...new Set([...(f.tingkat ? Uj.kelasUntuk(cfg, f.tingkat) : cfg.tingkat.flatMap((t) => Uj.kelasUntuk(cfg, t.nama))), ...qs.filter((q) => !f.tingkat || q.tingkat === f.tingkat).map((q) => q.kelas).filter(Boolean)])];
+  const periodeOpsiFilter = (() => {
+    const m = new Map(); const tambah = (x) => { if (!m.has(x.kode)) m.set(x.kode, x.label); };
+    if (f.tingkat) Uj.periodeUntuk(cfg, f.tingkat).forEach(tambah); else cfg.tingkat.forEach((t) => Uj.periodeUntuk(cfg, t.nama).forEach(tambah));
+    qs.filter((q) => q.periode && (!f.tingkat || q.tingkat === f.tingkat)).forEach((q) => tambah({ kode: q.periode, label: Uj.labelPeriode(cfg, q.tingkat, q.periode) }));
+    return [...m].map(([kode, label]) => ({ kode, label }));
+  })();
+  const paketOpsi = useMemo(() => PK.kelompokPaket(qs).paket, [qs]);
+  // Filter penyusun yang tersimpan di perangkat tetapi penyusunnya tidak ada di data yang dimuat (mis. akun lain di perangkat yang sama): kembali ke Semua, bukan menyaring diam-diam.
+  useEffect(() => { if (f.penyusun && qs.length && !penyusunOpsi.some((p) => p.uid === f.penyusun)) setF({ ...f, penyusun: '' }); }, [f.penyusun, penyusunOpsi, qs.length]);
+  // Pilihan paket yang tersimpan tetapi sudah tidak ada (paket dihapus atau belum Approved di Ekspor): kembali ke Semua.
+  useEffect(() => { if (f.paket && qs.length && !paketOpsi.some((g) => g.id === f.paket)) setF({ ...f, paket: '' }); }, [f.paket, paketOpsi, qs.length]);
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface p-4">
+      <Filter size={16} className="mb-2.5 hidden text-mute sm:block" />
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-mapel' + (withStatus ? 'b' : 'e')}>Mata Pelajaran</Label>
+        <Select id={'f-mapel' + (withStatus ? 'b' : 'e')} value={f.mapel} onChange={(v) => setF({ ...f, mapel: v })}><option value="">Semua</option>{mapelOpsi.map((m) => <option key={m}>{m}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-tingkat' + (withStatus ? 'b' : 'e')}>Tingkat</Label>
+        <Select id={'f-tingkat' + (withStatus ? 'b' : 'e')} value={f.tingkat} onChange={(v) => setF({ ...f, tingkat: v, kelas: '', periode: '' })}><option value="">Semua</option>{cfg.tingkat.map((t) => <option key={t.nama} value={t.nama}>{t.label}</option>)}</Select></div>
+      <div className="min-w-[110px] flex-1"><Label htmlFor={'f-kelas' + (withStatus ? 'b' : 'e')}>Kelas</Label>
+        <Select id={'f-kelas' + (withStatus ? 'b' : 'e')} value={f.kelas || ''} onChange={(v) => setF({ ...f, kelas: v })}><option value="">Semua</option>{kelasOpsiFilter.map((k) => <option key={k} value={k}>{k}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-periode' + (withStatus ? 'b' : 'e')}>Ujian</Label>
+        <Select id={'f-periode' + (withStatus ? 'b' : 'e')} value={f.periode || ''} onChange={(v) => setF({ ...f, periode: v })}><option value="">Semua</option>{periodeOpsiFilter.map((x) => <option key={x.kode} value={x.kode}>{x.label}</option>)}</Select></div>
+      <div className="min-w-[140px] flex-1"><Label htmlFor={'f-bentuk' + (withStatus ? 'b' : 'e')}>Bentuk Soal</Label>
+        <Select id={'f-bentuk' + (withStatus ? 'b' : 'e')} value={f.bentuk || ''} onChange={(v) => setF({ ...f, bentuk: v })}><option value="">Semua</option>{Bt.BENTUK_IDS.map((id) => <option key={id} value={id}>{Bt.BENTUK[id].label}</option>)}</Select></div>
+      {paketOpsi.length > 0 && (
+        <div className="min-w-[200px] flex-1"><Label htmlFor={'f-paket' + (withStatus ? 'b' : 'e')}>Paket Dauri</Label>
+          <Select id={'f-paket' + (withStatus ? 'b' : 'e')} value={f.paket || ''} onChange={(v) => { const g = paketOpsi.find((x) => x.id === v); setF(g ? { ...f, paket: v, tingkat: g.tingkat, mapel: g.mapel, kelas: g.kelas, periode: g.periode } : { ...f, paket: '' }); }}>
+            <option value="">Semua (paket dan soal lepas)</option>{paketOpsi.map((g) => <option key={g.id} value={g.id}>{labelPaket(cfg, g)}</option>)}</Select></div>
+      )}
+      {withStatus && penyusunOpsi.length > 0 && (
+        <div className="min-w-[160px] flex-1"><Label htmlFor="f-penyusun">Penyusun</Label>
+          <Select id="f-penyusun" value={f.penyusun || ''} onChange={(v) => setF({ ...f, penyusun: v })}>
+            <option value="">Semua</option>{penyusunOpsi.map((p) => <option key={p.uid} value={p.uid}>{p.nama}{p.uid === uid ? ' (Anda)' : ''} ({p.n})</option>)}</Select></div>
+      )}
+      {withStatus && alur.aktif && (
+        <div className="min-w-[150px] flex-1"><Label htmlFor="f-tahap">Tahap Editor</Label>
+          <Select id="f-tahap" value={f.tahap || ''} onChange={(v) => setF({ ...f, tahap: v })}>
+            <option value="">Semua</option>{Array.from({ length: AL.MAKS_TAHAP }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>Menunggu editor {n}</option>)}</Select></div>
+      )}
+      {withStatus && (
+        <div className="min-w-[140px] flex-1"><Label htmlFor="f-status">Status Approval</Label>
+          <Select id="f-status" value={f.status} onChange={(v) => setF({ ...f, status: v })}>
+            <option value="">Semua</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></div>
+      )}
+      <p className="mb-2.5 ml-auto text-sm font-semibold text-soft-ink">{count} soal</p>
+    </div>
+  );
+}
+
+const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || !alur.aktif || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
+
+export { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg };
