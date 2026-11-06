@@ -1,8 +1,7 @@
-// Pembuat ekspor di web/App.jsx (GIFT, Moodle XML, CSV, DOCX) untuk semua bentuk soal.
-// Kodenya diambil langsung dari web/App.jsx (bagian "Export builders") dan dijalankan di Node dengan pustaka docx asli.
+// Pembuat ekspor di web/lib/exportBuilders.js (GIFT, Moodle XML, CSV, DOCX) untuk semua bentuk soal.
+// Modulnya diimpor langsung dan dijalankan di Node dengan pustaka docx asli; window.Bentuk dan window.Pegon dipasang sebagai global.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as Bt from '../src/bentuk.js';
 import * as Pegon from '../src/pegon.js';
@@ -10,13 +9,8 @@ import * as Pegon from '../src/pegon.js';
 const require = createRequire(import.meta.url);
 const docx = require('docx');
 const JSZip = require('jszip');
-const html = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
-const a = html.indexOf('const optsOf = ');
-const b = html.indexOf('const FORMATS = [');
-assert.ok(a > 0 && b > a, 'bagian Export builders tidak ditemukan di index.html');
-const LEVEL = [{ v: 'L1', label: 'L1 Ingatan' }, { v: 'L2', label: 'L2 Aplikasi' }, { v: 'L3', label: 'L3 HOTS' }];
-const mk = new Function('Bt', 'KEYS', 'LEVEL', 'window', 'muatDocx', `${html.slice(a, b)}\nreturn { buildGift, buildMoodleXml, buildCsvForms, buildCsvRdm, buildDocx };`);
-const B = mk(Bt, ['A', 'B', 'C', 'D', 'E'], LEVEL, { docx, Pegon }, async () => docx);
+globalThis.window = { ...(globalThis.window || {}), Bentuk: Bt, Pegon, docx };
+const B = await import('../web/lib/exportBuilders.js');
 
 const kosong = { A: '', B: '', C: '', D: '', E: '' };
 const dasar = { tingkat: 'MA', mapel: 'Fiqih', level: 'L2', nama: 'Fathul Qarib', juz: '', hal: '10', teks: 'مَاءُ الْبَحْرِ', pembahasan: 'Dasarnya tujuh air suci.', indikator: 'Peserta didik dapat x' };

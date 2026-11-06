@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { rencanaPilihSoal, rencanaBukaPaket, FILTER_KOSONG } from '../web/lib/serahTerima.js';
 
 test('rencanaPilihSoal: export dan fokus memakai nama draf berbeda, pilihan lama dipertahankan, id dibersihkan', () => {
@@ -21,8 +20,8 @@ test('rencanaBukaPaket: filter paket tanpa batas status', () => {
   assert.equal(rencanaBukaPaket(''), null);
 });
 
-test('nama draf yang disiapkan benar-benar dibaca tab tujuan di App.jsx', () => {
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+test('nama draf yang disiapkan benar-benar dibaca tab tujuan di App.jsx', async () => {
+  const { sumberWeb: app } = await import('./_sumberWeb.js');
   for (const n of ['exportFilter', 'exportPrefs', 'kisiFilter', 'kisiPrefs', 'bankFilter']) assert.ok(app.includes(`'${n}'`), `App.jsx tidak memakai draf ${n}`);
   assert.match(app, /const FAWAL = \{[^}]*paket: ''/); // Bank menyimpan filter paket; tanpa ini bacaPref membuangnya
 });

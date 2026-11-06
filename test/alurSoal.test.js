@@ -146,8 +146,7 @@ test('server: tahap berubah sejak dibaca (balapan dua peninjau) = ditolak, tidak
 });
 
 test('klien: filter tahap diabaikan bila alur nonaktif (tidak menyembunyikan soal diam-diam)', async () => {
-  const { readFileSync } = await import('node:fs');
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const { sumberWeb: app } = await import('./_sumberWeb.js');
   assert.match(app, /\(!f\.tahap \|\| !alur\.aktif \|\|/);
 });
 

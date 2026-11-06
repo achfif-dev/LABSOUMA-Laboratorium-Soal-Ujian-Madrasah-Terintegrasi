@@ -184,7 +184,8 @@ test('DOCX: nomor kosong dibiarkan sebagai baris isian (naskah sebagian tetap bi
 });
 
 /* ------------------------------------------------------------ pemasangan di UI */
-const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+import { sumberWeb } from './_sumberWeb.js';
+const app = sumberWeb;
 test('penjaga: format Naskah ada di tab Export dan logo tersedia di public/', () => {
   assert.match(app, /id: 'naskah', label: 'Naskah Ujian IMDA \(DOCX\)'/);
   assert.match(app, /NK\.susunNaskah\(chosen, nm\.dawr\)/);
