@@ -3,7 +3,8 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToString, renderToPipeableStream } from 'react-dom/server';
+import { Writable } from 'node:stream';
 import { createServer } from 'vite';
 
 let vite; let App; let Pemilih; let SIMPANAN;
@@ -15,6 +16,13 @@ before(async () => {
 });
 after(async () => { if (vite) await vite.close(); });
 const h = (C, props) => renderToString(React.createElement(C, props)).replace(/<!-- -->/g, '');
+// Panel besar dimuat malas (React.lazy), dan renderToString tidak mendukung Suspense: tunggu semua potongan siap lewat stream.
+const hSiap = (C, props) => new Promise((ok, gagal) => {
+  let out = '';
+  const w = new Writable({ write(c, _e, cb) { out += c.toString(); cb(); } });
+  w.on('finish', () => ok(out.replace(/<!-- -->/g, '')));
+  const s = renderToPipeableStream(React.createElement(C, props), { onAllReady() { s.pipe(w); }, onError: gagal });
+});
 const Btn = ({ children, ...p }) => React.createElement('button', p, children);
 const ErrorBox = ({ e }) => React.createElement('p', null, e && e.message);
 const dasar = { Btn, ErrorBox, callApi: async () => ({}), apiErr: (e) => e, katalog: [], mode: 'form', onPakai() {} };
@@ -30,11 +38,11 @@ test('PemilihKitab: memuat daftar; daftar terisi tampil sebagai pilihan; perpust
   SIMPANAN.daftar = null;
 });
 
-test('Penyusunan Soal dan Paket Dauri dirender dengan pemilih perpustakaan di dalamnya', () => {
+test('Penyusunan Soal dan Paket Dauri dirender dengan pemilih perpustakaan di dalamnya', async () => {
   SIMPANAN.daftar = [{ id: 'fathul-muin', judulLatin: "Fathul Mu'in", jumlahHalaman: 673 }];
-  const compose = h(App.Compose, { form: App.emptyForm(), setForm() {}, editingId: null, onSave() {}, onSend() {}, onReset() {}, toast() {} });
+  const compose = await hSiap(App.Compose, { form: App.emptyForm(), setForm() {}, editingId: null, onSave() {}, onSend() {}, onReset() {}, toast() {} });
   assert.match(compose, /Rujukan Kitab/); assert.match(compose, /Dari Perpustakaan/); assert.match(compose, /Ambil teks dari tautan/);
-  const paket = h(App.PaketDauri, { toast() {}, onSimpan() {}, onBukaBank() {} });
+  const paket = await hSiap(App.PaketDauri, { toast() {}, onSimpan() {}, onBukaBank() {} });
   assert.match(paket, /Paket Dauri/); assert.match(paket, /Dari Perpustakaan/); assert.match(paket, /Tempel teks kitab/);
   SIMPANAN.daftar = null;
 });

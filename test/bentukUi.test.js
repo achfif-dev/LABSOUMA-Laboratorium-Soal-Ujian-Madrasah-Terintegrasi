@@ -15,8 +15,8 @@ const a = html.indexOf('const optsOf = ');
 const b = html.indexOf('const FORMATS = [');
 assert.ok(a > 0 && b > a, 'bagian Export builders tidak ditemukan di index.html');
 const LEVEL = [{ v: 'L1', label: 'L1 Ingatan' }, { v: 'L2', label: 'L2 Aplikasi' }, { v: 'L3', label: 'L3 HOTS' }];
-const mk = new Function('Bt', 'KEYS', 'LEVEL', 'window', `${html.slice(a, b)}\nreturn { buildGift, buildMoodleXml, buildCsvForms, buildCsvRdm, buildDocx };`);
-const B = mk(Bt, ['A', 'B', 'C', 'D', 'E'], LEVEL, { docx, Pegon });
+const mk = new Function('Bt', 'KEYS', 'LEVEL', 'window', 'muatDocx', `${html.slice(a, b)}\nreturn { buildGift, buildMoodleXml, buildCsvForms, buildCsvRdm, buildDocx };`);
+const B = mk(Bt, ['A', 'B', 'C', 'D', 'E'], LEVEL, { docx, Pegon }, async () => docx);
 
 const kosong = { A: '', B: '', C: '', D: '', E: '' };
 const dasar = { tingkat: 'MA', mapel: 'Fiqih', level: 'L2', nama: 'Fathul Qarib', juz: '', hal: '10', teks: 'مَاءُ الْبَحْرِ', pembahasan: 'Dasarnya tujuh air suci.', indikator: 'Peserta didik dapat x' };
