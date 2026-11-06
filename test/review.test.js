@@ -280,7 +280,7 @@ test('app-config: admin menyimpan alur (dinormalkan), non-admin ditolak, semua p
 
 test('klien: revisi dan persetujuan lewat server; tidak ada lagi tulis status revision langsung dari klien', async () => {
   const { readFileSync } = await import('node:fs');
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8') + readFileSync(new URL('../web/AdminKonfigurasi.jsx', import.meta.url), 'utf8'); // tab admin dipisah ke berkas sendiri (lazy-load)
   assert.match(app, /aksi: 'revisi', id, catatan: note/);
   assert.match(app, /aksi: 'alursimpan'/);
   assert.doesNotMatch(app, /col\.doc\(id\)\.update\(\{ status, catatan: note/);

@@ -183,7 +183,7 @@ test('riwayat yatim: riwayat milik soal yang masih ada tidak pernah dihapus, ter
 test('riwayat yatim: aturan Firestore hanya mengizinkan hapus riwayat bila soal induknya tidak ada; klien membersihkan setelah hapus soal', async () => {
   const { readFileSync } = await import('node:fs');
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8') + readFileSync(new URL('../web/AdminKonfigurasi.jsx', import.meta.url), 'utf8'); // tab admin dipisah ke berkas sendiri (lazy-load)
   assert.match(rules, /allow delete: if isStaff\(\) && !exists\(\/databases\/\$\(database\)\/documents\/soal\/\$\(id\)\);/);
   assert.doesNotMatch(rules, /allow update, delete: if false;\n\s*\}\n\n\s*allow read: if isStaff\(\);/);
   assert.match(app, /collection\('riwayat'\)\.get\(\)/);
