@@ -8,7 +8,7 @@ import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
 import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
-import { aksiIsiUsul, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
+import { aksiIsiUsul, aksiIsiAi, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
@@ -27,7 +27,7 @@ const bulat = (v, min, maks, nama) => {
 };
 
 // `pengguna` = { uid, role, nama } dari api/kitab.js; hanya dipakai aksi koreksi dan penyuntingan daftar isi (editor/admin). Aksi baca tidak membutuhkannya.
-export async function aksiBaca(body, pengguna = null) {
+export async function aksiBaca(body, pengguna = null, deps = {}) {
   const b = body && typeof body === 'object' ? body : {};
   const { db } = await firestoreAdmin();
 
@@ -53,6 +53,7 @@ export async function aksiBaca(body, pengguna = null) {
   if (b.aksi === 'perpus-koreksi') return aksiKoreksi(b, kid, m, pengguna);
   if (b.aksi === 'perpus-riwayat') return aksiRiwayat(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-usul') return aksiIsiUsul(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-isi-ai') return aksiIsiAi(b, kid, m, pengguna, deps);
   if (b.aksi === 'perpus-isi-simpan') return aksiIsiSimpan(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-riwayat') return aksiIsiRiwayat(b, kid, m, pengguna);
 

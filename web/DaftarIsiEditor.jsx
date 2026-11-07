@@ -1,14 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { History, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Bot, History, Loader2, Plus, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { LABEL_LEVEL, MAKS_ENTRI_ISI, MAKS_JUDUL_ISI, MAKS_CATATAN_ISI, rapikanEntri, rapikanJudul, periksaEntri, bedaDaftar, gabungUsul } from './lib/daftarIsi.js';
 
 // Penyunting daftar isi kitab (editor dan admin), dipakai di dalam PembacaKitab.jsx pada tombol "Sunting daftar isi" / "Buat daftar isi".
 // Tujuan: membuat daftar isi yang tidak ada (PDF/OCR, berkas tanpa judul bertanda) dan memperbaiki yang keliru (judul, level, halaman).
 // Menyimpan mengirim `rev` yang dilihat penyunting; bila orang lain lebih dulu mengubah daftar ini, server menolak dan tidak ada yang tertimpa.
 // Server: src/kitabIsi.js (peran diperiksa di sana juga). `pem` = pemuat dari web/lib/perpus.js (isiUsul, isiSimpan, isiRiwayat).
+// "Buat otomatis" ada dua: aturan (instan, gratis) dan "Sempurnakan dengan AI" (bertahap per 60 halaman, kemajuan tampil, bisa dihentikan; hasil sebagian tetap bisa dipakai).
 // Nomor cetak (hal.) dan juz diisi server dari halaman kitab; penyunting hanya memilih URUTAN halaman (1 sampai jumlah halaman kitab).
 
 const waktu = (iso) => { try { return new Date(iso).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }) + ' WIB'; } catch { return String(iso || ''); } };
+const JUMLAH_AI = 60; // halaman per panggilan AI (batas server: JUMLAH_AI_MAKS di src/kitabIsi.js)
 let nomor = 0;
 const keBaris = (entri) => (entri || []).map((e) => ({ id: ++nomor, judul: e.judul, level: e.level, seq: String(e.seq), hal: e.hal }));
 const keEntri = (baris) => baris.map((b) => ({ judul: rapikanJudul(b.judul), level: Number(b.level), seq: b.seq === '' ? NaN : Number(b.seq) }));
@@ -17,7 +19,9 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
   const asal = useMemo(() => rapikanEntri(isi.entri), [isi.entri]);
   const [baris, setBaris] = useState(() => keBaris(asal));
   const [catatan, setCatatan] = useState('');
-  const [usul, setUsul] = useState(null);          // { usul[], dibaca, terpotong }
+  const [usul, setUsul] = useState(null);          // { usul[], dibaca, terpotong, sumber: 'aturan'|'ai', sebagian?, ditolak? }
+  const [ai, setAi] = useState(null);              // null = tidak berjalan; { dari, ditemukan }
+  const batalRef = useRef(false);
   const [riwayat, setRiwayat] = useState(null);    // null = tertutup; { data?, err? }
   const [busy, setBusy] = useState(false);
   const [sibuk, setSibuk] = useState('');          // 'usul' | 'riwayat'
@@ -46,7 +50,25 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
 
   async function buatUsul() {
     setSibuk('usul'); setErr(null); setUsul(null);
-    try { setUsul(await pem.isiUsul(kitabId)); } catch (e) { gagal(e, setErr); } finally { setSibuk(''); }
+    try { setUsul({ ...(await pem.isiUsul(kitabId)), sumber: 'aturan' }); } catch (e) { gagal(e, setErr); } finally { setSibuk(''); }
+  }
+  async function jalankanAi() {
+    const panggilan = Math.ceil(total / JUMLAH_AI);
+    if (!window.confirm(`AI akan memilah kandidat judul di seluruh ${total} halaman, sekitar ${panggilan} panggilan AI atas biaya server (jendela tanpa kandidat dilewati). Hasilnya hanya usulan; belum disimpan. Lanjutkan?`)) return;
+    batalRef.current = false; setErr(null); setUsul(null); setInfo('');
+    let kumpul = []; let ditolak = 0; let berhenti = false; let kandidat = 0; let dipanggil = 0;
+    setAi({ dari: 1, ditemukan: 0 });
+    try {
+      for (let dari = 1; dari <= total; dari += JUMLAH_AI) {
+        if (batalRef.current) { berhenti = true; break; }
+        setAi({ dari, ditemukan: kumpul.length });
+        const sebelumnya = kumpul.slice(-8).map(({ judul, level }) => ({ judul, level }));
+        const r = await pem.isiAi(kitabId, { dari, jumlah: JUMLAH_AI, sebelumnya });
+        kumpul = kumpul.concat(r.entri); ditolak += r.ditolak || 0; kandidat += r.kandidat || 0; if (r.dipanggilAi) dipanggil++;
+      }
+    } catch (e) { berhenti = true; gagal(e, setErr); } finally { setAi(null); }
+    if (kumpul.length) setUsul({ usul: kumpul, dibaca: total, terpotong: false, sumber: 'ai', sebagian: berhenti, ditolak, kandidat, dipanggil });
+    else if (!berhenti) setUsul({ usul: [], dibaca: total, sumber: 'ai', kandidat, dipanggil });
   }
   const gantiSemua = (entri) => { setBaris(keBaris(rapikanEntri(entri))); onKotor(true); };
   const pakaiUsul = (mode) => {
@@ -89,17 +111,28 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
 
       <div className="flex flex-wrap items-center gap-2">
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={tambah} disabled={busy || baris.length >= MAKS_ENTRI_ISI}><Plus size={14} />Tambah judul (halaman {kursor})</Btn>
-        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={buatUsul} disabled={busy || sibuk === 'usul'}>{sibuk === 'usul' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}Buat otomatis dari teks kitab</Btn>
+        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={buatUsul} disabled={busy || sibuk === 'usul' || !!ai}>{sibuk === 'usul' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}Buat otomatis dari teks kitab</Btn>
+        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={jalankanAi} disabled={busy || sibuk === 'usul' || !!ai}><Bot size={14} />Sempurnakan dengan AI</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={urutkan} disabled={busy || baris.length < 2}>Urutkan menurut halaman</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaRiwayat} aria-pressed={!!riwayat}><History size={14} />Riwayat</Btn>
       </div>
 
+      {ai && (
+        <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-soft/40 p-3 text-sm">
+          <Loader2 size={15} className="spin" />
+          <span>AI memilah halaman {ai.dari}-{Math.min(total, ai.dari + JUMLAH_AI - 1)} dari {total} · {ai.ditemukan} judul terpilih</span>
+          <progress className="h-2 w-40" max={total} value={Math.min(total, ai.dari - 1)} aria-label="Kemajuan pemilahan AI" />
+          <Btn kind="ghost" className="!px-3 !py-1 !text-xs" onClick={() => { batalRef.current = true; }}><Square size={12} />Hentikan</Btn>
+        </div>)}
+
       {usul && (
         <div role="status" className="space-y-2 rounded-xl border border-line bg-soft/40 p-3 text-sm">
           {usul.usul.length === 0
-            ? <p>Tidak ditemukan judul bab di teks {usul.dibaca} halaman. Kitab hasil PDF/OCR sering tanpa baris judul yang jelas; tambahkan manual lewat "Tambah judul".</p>
+            ? <p>{usul.sumber === 'ai' ? `AI tidak menemukan judul pada ${usul.kandidat || 0} kandidat. ` : `Tidak ditemukan judul bab di teks ${usul.dibaca} halaman. `}Kitab hasil PDF/OCR sering tanpa baris judul yang jelas; {usul.sumber === 'ai' ? 'tambahkan manual lewat "Tambah judul".' : 'coba "Sempurnakan dengan AI", atau tambahkan manual lewat "Tambah judul".'}</p>
             : (<>
-              <p>Ditemukan <b>{usul.usul.length}</b> judul dari teks {usul.dibaca} halaman{usul.terpotong ? ` (dipotong ke ${MAKS_ENTRI_ISI} pertama)` : ''}. Ini usulan mesin dari kata kunci (باب، فصل، كتاب، مقدمة, "Bab 3"); periksa sebelum disimpan.</p>
+              {usul.sumber === 'ai'
+                ? <p>AI memilih <b>{usul.usul.length}</b> judul dari {usul.kandidat} kandidat{usul.ditolak ? ` (${usul.ditolak} pilihan tidak sah dibuang)` : ''}. Judul selalu persis dari teks kitab; level ditentukan AI. {usul.sebagian ? <b>Proses dihentikan sebelum seluruh kitab selesai: ini hasil sebagian. </b> : null}Periksa sebelum disimpan.</p>
+                : <p>Ditemukan <b>{usul.usul.length}</b> judul dari teks {usul.dibaca} halaman{usul.terpotong ? ` (dipotong ke ${MAKS_ENTRI_ISI} pertama)` : ''}. Ini usulan mesin dari kata kunci (باب، فصل، كتاب، مقدمة، مبحث, "Bab 3"); periksa sebelum disimpan. Judul tanpa kata kunci hanya bisa dikenali lewat "Sempurnakan dengan AI".</p>}
               <div className="flex flex-wrap gap-2">
                 <Btn kind="primary" className="!px-3 !py-1.5 !text-xs" onClick={() => pakaiUsul('gabung')}>Tambahkan yang belum ada</Btn>
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => pakaiUsul('ganti')}>Ganti seluruh daftar</Btn>

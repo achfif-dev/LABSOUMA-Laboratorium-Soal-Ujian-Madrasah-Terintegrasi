@@ -37,6 +37,7 @@ Dokumen rujukan yang tetap terpisah: `docs/SKEMA-KITAB.md` (skema database kitab
 | 25 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (5): mesin Pegon dimuat malas | `PERUBAHAN-06-NOV-2026-PEGON-LAZY.md` |
 | 26 | 7 Nov 2026 | Audit dan perubahan | Audit dan perluasan kamus serapan Arab kitab pesantren (647 menjadi 1287 entri) | - |
 | 27 | 7 Nov 2026 | Perubahan | Perubahan 7 Nov 2026: penyuntingan dan pembuatan daftar isi kitab dari dalam aplikasi | - |
+| 28 | 7 Nov 2026 | Perubahan | Mesin Buat otomatis daftar isi diperkuat dan dibantu AI (bertahap, hanya memilih kandidat) | - |
 
 ---
 
@@ -1535,3 +1536,35 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 **Tes.** `test/daftarIsi.test.js` (17 tes): logika murni (rapikan, periksa, beda, usulan, gabung) dan server (peran, simpan dengan juz/hal dari halaman, tanpa perubahan tidak menulis, membuat dari nol, bentrok, isian tidak sah, kitab diimpor ulang, usulan tidak menulis, riwayat dan pemulihan, arsip terlalu besar, pemuat klien). Seluruh suite: 671 lulus; 13 berkas gagal karena paket `react`, `docx`, `write-excel-file`, dan `lucide-react` tidak terpasang di lingkungan ini (sama seperti sebelum perubahan).
 
 **Belum diuji.** Layar di browser sungguhan (tidak ada `react` di lingkungan ini; JSX hanya diperiksa sintaksnya), Firestore sungguhan (tes memakai Firestore tiruan; `select(...)` pada usulan dan transaksi dengan ratusan pembacaan belum dicoba di server asli), dan perilaku pada kitab dengan ribuan judul.
+
+## 28. [Perubahan] Mesin "Buat otomatis" daftar isi diperkuat dan dibantu AI (7 Nov 2026)
+
+**Permintaan.** Perkuat mesin Buat otomatis dari teks kitab dan tambah performanya dengan bantuan AI.
+
+**Kelemahan mesin awal (bagian 27).** Hanya kata kunci tanpa harakat dan tanpa "ال"; baris panjang berawalan kata kunci dilewati; header yang berulang di tiap halaman ikut jadi judul; judul tanpa kata kunci ("الطهارة") tidak pernah ditemukan; level hanya 1-3.
+
+**Mesin aturan (`web/lib/daftarIsi.js`, gratis, satu lintasan).**
+- Kata kunci dicocokkan setelah harakat dibuang dan boleh berawalan "ال" (بَابُ، الباب، الفصل، المبحث، المطلب); kata harus utuh ("بابك", "كتابه" bukan judul). Kata kunci baru: مبحث، مطلب. Aturan Syamilah lama hanya dipakai untuk judul Latin (tanpa syarat kata utuh, itulah sebabnya "بابك" lolos di versi pertama perbaikan ini; sudah ditutup dan dites).
+- Level 1-4 (`levelUsul`): kitab/pengantar/penutup, bab, fasal/mabhats, mathlab/far'/tatimmah.
+- Baris panjang berawalan kata kunci dipotong di titik dua, titik, atau tanda pisah pertama ("باب الوضوء: يجب ...", sumber `potong`); baris pendek berbentuk kalimat (berakhir titik) tetap ditolak.
+- Header berulang dibuang: baris pendek yang sama di sedikitnya 5 halaman dan 8% kitab bukan judul. Judul sama di halaman berurutan tidak digandakan.
+- Sisa penanda halaman "(ص: 12)", kurung siku, dan titik dua di ujung dibuang; angka di judul ("Bab 3") tetap.
+- Tiap usulan membawa `sumber`: `kata-kunci`, `potong`, `bab`, atau `ai`.
+
+**Pemilahan AI (`perpus-isi-ai`, `src/kitabIsi.js`).**
+- **Hemat.** Ke AI hanya dikirim KANDIDAT judul (baris pendek dan berkata kunci, plus awal baris sesudahnya sebagai konteks), bukan seluruh teks. Pada kitab uji sintetis 3000 halaman (4,4 MB teks) yang dikirim sekitar 144 KB (3,3%). Jendela tanpa kandidat tidak memanggil AI.
+- **Tidak bisa mengarang.** AI hanya memilih NOMOR kandidat dan level 1-4. Judul yang keluar selalu persis dari teks. Bila AI memotong judul dari baris panjang, potongan itu harus bagian dari baris sumber (dibandingkan tanpa harakat); kalau tidak, dipakai baris utuh. Nomor yang tidak ada atau ganda dibuang dan dihitung (`ditolak`).
+- **Bertahap.** Satu panggilan = satu jendela 60 halaman (maks 250 kandidat; yang berkata kunci didahulukan). Layar memanggil berulang dengan kemajuan dan tombol Hentikan, dan membawa 8 judul terakhir sebagai konteks supaya level konsisten sepanjang kitab. Bila berhenti atau gagal di tengah, hasil sebagian tetap bisa dipakai (ditandai).
+- **Biaya terkendali.** Seperti OCR, tanpa kuota AI per pengguna; batas laju sendiri `LIMIT_ISI_AI_PER_MINUTE` (15) dan `LIMIT_ISI_AI_PER_DAY` (600). Masukan cacat ditolak 422 sebelum batas laju terhitung. Layar meminta konfirmasi dengan perkiraan jumlah panggilan.
+- Hanya usulan: tidak menulis apa pun. Editor tetap meninjau, lalu menyimpan lewat jalur simpan yang sama (transaksi, riwayat, deteksi bentrok).
+- Hanya editor dan admin (diperiksa di api/kitab.js dan lagi di modul).
+
+**Kitab hasil OCR AI.** Usulan bekerja pada teks yang tersimpan di halaman, jadi sumber kitab (Syamilah, PDF teks, PDF pindai OCR) tidak menjadi syarat. Satu perbedaan penting: OCR Arab (`src/fotoKitab.js`) mempertahankan baris cetak, sehingga satu halaman berisi puluhan baris sepanjang sekitar 50 sampai 60 karakter, sedangkan teks Syamilah dan OCR Latin/Pegon berupa paragraf utuh. Tanpa penyesuaian, hampir tiap baris OCR tampak sebagai kandidat judul (biaya AI membengkak, kandidat terpotong di batas 250) dan lanjutan kalimat berawalan kata kunci ("كتاب الله تعالى وسنة رسوله ...") ikut menjadi judul palsu. Penyesuaian (`ukuranBarisKhas`, `web/lib/daftarIsi.js`): bila median panjang baris isi (baris dengan panjang 20 karakter ke atas, kurang dari atau sama dengan 90) menunjukkan teks berbaris cetak, judul harus jelas lebih pendek dari baris biasa (kandidat tanpa kata kunci maksimal sekitar 55% baris khas dan 8 kata; berkata kunci maksimal sekitar 75%), dan pemotongan baris panjang dimatikan. Dites dengan halaman OCR sintetis (6 halaman, 156 baris): mesin aturan menemukan tepat 2 judul tanpa judul palsu, dan kandidat AI hanya 4 atau kurang dari 156 baris; kedua tes gagal bila penyesuaian dimatikan.
+
+**Batas untuk OCR yang diketahui.** Salah baca OCR pada kata kunci ("باب" terbaca lain) tidak dikenali mesin aturan; jalur AI masih bisa memilihnya karena kandidat memuat baris pendek tanpa kata kunci, tetapi ini belum diuji dengan OCR nyata. Judul di halaman berkualitas `buruk` ikut kena. OCR Pegon belum punya kata kunci sendiri (kata kunci Arab dan Latin saja), jadi untuk Pegon andalkan jalur AI. Teks dua kolom atau nazham (satu bait per baris) tidak berbentuk paragraf maupun baris biasa; hasilnya belum diukur.
+
+**Kecepatan (kitab uji sintetis 3000 halaman, 4,4 MB):** mesin aturan sekitar 0,17 detik; penyaringan kandidat untuk 50 jendela sekitar 0,17 detik. Waktu AI tergantung penyedia.
+
+**Tes.** `test/daftarIsi.test.js` kini 34 tes (17 baru): harakat dan "ال", level, pembersihan judul, header berulang, pemotongan baris panjang, kandidat dan batasnya, pemeriksaan pilihan AI, aksi server dengan klien AI tiruan (jendela, konteks, tanpa kandidat tanpa panggilan AI, alat salah 502, penolakan AI 422, nomor ngawur, peran), validasi masukan, dan jalur /api/kitab. Seluruh suite: 688 lulus; 13 berkas gagal karena paket `react`, `docx`, `write-excel-file`, `lucide-react` tidak terpasang di lingkungan ini (sama seperti sebelumnya).
+
+**Belum diuji.** AI sungguhan (tes memakai klien tiruan, jadi mutu pilihan dan level AI pada kitab nyata belum terukur), layar di browser, dan Firestore sungguhan. Disarankan mencoba pada satu kitab yang daftar isinya sudah benar dan membandingkan hasil AI dengan daftar itu sebelum dipakai massal.

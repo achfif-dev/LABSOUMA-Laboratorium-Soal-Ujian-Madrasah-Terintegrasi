@@ -3,19 +3,22 @@
 //  - `aksi` berawalan "impor-": impor perpustakaan kitab dari ekspor Syamilah. Khusus admin (src/kitabImpor.js).
 //  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
 //  - `aksi` "perpus-koreksi" / "perpus-riwayat": mengoreksi teks satu halaman kitab dan melihat riwayatnya. Khusus editor dan admin (src/kitabKoreksi.js).
-//  - `aksi` "perpus-isi-usul" / "perpus-isi-simpan" / "perpus-isi-riwayat": membuat dan menyunting daftar isi kitab. Khusus editor dan admin (src/kitabIsi.js).
+//  - `aksi` "perpus-isi-usul" / "perpus-isi-ai" / "perpus-isi-simpan" / "perpus-isi-riwayat": membuat dan menyunting daftar isi kitab. Khusus editor dan admin (src/kitabIsi.js).
+//    "perpus-isi-ai" = pemilahan kandidat judul dengan AI, bertahap per jendela halaman; tanpa kuota AI per pengguna, batas laju sendiri (seperti OCR).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
 // Impor sengaja ada di sini, bukan berkas api/ baru: jumlah fungsi Vercel Hobby dibatasi 12 dan api/ sudah berisi 11.
 import { route, authenticateAuthor, authenticateAdmin, authenticateReviewer, enforceRate, kitabLimitsFor, num } from '../src/platform.js';
 import { fetchKitab, DEFAULT_HOSTS } from '../src/kitabFetch.js';
 import { aksiImpor } from '../src/kitabImpor.js';
 import { aksiBaca } from '../src/kitabBaca.js';
+import { validasiIsiAi } from '../src/kitabIsi.js';
 import { aksiOcr, validateFoto } from '../src/kitabOcr.js';
 import { loadAiConfig } from '../src/aiConfig.js';
 import { parseList } from '../src/access.js';
 
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
+const LIMIT_ISI_AI = { perMinute: num('LIMIT_ISI_AI_PER_MINUTE', 15), perDay: num('LIMIT_ISI_AI_PER_DAY', 600) }; // satu kitab = sekitar 10 sampai 15 panggilan
 const LIMIT_ISI_USUL = { perMinute: 6, perDay: 100 };   // satu usulan membaca seluruh halaman kitab (ratusan dokumen), jadi lebih ketat
 
 export default route(async (req) => {
@@ -35,6 +38,13 @@ export default route(async (req) => {
   if (aksi === 'perpus-koreksi' || aksi === 'perpus-riwayat') {
     const u = await authenticateReviewer(req);
     if (aksi === 'perpus-koreksi') await enforceRate(`${u.uid}_kitabkoreksi`, LIMIT_KOREKSI, { pesanHarian: 'Batas koreksi kitab harian tercapai. Lanjutkan besok.' });
+    return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
+  }
+  if (aksi === 'perpus-isi-ai') {
+    const u = await authenticateReviewer(req);
+    validasiIsiAi(req.body); // tolak masukan cacat sebelum menghitung batas laju
+    await enforceRate(`${u.uid}_kitabisiai`, LIMIT_ISI_AI, { pesanHarian: 'Batas pemilahan daftar isi dengan AI harian tercapai. Lanjutkan besok, atau naikkan LIMIT_ISI_AI_PER_DAY di pengaturan server.' });
+    await loadAiConfig(); // kunci, model, dan penyedia AI dari Konfigurasi admin
     return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
   }
   if (aksi === 'perpus-isi-usul' || aksi === 'perpus-isi-simpan' || aksi === 'perpus-isi-riwayat') {

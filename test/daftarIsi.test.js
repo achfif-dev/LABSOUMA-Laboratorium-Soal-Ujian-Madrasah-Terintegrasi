@@ -5,8 +5,8 @@ import { parseSyamilah } from '../src/syamilah.js';
 import { jalankanImpor, isianAwal } from '../web/lib/imporKitab.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import { kosongkanSimpananCari } from '../src/kitabCari.js';
-import { aksiIsiSimpan } from '../src/kitabIsi.js';
-import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, MAKS_ENTRI_ISI } from '../web/lib/daftarIsi.js';
+import { aksiIsiSimpan, aksiIsiAi, validasiIsiAi, JUMLAH_AI_MAKS } from '../src/kitabIsi.js';
+import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, MAKS_ENTRI_ISI, levelUsul, bersihkanJudul, kandidatJudul, entriDariPilihanAi, normalJudul, ukuranBarisKhas } from '../web/lib/daftarIsi.js';
 import { buatPemuat } from '../web/lib/perpus.js';
 import handler from '../api/kitab.js';
 import { fakeDb } from './_fakeDb.js';
@@ -222,4 +222,162 @@ test('pemuat klien: isiSimpan memperbarui simpanan, isiUsul dan isiRiwayat meman
   assert.deepEqual(pem.simpanan.isi.get('k'), { kitab: { id: 'k' }, entri: [{ judul: 'x', level: 1, seq: 1 }], rev: 4 });
   await pem.isiUsul('k'); await pem.isiRiwayat('k');
   assert.deepEqual(panggilan, ['perpus-isi-simpan', 'perpus-isi-usul', 'perpus-isi-riwayat']);
+});
+
+/* ---------- Mesin aturan yang diperkuat ---------- */
+test('levelUsul dan kata kunci: berharakat, berawalan "ال", tingkat 1-4; kata yang hanya mirip ("بابك") bukan judul', () => {
+  assert.deepEqual(['مقدمة', 'كِتَابُ الطَّهَارَةِ', 'خاتمة', 'بَابُ الْوُضُوءِ', 'الباب الأول', 'فصل', 'الفصل الثاني', 'مبحث', 'مطلب', 'الفرع', 'تتمة'].map(levelUsul), [1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4]);
+  assert.equal(levelUsul('Bab 3'), 2); assert.equal(levelUsul('Pendahuluan'), 1);
+  const u = usulDariHalaman([
+    { seq: 1, juz: 1, hal: 1, teks: 'بَابُ الطَّهَارَةِ\nنص' }, { seq: 2, juz: 1, hal: 2, teks: 'الفصل الأول\nنص' }, { seq: 3, juz: 1, hal: 3, teks: 'المطلب الثاني\nنص' },
+    { seq: 4, juz: 1, hal: 4, teks: 'بابك\nكتابه\nفصلت\nنص' },
+  ]);
+  assert.deepEqual(u.map((e) => [e.seq, e.judul, e.level]), [[1, 'بَابُ الطَّهَارَةِ', 2], [2, 'الفصل الأول', 3], [3, 'المطلب الثاني', 4]]);
+});
+
+test('bersihkanJudul: penanda halaman, kurung siku, titik dua dibuang; nomor judul tetap ("Bab 3")', () => {
+  assert.equal(bersihkanJudul('باب الوضوء (ص: 12)'), 'باب الوضوء');
+  assert.equal(bersihkanJudul('فصل في الغسل:'), 'فصل في الغسل');
+  assert.equal(bersihkanJudul('[باب الصلاة]'), 'باب الصلاة');
+  assert.equal(bersihkanJudul('Bab 3'), 'Bab 3'); assert.equal(bersihkanJudul('الباب 2'), 'الباب 2');
+});
+
+test('header berulang dibuang: baris berkata kunci yang sama di banyak halaman bukan judul; judul unik tetap', () => {
+  const hal = Array.from({ length: 10 }, (_, i) => ({ seq: i + 1, juz: 1, hal: i + 1, teks: `${i < 6 ? 'باب الطهارة\n' : ''}${i === 2 ? 'فصل في الغسل\n' : ''}نص ${i}` }));
+  assert.deepEqual(usulDariHalaman(hal).map((e) => e.judul), ['فصل في الغسل']);
+});
+
+test('baris panjang berawalan kata kunci dipotong di titik dua; kalimat yang berakhir titik tidak; judul sama di halaman berurutan tidak digandakan', () => {
+  const panjang = 'باب الوضوء: يجب على المكلف أن يتوضأ قبل الصلاة إذا كان محدثا وهذا الحكم متفق عليه بين الفقهاء';
+  assert.ok(panjang.length > 80);
+  const u = usulDariHalaman([{ seq: 1, juz: 1, hal: 1, teks: panjang }, { seq: 2, juz: 1, hal: 2, teks: 'باب الوضوء' }, { seq: 5, juz: 1, hal: 5, teks: 'باب الوضوء' }]);
+  assert.deepEqual(u.map((e) => [e.seq, e.judul, e.sumber]), [[1, 'باب الوضوء', 'potong'], [5, 'باب الوضوء', 'kata-kunci']]);
+});
+
+/* ---------- Kandidat dan pilihan AI ---------- */
+test('kandidatJudul: baris pendek dan berkata kunci jadi kandidat dengan konteks; kalimat panjang tidak; nomor berurutan', () => {
+  const panjang = 'هذه جملة طويلة جدا من متن الكتاب تتكلم عن حكم من الأحكام الفقهية وتستمر في الكلام حتى تتجاوز الحد المعقول لطول العنوان بكثير.';
+  const { kandidat, terpotong } = kandidatJudul([{ seq: 1, juz: 1, hal: 7, teks: `باب الصلاة\nيجب على المكلف كذا\nالطهارة\n${panjang}`, bab: 'باب الصلاة' }]);
+  assert.equal(terpotong, false);
+  assert.deepEqual(kandidat.map((k) => [k.id, k.teks, k.kunci]), [[1, 'باب الصلاة', true], [2, 'يجب على المكلف كذا', false], [3, 'الطهارة', false]]);
+  assert.equal(kandidat[0].lanjut, 'يجب على المكلف كذا'); assert.equal(kandidat[0].hal, 7);
+});
+
+test('kandidatJudul: judul dari `bab` hanya saat berubah; melebihi batas mendahulukan kata kunci; header berulang dibuang', () => {
+  const hal = [{ seq: 1, juz: 1, hal: 1, teks: 'x', bab: 'باب أ' }, { seq: 2, juz: 1, hal: 2, teks: 'x', bab: 'باب أ' }, { seq: 3, juz: 1, hal: 3, teks: 'x', bab: 'باب ب' }];
+  assert.deepEqual(kandidatJudul(hal).kandidat.filter((k) => k.teks.startsWith('باب')).map((k) => [k.seq, k.teks]), [[1, 'باب أ'], [3, 'باب ب']]);
+  const banyak = [{ seq: 1, juz: 1, hal: 1, teks: Array.from({ length: 20 }, (_, i) => `سطر قصير ${'ا'.repeat(i + 1)}`).join('\n') + '\nفصل في كذا' }];
+  const r = kandidatJudul(banyak, { maks: 5 });
+  assert.equal(r.terpotong, true); assert.equal(r.kandidat.length, 5); assert.ok(r.kandidat.some((k) => k.teks === 'فصل في كذا'));
+  assert.deepEqual(r.kandidat.map((k) => k.id), [1, 2, 3, 4, 5]);
+  const rutin = Array.from({ length: 4 }, (_, i) => ({ seq: i + 1, juz: 1, hal: i + 1, teks: `فتح المعين\nمتن فريد ${i}` }));
+  assert.equal(kandidatJudul(rutin).kandidat.some((k) => k.teks === 'فتح المعين'), false);
+});
+
+test('entriDariPilihanAi: hanya nomor yang ada, tanpa ganda; judul sebagian harus bagian dari baris sumber; level bawaan dari kata kunci', () => {
+  const kand = [{ id: 1, seq: 3, juz: 1, hal: 3, teks: 'باب الوضوء: وهو غسل أعضاء مخصوصة' }, { id: 2, seq: 4, juz: 1, hal: 4, teks: 'الطهارة' }];
+  const { entri, ditolak } = entriDariPilihanAi([
+    { id: 1, level: 2, judul: 'باب الوضوء' }, { id: 1, level: 2 }, { id: 99, level: 2 }, { id: 2, level: 7 }, { id: 'x', level: 2 }, null,
+  ], kand);
+  assert.equal(ditolak, 4);
+  assert.deepEqual(entri.map((e) => [e.seq, e.judul, e.level, e.sumber]), [[3, 'باب الوضوء', 2, 'ai'], [4, 'الطهارة', 3, 'ai']]);
+  // judul karangan (bukan bagian baris sumber) diabaikan: dipakai baris utuh
+  assert.equal(entriDariPilihanAi([{ id: 2, level: 1, judul: 'عنوان مختلف تماما' }], kand).entri[0].judul, 'الطهارة');
+  assert.equal(normalJudul('بَابُ الْوُضُوءِ'), normalJudul('باب الوضوء'));
+});
+
+/* ---------- Server: pemilahan AI ---------- */
+const klienAi = (pilih) => { const log = []; return { log, messages: { create: async (a) => { log.push(a); return { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'hasil_daftar_isi', input: { pilih: typeof pilih === 'function' ? pilih(a.messages[0].content) : pilih } }] }; } } }; };
+const pilihKunci = (prompt) => [...prompt.matchAll(/^#(\d+) \| hal\. \d+ \| \[kata-kunci\] (.+?)(?: \|\| |$)/gm)].map((m) => ({ id: Number(m[1]), level: /^باب/.test(m[2]) ? 2 : 3 }));
+const AI_PENGGUNA = { uid: 'u_editor', role: 'editor', nama: 'E' };
+const tanpaRate = (db) => JSON.stringify(Object.fromEntries(Object.entries(db.data).filter(([p]) => !p.startsWith('rate/'))));
+
+test('perpus-isi-ai: kandidat dikirim ke AI, pilihan menjadi usulan bersumber "ai", tidak menulis apa pun', () => siapkan(async (db) => {
+  const sebelum = tanpaRate(db); const c = klienAi(pilihKunci);
+  const r = await aksiIsiAi({ dari: 1 }, 'fathul-muin', db.data['kitab/fathul-muin'], AI_PENGGUNA, { client: c });
+  assert.equal(r.dipanggilAi, true); assert.equal(c.log.length, 1);
+  assert.deepEqual(r.entri.map((e) => [e.seq, e.judul, e.level, e.sumber]), [[1, 'باب الصلاة', 2, 'ai'], [4, 'فصل في الأذان', 3, 'ai']]);
+  assert.equal(r.dari, 1); assert.equal(r.sampai, 6); assert.ok(r.kandidat >= 2);
+  assert.match(c.log[0].messages[0].content, /<kandidat>[\s\S]*#\d+ \| hal\. 1 \| \[kata-kunci\] باب الصلاة/);
+  assert.ok(c.log[0].tool_choice && c.log[0].tools.some((t) => t.name === 'hasil_daftar_isi'));
+  assert.equal(tanpaRate(db), sebelum);
+}));
+
+test('perpus-isi-ai: jendela halaman, konteks judul sebelumnya dikirim, nomor ngawur dari AI dibuang dan dihitung', () => siapkan(async (db) => {
+  const c = klienAi((p) => [...pilihKunci(p), { id: 999, level: 2 }]);
+  const r = await aksiIsiAi({ dari: 4, jumlah: 3, sebelumnya: [{ judul: 'باب الصلاة', level: 2 }] }, 'fathul-muin', db.data['kitab/fathul-muin'], AI_PENGGUNA, { client: c });
+  assert.equal(r.dari, 4); assert.equal(r.sampai, 6); assert.deepEqual(r.entri.map((e) => e.seq), [4]); assert.equal(r.ditolak, 1);
+  assert.match(c.log[0].messages[0].content, /level 2: باب الصلاة/);
+  assert.doesNotMatch(c.log[0].messages[0].content, /متن 1/); // halaman 1-3 tidak ikut
+}));
+
+test('perpus-isi-ai: jendela tanpa kandidat tidak memanggil AI sama sekali', () => siapkan(async (db) => {
+  for (let q = 1; q <= 6; q++) db.data[`kitab/fathul-muin/halaman/p${String(q).padStart(5, '0')}`] = { ...db.data[`kitab/fathul-muin/halaman/p${String(q).padStart(5, '0')}`], bab: '', teks: 'هذه جملة طويلة جدا من متن الكتاب تتكلم عن حكم من الأحكام الفقهية وتستمر في الكلام حتى تتجاوز الحد المعقول لطول العنوان بكثير.' };
+  const c = klienAi([]);
+  const r = await aksiIsiAi({ dari: 1 }, 'fathul-muin', db.data['kitab/fathul-muin'], AI_PENGGUNA, { client: c });
+  assert.deepEqual([r.dipanggilAi, r.kandidat, r.entri.length, c.log.length], [false, 0, 0, 0]);
+}));
+
+test('perpus-isi-ai: alat salah 502, penolakan AI 422, halaman awal di luar kitab 422, peran lain 403', () => siapkan(async (db) => {
+  const m = db.data['kitab/fathul-muin'];
+  const salah = { messages: { create: async () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'hasil_lain', input: {} }] }) } };
+  await assert.rejects(() => aksiIsiAi({ dari: 1 }, 'fathul-muin', m, AI_PENGGUNA, { client: salah }), (e) => e.status === 502 && e.code === 'AI_BAD_OUTPUT');
+  const tolakAi = { messages: { create: async () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'tolak_teks', input: { alasan: 'bukan kitab' } }] }) } };
+  await assert.rejects(() => aksiIsiAi({ dari: 1 }, 'fathul-muin', m, AI_PENGGUNA, { client: tolakAi }), (e) => e.status === 422 && e.code === 'TEKS_TIDAK_MEMADAI');
+  await assert.rejects(() => aksiIsiAi({ dari: 7 }, 'fathul-muin', m, AI_PENGGUNA, { client: klienAi([]) }), (e) => e.status === 422 && e.code === 'ISI_AI_INVALID');
+  for (const u of [{ uid: 'x', role: 'penyusun' }, { uid: 'x', role: 'ustadz' }, null]) await assert.rejects(() => aksiIsiAi({ dari: 1 }, 'fathul-muin', m, u, { client: klienAi([]) }), (e) => e.status === 403);
+}));
+
+test('validasiIsiAi: batas halaman, jumlah, dan judul sebelumnya; bawaan dari=1 jumlah=maksimum', () => {
+  assert.deepEqual(validasiIsiAi({}), { dari: 1, jumlah: JUMLAH_AI_MAKS, sebelumnya: [] });
+  for (const b of [{ dari: 0 }, { dari: 1.5 }, { dari: '1' }, { jumlah: 0 }, { jumlah: JUMLAH_AI_MAKS + 1 }, { sebelumnya: 'x' }, { sebelumnya: Array.from({ length: 9 }, () => ({ judul: 'a', level: 1 })) },
+    { sebelumnya: [{ judul: '', level: 1 }] }, { sebelumnya: [{ judul: 'a', level: 9 }] }, { sebelumnya: [null] }, { sebelumnya: [{ judul: 'x'.repeat(301), level: 1 }] }]) {
+    assert.throws(() => validasiIsiAi(b), (e) => e.status === 422 && e.code === 'ISI_AI_INVALID', JSON.stringify(b));
+  }
+});
+
+test('/api/kitab perpus-isi-ai: ustadz dan penyusun 403, tanpa token 401, masukan cacat 422 sebelum batas laju terhitung', () => siapkan(async (db) => {
+  for (const t of ['tok_ustadz', 'tok_penyusun']) assert.equal((await lewat(t, { aksi: 'perpus-isi-ai', kitabId: 'fathul-muin', dari: 1 })).code, 403, t);
+  { const r = mkRes(); await handler({ method: 'POST', headers: {}, body: { aksi: 'perpus-isi-ai', kitabId: 'fathul-muin', dari: 1 } }, r); assert.equal(r.code, 401); }
+  const r = await lewat('tok_editor', { aksi: 'perpus-isi-ai', kitabId: 'fathul-muin', dari: 0 });
+  assert.equal(r.code, 422); assert.equal(r.body.error.code, 'ISI_AI_INVALID');
+  assert.equal(Object.keys(db.data).some((p) => p.includes('kitabisiai')), false);
+}));
+
+test('pemuat klien: isiAi memanggil aksi perpus-isi-ai dengan jendela dan konteks', async () => {
+  let b0; const pem = buatPemuat(async (b) => { b0 = b; return { ok: true }; });
+  await pem.isiAi('k', { dari: 61, jumlah: 60, sebelumnya: [{ judul: 'x', level: 2 }] });
+  assert.deepEqual(b0, { aksi: 'perpus-isi-ai', kitabId: 'k', dari: 61, jumlah: 60, sebelumnya: [{ judul: 'x', level: 2 }] });
+  await pem.isiAi('k', { dari: 1 }); assert.deepEqual(b0, { aksi: 'perpus-isi-ai', kitabId: 'k', dari: 1 });
+});
+
+/* ---------- Kitab hasil OCR AI: teks berbaris cetak ---------- */
+// OCR Arab (src/fotoKitab.js) mempertahankan baris cetak, jadi tiap halaman berisi puluhan baris sepanjang 50-60 karakter.
+function halamanOcr() {
+  const dasar = ['قال الإمام رحمه الله تعالى في هذه المسألة', 'وذهب جمهور الفقهاء إلى أن الحكم كما ذكرنا', 'ودليلهم في ذلك ما ورد عن النبي صلى الله عليه', 'وسلم في الحديث الصحيح الذي رواه الشيخان وغيرهما'];
+  return Array.from({ length: 6 }, (_, i) => {
+    const baris = Array.from({ length: 26 }, (_, k) => `${dasar[k % 4]} ${i}${k}`);
+    if (i === 1) baris.splice(5, 0, 'باب الوضوء');
+    if (i === 3) baris.splice(9, 0, 'فصل في الغسل');
+    if (i === 2) baris.splice(7, 0, 'كتاب الله تعالى وسنة رسوله صلى الله عليه وسلم'); // lanjutan kalimat yang kebetulan berawalan "كتاب"
+    return { seq: i + 1, juz: 1, hal: i + 1, teks: baris.join('\n') };
+  });
+}
+test('ukuranBarisKhas: median baris panjang; null bila baris terlalu sedikit', () => {
+  const m = ukuranBarisKhas(halamanOcr()); assert.ok(m >= 40 && m <= 70, String(m));
+  assert.equal(ukuranBarisKhas([{ seq: 1, teks: 'باب\nفصل' }]), null);
+});
+
+test('teks OCR berbaris cetak: mesin aturan hanya mengambil judul sungguhan, bukan lanjutan kalimat berawalan kata kunci', () => {
+  assert.deepEqual(usulDariHalaman(halamanOcr()).map((e) => [e.seq, e.judul]), [[2, 'باب الوضوء'], [4, 'فصل في الغسل']]);
+});
+
+test('teks OCR berbaris cetak: kandidat AI hanya baris yang jauh lebih pendek dari baris biasa, jadi tidak membengkak', () => {
+  const r = kandidatJudul(halamanOcr());
+  assert.equal(r.bentuk, 'baris');
+  const teks = r.kandidat.map((k) => k.teks);
+  assert.ok(teks.includes('باب الوضوء') && teks.includes('فصل في الغسل'));
+  assert.equal(teks.some((t) => t.startsWith('كتاب الله')), false);
+  assert.ok(r.kandidat.length <= 4, `kandidat ${r.kandidat.length} dari ${6 * 26} baris`);
+  assert.equal(kandidatJudul([{ seq: 1, teks: 'باب الصلاة\nنص' }]).bentuk, 'paragraf');
 });

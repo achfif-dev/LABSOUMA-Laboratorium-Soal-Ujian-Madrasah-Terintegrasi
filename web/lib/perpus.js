@@ -97,6 +97,8 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
     riwayat(kitabId, seq) { return panggil({ aksi: 'perpus-riwayat', kitabId, seq }); },
     /** Usulan daftar isi dari teks kitab (editor/admin; tidak menulis): { usul, dibaca, terpotong }. */
     isiUsul(kitabId) { return panggil({ aksi: 'perpus-isi-usul', kitabId }); },
+    /** Pilah kandidat judul dengan AI untuk halaman [dari, dari+jumlah) (editor/admin; tidak menulis): { entri, dari, sampai, kandidat, dipanggilAi, ditolak, terpotong }. `sebelumnya` = judul terakhir yang sudah terpilih (konsistensi level). */
+    isiAi(kitabId, { dari, jumlah, sebelumnya }) { return panggil({ aksi: 'perpus-isi-ai', kitabId, dari, ...(jumlah ? { jumlah } : {}), ...(sebelumnya && sebelumnya.length ? { sebelumnya } : {}) }); },
     /** Simpan seluruh daftar isi (editor/admin). `isi` = { entri, rev, catatan? }. Hasilnya langsung masuk simpanan, jadi pembaca dan pemilih bab melihat daftar baru. */
     async isiSimpan(kitabId, isi) {
       const r = await panggil({ aksi: 'perpus-isi-simpan', kitabId, ...isi });
