@@ -136,3 +136,10 @@ Pengecualian indeks `halaman.teks`, `soal.teks`, `soal.pembahasan` dari v1 tetap
 ## Koreksi teks (3 November 2026)
 Lihat `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 14. Bidang baru pada `halaman/{halId}` (semua opsional): `rev` (naik tiap perubahan; dasar deteksi bentrok), `dikoreksi {oleh, nama, at, jumlah}`, `diverifikasi {oleh, nama, at}` (dicocokkan dengan kitab asli).
 Pada `kitab/{id}`: `koreksi` (penghitung; ikut kunci simpanan pencarian), `koreksiAt`, `koreksiOleh`. Aksi server: `perpus-koreksi`, `perpus-riwayat` (editor dan admin).
+
+## Penyuntingan daftar isi (7 November 2026)
+Lihat `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 27. Editor dan admin bisa membuat daftar isi yang tidak ada dan memperbaiki yang keliru dari tab Daftar isi di pembaca.
+- `daftar/isi[_rN]` mendapat bidang opsional `suntingRev` (naik tiap simpan; dasar deteksi bentrok, 0 = belum pernah disunting), `disuntingOleh`, `disuntingNama`, `disuntingAt`. `entri` tetap `{ judul, level, juz, hal, seq }`; `juz` dan `hal` diisi server dari halaman kitab, klien hanya mengirim `judul`, `level` (1-4), dan `seq`.
+- `kitab/{id}/isiRiwayat/{id}`: arsip hanya-tambah, satu dokumen per simpan: `at`, `oleh`, `namaOleh`, `catatan`, `revDari`, `ringkas {tambah, hapus, ubah}`, `jumlahLama`, `jumlahBaru`, `entriLama` (daftar SEBELUM perubahan; `null` bila lebih dari sekitar 600 KB, hanya jumlahnya yang tercatat). Tanpa aturan Firestore sendiri, jadi klien ditolak; dibaca lewat server.
+- `kitab/{id}`: `isiDisunting` (penghitung), `isiDisuntingAt`, `isiDisuntingOleh`. Layar impor memperingatkan admin sebelum "timpa" karena suntingan ikut hilang (arsipnya tetap).
+- Aksi server (editor dan admin; `src/kitabIsi.js`): `perpus-isi-usul` (usulan dari teks kitab, tidak menulis, batas laju ketat), `perpus-isi-simpan` (mengganti seluruh daftar dalam satu transaksi), `perpus-isi-riwayat` (10 terbaru). `perpus-isi` (baca, semua peran) kini juga mengembalikan `rev`.

@@ -167,7 +167,7 @@ async function bersihkanEkor(db, kid, meta, offset) {
 
 const ringkasMeta = (id, d) => ({
   id, jumlahJuz: d.jumlahJuz || 1, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
-  aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, otoritas: normalOtoritas(d.otoritas), hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
+  aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, isiDisunting: d.isiDisunting || 0, otoritas: normalOtoritas(d.otoritas), hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
 });
 
 /** Satu pintu untuk semua aksi impor. `uid` = admin yang memanggil. */

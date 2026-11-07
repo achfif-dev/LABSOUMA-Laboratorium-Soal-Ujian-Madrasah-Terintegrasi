@@ -95,6 +95,17 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
     },
     /** Riwayat koreksi satu halaman (editor/admin): { riwayat: [...], jumlah }. */
     riwayat(kitabId, seq) { return panggil({ aksi: 'perpus-riwayat', kitabId, seq }); },
+    /** Usulan daftar isi dari teks kitab (editor/admin; tidak menulis): { usul, dibaca, terpotong }. */
+    isiUsul(kitabId) { return panggil({ aksi: 'perpus-isi-usul', kitabId }); },
+    /** Simpan seluruh daftar isi (editor/admin). `isi` = { entri, rev, catatan? }. Hasilnya langsung masuk simpanan, jadi pembaca dan pemilih bab melihat daftar baru. */
+    async isiSimpan(kitabId, isi) {
+      const r = await panggil({ aksi: 'perpus-isi-simpan', kitabId, ...isi });
+      const lama = simpanan.isi.get(kitabId);
+      if (lama) simpanan.isi.set(kitabId, { ...lama, entri: r.entri, rev: r.rev });
+      return r;
+    },
+    /** Riwayat penyuntingan daftar isi (editor/admin): { riwayat: [...], jumlah }. */
+    isiRiwayat(kitabId) { return panggil({ aksi: 'perpus-isi-riwayat', kitabId }); },
     /** Buang satu halaman dari simpanan (mis. setelah bentrok koreksi) supaya dibaca ulang dari server. */
     lupakan(kitabId, seq) { simpanan.halaman.delete(kunci(kitabId, seq)); },
     async cariHal(kitabId, hal) {

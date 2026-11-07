@@ -8,6 +8,7 @@ import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
 import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
+import { aksiIsiUsul, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
@@ -25,7 +26,7 @@ const bulat = (v, min, maks, nama) => {
   return v;
 };
 
-// `pengguna` = { uid, role, nama } dari api/kitab.js; hanya dipakai aksi koreksi (editor/admin). Aksi baca tidak membutuhkannya.
+// `pengguna` = { uid, role, nama } dari api/kitab.js; hanya dipakai aksi koreksi dan penyuntingan daftar isi (editor/admin). Aksi baca tidak membutuhkannya.
 export async function aksiBaca(body, pengguna = null) {
   const b = body && typeof body === 'object' ? body : {};
   const { db } = await firestoreAdmin();
@@ -44,12 +45,16 @@ export async function aksiBaca(body, pengguna = null) {
 
   if (b.aksi === 'perpus-isi') {
     const isi = await db.doc(dokDaftarIsi(kid, m)).get();
-    return { kitab: ringkas(kid, m), entri: isi.exists ? isi.data().entri || [] : [] };
+    // `rev` = kunci bentrok penyuntingan daftar isi (src/kitabIsi.js); 0 = belum pernah disunting.
+    return { kitab: ringkas(kid, m), entri: isi.exists ? isi.data().entri || [] : [], rev: isi.exists ? isi.data().suntingRev || 0 : 0 };
   }
 
   if (b.aksi === 'perpus-cari') return aksiCari(b, kid, m);
   if (b.aksi === 'perpus-koreksi') return aksiKoreksi(b, kid, m, pengguna);
   if (b.aksi === 'perpus-riwayat') return aksiRiwayat(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-isi-usul') return aksiIsiUsul(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-isi-simpan') return aksiIsiSimpan(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-isi-riwayat') return aksiIsiRiwayat(b, kid, m, pengguna);
 
   if (b.aksi === 'perpus-halaman') {
     let docs = [];

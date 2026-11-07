@@ -6,6 +6,7 @@ import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from
 import { SIMPANAN } from './PemilihKitab.jsx';
 import { tampilanTeks, kitabArab } from './lib/bahasa.js';
 import PenyuntingHalaman from './PenyuntingHalaman.jsx';
+import DaftarIsiEditor from './DaftarIsiEditor.jsx';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
 // daftar isi yang bisa dicari, lompat ke nomor cetak, dan penyorotan rentang halaman yang dirujuk soal (tautan balik dari Bank Soal/Review).
@@ -15,6 +16,7 @@ import PenyuntingHalaman from './PenyuntingHalaman.jsx';
 // `onPosisi({ kitabId, seq })` dipanggil saat halaman berganti, agar alamat (#baca/kitab/40) selalu bisa dibagikan atau dimuat ulang.
 // `bisaKoreksi` (editor dan admin) menampilkan tombol "Koreksi teks" per halaman: memperbaiki teks yang keliru (mis. hasil OCR AI) setelah dicocokkan dengan kitab asli
 // (web/PenyuntingHalaman.jsx; server src/kitabKoreksi.js memeriksa peran sendiri, jadi prop ini hanya mengatur tampilan).
+// Prop yang sama menampilkan "Sunting daftar isi" / "Buat daftar isi" di tab Daftar isi (web/DaftarIsiEditor.jsx; server src/kitabIsi.js).
 export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false }) {
   const pem = useMemo(() => buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN), []);
   const [pref, setPref] = useState(pengaturanBaca);
@@ -40,6 +42,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [cariBusy, setCariBusy] = useState(false);
   const [kataSorot, setKataSorot] = useState(null);        // { kata[], mode }: kata yang disorot di teks halaman
   const [sunting, setSunting] = useState(null);          // urutan halaman yang sedang dikoreksi (satu per satu)
+  const [suntingIsi, setSuntingIsi] = useState(false);   // true = penyunting daftar isi terbuka (menggantikan tampilan baca)
   const kursorRef = useRef(kursor); kursorRef.current = kursor;
   const kotorRef = useRef(false);                        // true = ada ketikan koreksi yang belum disimpan
   const urut = useRef(0);
@@ -66,7 +69,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
   useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
   useEffect(() => {
-    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); kotorRef.current = false;
+    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false;
     urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
     if (!kitabId) return;
     setErr(null);
@@ -253,7 +256,16 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
           <button type="button" className="ml-auto underline" onClick={() => setSorot(null)}>Hilangkan sorotan</button>
         </p>)}
 
-      <div className={`grid min-h-0 gap-3 ${lebarLayar ? 'flex-1 p-2' : ''} ${panelIsi ? 'lg:grid-cols-[18rem_minmax(0,1fr)]' : ''}`}>
+      {bisaKoreksi && suntingIsi && isi && (
+        <div className={lebarLayar ? 'flex-1 overflow-auto p-2' : ''}>
+          <DaftarIsiEditor key={isi.rev || 0} kitab={kitab} kitabId={kitabId} isi={isi} arab={arab} kursor={kursor} total={total} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}
+            onKotor={(v) => { kotorRef.current = v; }}
+            onSimpan={(r) => { setIsi((s) => ({ ...s, entri: r.entri, rev: r.rev })); kotorRef.current = false; setSuntingIsi(false); setInfo(r.tidakBerubah ? 'Tidak ada perubahan untuk disimpan.' : 'Daftar isi disimpan. Pemilih bab dan pembaca langsung memakai daftar baru.'); }}
+            onBatal={() => { kotorRef.current = false; setSuntingIsi(false); }}
+            onMuatUlang={() => { pem.simpanan.isi.delete(kitabId); kotorRef.current = false; pem.isi(kitabId).then((x) => { setIsi(x); setSuntingIsi(false); setInfo('Daftar isi dimuat ulang dari server.'); }).catch(gagal); }} />
+        </div>)}
+
+      <div className={`grid min-h-0 gap-3 ${suntingIsi ? 'hidden' : ''} ${lebarLayar ? 'flex-1 p-2' : ''} ${panelIsi ? 'lg:grid-cols-[18rem_minmax(0,1fr)]' : ''}`}>
         {panelIsi && (
           <aside aria-label="Panel samping" className={`flex min-h-0 flex-col rounded-2xl border border-line bg-surface ${lebarLayar ? '' : 'max-h-[70vh]'}`}>
             <div className="flex gap-1 border-b border-line p-1.5" role="tablist" aria-label="Isi panel samping">
@@ -301,8 +313,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                 <div className="border-b border-line p-2">
                   <input aria-label="Cari judul di daftar isi" className="field !py-1.5 !text-sm" placeholder="Cari judul bab..." value={saring} onChange={(e) => setSaring(e.target.value)} />
                 </div>
+                {bisaKoreksi && isi && (
+                  <div className="border-b border-line p-2">
+                    <Btn kind="soft" className="w-full !px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehTinggal()) return; kotorRef.current = false; setSunting(null); setSuntingIsi(true); }}>
+                      {entri.length ? 'Sunting daftar isi' : 'Buat daftar isi'}</Btn>
+                  </div>)}
                 {!isi ? <p className="flex items-center gap-2 p-3 text-xs text-mute"><Loader2 size={13} className="spin" />Memuat daftar isi...</p>
-                  : !entri.length ? <p className="p-3 text-xs text-mute">Kitab ini tidak punya daftar isi terdeteksi. Pakai kolom Hal. cetak untuk berpindah, atau tab Cari teks.</p>
+                  : !entri.length ? <p className="p-3 text-xs text-mute">Kitab ini tidak punya daftar isi terdeteksi. Pakai kolom Hal. cetak untuk berpindah, atau tab Cari teks.{bisaKoreksi ? ' Sebagai editor atau admin, Anda bisa membuatnya dengan tombol di atas.' : ''}</p>
                   : (
                     <ul className="min-h-0 flex-1 overflow-auto p-1.5 text-sm">
                       {daftarTampil.map(({ e, i }) => (

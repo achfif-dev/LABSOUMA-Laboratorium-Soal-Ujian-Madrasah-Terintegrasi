@@ -36,6 +36,7 @@ Dokumen rujukan yang tetap terpisah: `docs/SKEMA-KITAB.md` (skema database kitab
 | 24 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (4): tab Export dipisah dari App.jsx | `PERUBAHAN-06-NOV-2026-PISAH-TAB-EXPORT.md` |
 | 25 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (5): mesin Pegon dimuat malas | `PERUBAHAN-06-NOV-2026-PEGON-LAZY.md` |
 | 26 | 7 Nov 2026 | Audit dan perubahan | Audit dan perluasan kamus serapan Arab kitab pesantren (647 menjadi 1287 entri) | - |
+| 27 | 7 Nov 2026 | Perubahan | Perubahan 7 Nov 2026: penyuntingan dan pembuatan daftar isi kitab dari dalam aplikasi | - |
 
 ---
 
@@ -1512,3 +1513,25 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 `test/kamusPesantren.test.js`, `test/kamusRules.test.js`, dan `test/pegon.test.js` lulus (jumlah cocok dengan `_meta`, tiap kata dipegonkan persis seperti isinya, kalibrasi tetap lulus). `test/muatPegon.test.js` gagal karena paket `react` tidak terpasang di lingkungan ini (gagal juga pada berkas asli).
 
 **Belum dilakukan.** Peninjauan ejaan Arab oleh ustadz, sebagaimana catatan di `_meta`.
+
+## 27. [Perubahan] Penyuntingan dan pembuatan daftar isi kitab dari dalam aplikasi (7 Nov 2026)
+
+**Permintaan.** Admin dan editor bisa membuat daftar isi yang tidak ada, dan memperbaiki yang keliru, langsung dari aplikasi.
+
+**Masalah.** Daftar isi hanya lahir saat impor (`daftar/isi`), dan hanya dari judul yang berhasil dikenali parser. Kitab hasil PDF/OCR sering tanpa daftar isi sama sekali; judul yang salah baca, level yang keliru, atau halaman yang meleset hanya bisa diperbaiki dengan mengimpor ulang seluruh kitab (yang juga menghapus koreksi teks).
+
+**Yang dikerjakan** (mengikuti pola koreksi teks, bagian 14):
+- **Layar** (`web/DaftarIsiEditor.jsx`, dibuka dari tab Daftar isi di pembaca; hanya tampil untuk editor dan admin): tambah judul (urutan halaman terisi dari halaman yang sedang dibuka), ubah judul, level (kitab/pengantar, bab, fasal, sub-judul), dan urutan halaman, hapus, urutkan, tombol "Halaman ini". Galat per baris (judul kosong, halaman di luar kitab) menghalangi simpan; peringatan (judul sangat panjang, judul ganda) tidak. Ringkasan perubahan yang belum disimpan tampil terus.
+- **Buat otomatis dari teks kitab** (`perpus-isi-usul`): server membaca teks halaman dan menyarankan judul dari baris pendek berawalan kata kunci (باب، فصل، كتاب، مقدمة, "Bab 3") dan dari perubahan `bab` pada halaman. Hanya usulan: editor memilih "tambahkan yang belum ada" atau "ganti seluruh daftar", meninjau, lalu menyimpan. Batas laju sendiri (6 per menit, 100 per hari) karena satu usulan membaca seluruh halaman.
+- **Simpan** (`perpus-isi-simpan`, `src/kitabIsi.js`): validasi ulang di server, `juz` dan `hal` cetak diisi dari halaman kitab (bukan dari klien), seluruh daftar diganti dalam satu transaksi, `suntingRev` naik. Bila orang lain lebih dulu menyimpan, 409 `ISI_BENTROK` tanpa menulis apa pun. Kitab yang diimpor ulang atau dinonaktifkan di tengah penyuntingan ditolak 409 `KITAB_BERUBAH`.
+- **Riwayat dan jalan kembali** (`perpus-isi-riwayat`): tiap simpan mengarsipkan daftar sebelumnya di `kitab/{id}/isiRiwayat` (siapa, kapan, catatan, ringkasan). Di layar, "Pakai daftar sebelum perubahan ini" memuat daftar lama ke penyunting; menyimpannya menjadi versi baru, riwayat tidak dihapus.
+- **Layar impor** memperingatkan admin bahwa menimpa kitab juga menghapus suntingan daftar isi (penghitung `isiDisunting`).
+- Tanpa perubahan aturan Firestore: koleksi arsip baru tidak punya aturan, jadi klien ditolak; penulisan hanya lewat server.
+
+**Keputusan.** Penyunting memilih URUTAN halaman (1 sampai jumlah halaman), bukan nomor cetak, karena nomor cetak tidak unik (kitab nyata punya nomor kembar dan mundur, lihat `docs/SKEMA-KITAB.md`). Nomor cetak ditampilkan di samping sebagai informasi. Usulan otomatis sengaja tidak langsung disimpan: kata kunci bisa salah menangkap kalimat.
+
+**Batas yang diketahui.** Daftar lama yang lebih besar dari sekitar 600 KB tidak diarsipkan isinya (hanya jumlahnya); tidak mungkin untuk kitab biasa (daftar nyata sekitar 6 KB). Daftar sangat panjang (ribuan judul) akan terasa berat di layar karena semua baris dirender.
+
+**Tes.** `test/daftarIsi.test.js` (17 tes): logika murni (rapikan, periksa, beda, usulan, gabung) dan server (peran, simpan dengan juz/hal dari halaman, tanpa perubahan tidak menulis, membuat dari nol, bentrok, isian tidak sah, kitab diimpor ulang, usulan tidak menulis, riwayat dan pemulihan, arsip terlalu besar, pemuat klien). Seluruh suite: 671 lulus; 13 berkas gagal karena paket `react`, `docx`, `write-excel-file`, dan `lucide-react` tidak terpasang di lingkungan ini (sama seperti sebelum perubahan).
+
+**Belum diuji.** Layar di browser sungguhan (tidak ada `react` di lingkungan ini; JSX hanya diperiksa sintaksnya), Firestore sungguhan (tes memakai Firestore tiruan; `select(...)` pada usulan dan transaksi dengan ratusan pembacaan belum dicoba di server asli), dan perilaku pada kitab dengan ribuan judul.
