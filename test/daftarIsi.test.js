@@ -5,7 +5,8 @@ import { parseSyamilah } from '../src/syamilah.js';
 import { jalankanImpor, isianAwal } from '../web/lib/imporKitab.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import { kosongkanSimpananCari } from '../src/kitabCari.js';
-import { aksiIsiSimpan, aksiIsiAi, validasiIsiAi, JUMLAH_AI_MAKS } from '../src/kitabIsi.js';
+import { aksiIsiSimpan, aksiIsiAi, validasiIsiAi, JUMLAH_AI_MAKS, TOOL_DAFTAR_ISI } from '../src/kitabIsi.js';
+import { toGeminiSchema } from '../src/gemini.js';
 import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, MAKS_ENTRI_ISI, levelUsul, bersihkanJudul, kandidatJudul, entriDariPilihanAi, normalJudul, ukuranBarisKhas } from '../web/lib/daftarIsi.js';
 import { buatPemuat } from '../web/lib/perpus.js';
 import handler from '../api/kitab.js';
@@ -380,4 +381,20 @@ test('teks OCR berbaris cetak: kandidat AI hanya baris yang jauh lebih pendek da
   assert.equal(teks.some((t) => t.startsWith('كتاب الله')), false);
   assert.ok(r.kandidat.length <= 4, `kandidat ${r.kandidat.length} dari ${6 * 26} baris`);
   assert.equal(kandidatJudul([{ seq: 1, teks: 'باب الصلاة\nنص' }]).bentuk, 'paragraf');
+});
+
+test('alat AI daftar isi aman untuk Gemini: tidak ada enum pada tipe non-string (penyebab "Permintaan ke AI ditolak"), baik mentah maupun setelah adaptor', () => {
+  const periksa = (sk, jalur = '') => {
+    if (Array.isArray(sk.enum)) assert.equal(sk.type === 'string' || sk.type === 'STRING', true, `enum pada tipe ${sk.type} di ${jalur}`);
+    for (const [k, v] of Object.entries(sk.properties || {})) periksa(v, `${jalur}.${k}`);
+    if (sk.items) periksa(sk.items, `${jalur}[]`);
+  };
+  periksa(TOOL_DAFTAR_ISI.input_schema); periksa(toGeminiSchema(TOOL_DAFTAR_ISI.input_schema));
+  assert.equal(toGeminiSchema(TOOL_DAFTAR_ISI.input_schema).properties.pilih.items.properties.level.type, 'INTEGER');
+});
+
+test('level di luar 1-4 dari AI dikembalikan ke level dari kata kunci (karena skema tidak lagi membatasi enum)', () => {
+  const kand = [{ id: 1, seq: 1, juz: 1, hal: 1, teks: 'باب الصلاة' }, { id: 2, seq: 2, juz: 1, hal: 2, teks: 'فصل في الأذان' }, { id: 3, seq: 3, juz: 1, hal: 3, teks: 'مطلب' }];
+  const { entri } = entriDariPilihanAi([{ id: 1, level: 0 }, { id: 2, level: 5 }, { id: 3, level: 2.5 }], kand);
+  assert.deepEqual(entri.map((e) => e.level), [2, 3, 4]);
 });

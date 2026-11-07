@@ -16,6 +16,12 @@ export function toGeminiSchema(s) {
     else if (k === 'items') out.items = toGeminiSchema(v);
     else out[k] = v;
   }
+  // Gemini hanya menerima `enum` pada tipe STRING; enum pada integer/number membuat seluruh permintaan ditolak (400 INVALID_ARGUMENT).
+  // Nilainya dipindah ke deskripsi supaya AI tetap tahu batasnya; validasi nilai dilakukan kode kita.
+  if (Array.isArray(out.enum) && out.type && out.type !== 'STRING') {
+    out.description = `${out.description ? `${out.description} ` : ''}Nilai yang diizinkan: ${out.enum.join(', ')}.`;
+    delete out.enum;
+  }
   return out;
 }
 

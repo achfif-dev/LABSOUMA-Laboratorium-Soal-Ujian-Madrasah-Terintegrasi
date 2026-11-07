@@ -113,3 +113,10 @@ test('gemini: percobaan ulang tidak melampaui anggaran waktu total', async () =>
     assert.ok(n <= 2, `terlalu banyak percobaan: ${n}`);
   } finally { Date.now = realNow; }
 });
+
+test('toGeminiSchema: enum pada integer/number dibuang (Gemini menolaknya) dan nilainya pindah ke deskripsi; enum string tetap', () => {
+  const g = toGeminiSchema({ type: 'object', properties: { level: { type: 'integer', enum: [1, 2, 3, 4], description: 'Level.' }, kunci: { type: 'string', enum: ['A', 'B'] } } });
+  assert.equal(g.properties.level.enum, undefined); assert.equal(g.properties.level.type, 'INTEGER');
+  assert.match(g.properties.level.description, /Level\. Nilai yang diizinkan: 1, 2, 3, 4\./);
+  assert.deepEqual(g.properties.kunci.enum, ['A', 'B']);
+});

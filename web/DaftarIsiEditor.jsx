@@ -1,12 +1,14 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Bot, History, Loader2, Plus, Sparkles, Square, Trash2, X } from 'lucide-react';
-import { LABEL_LEVEL, MAKS_ENTRI_ISI, MAKS_JUDUL_ISI, MAKS_CATATAN_ISI, rapikanEntri, rapikanJudul, periksaEntri, bedaDaftar, gabungUsul } from './lib/daftarIsi.js';
+import { Bot, Eye, History, Loader2, Plus, Sparkles, Square, Quote, Trash2, X } from 'lucide-react';
+import { LABEL_LEVEL, MAKS_ENTRI_ISI, MAKS_JUDUL_ISI, MAKS_CATATAN_ISI, rapikanEntri, rapikanJudul, periksaEntri, bedaDaftar, gabungUsul, levelUsul } from './lib/daftarIsi.js';
 
 // Penyunting daftar isi kitab (editor dan admin), dipakai di dalam PembacaKitab.jsx pada tombol "Sunting daftar isi" / "Buat daftar isi".
 // Tujuan: membuat daftar isi yang tidak ada (PDF/OCR, berkas tanpa judul bertanda) dan memperbaiki yang keliru (judul, level, halaman).
 // Menyimpan mengirim `rev` yang dilihat penyunting; bila orang lain lebih dulu mengubah daftar ini, server menolak dan tidak ada yang tertimpa.
 // Server: src/kitabIsi.js (peran diperiksa di sana juga). `pem` = pemuat dari web/lib/perpus.js (isiUsul, isiSimpan, isiRiwayat).
 // "Buat otomatis" ada dua: aturan (instan, gratis) dan "Sempurnakan dengan AI" (bertahap per 60 halaman, kemajuan tampil, bisa dihentikan; hasil sebagian tetap bisa dipakai).
+// Halaman kitab TETAP tampil di sebelah penyunting (PembacaKitab.jsx): "Halaman ini" memakai halaman yang sedang dibuka, "Lihat" membuka halaman sebuah judul, dan
+// "Judul dari teks terpilih" mengambil teks yang diblok di halaman kitab sebagai judul baru di halaman itu. Baris pada halaman yang sedang dibuka disorot.
 // Nomor cetak (hal.) dan juz diisi server dari halaman kitab; penyunting hanya memilih URUTAN halaman (1 sampai jumlah halaman kitab).
 
 const waktu = (iso) => { try { return new Date(iso).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }) + ' WIB'; } catch { return String(iso || ''); } };
@@ -15,7 +17,7 @@ let nomor = 0;
 const keBaris = (entri) => (entri || []).map((e) => ({ id: ++nomor, judul: e.judul, level: e.level, seq: String(e.seq), hal: e.hal }));
 const keEntri = (baris) => baris.map((b) => ({ judul: rapikanJudul(b.judul), level: Number(b.level), seq: b.seq === '' ? NaN : Number(b.seq) }));
 
-export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, total, pem, Btn, ErrorBox, apiErr, onSimpan, onBatal, onKotor = () => {}, onMuatUlang = () => {} }) {
+export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, total, pem, Btn, ErrorBox, apiErr, onSimpan, onBatal, onKotor = () => {}, onMuatUlang = () => {}, halamanAktif = [], onLihat = () => {}, ambilTerpilih = () => '' }) {
   const asal = useMemo(() => rapikanEntri(isi.entri), [isi.entri]);
   const [baris, setBaris] = useState(() => keBaris(asal));
   const [catatan, setCatatan] = useState('');
@@ -38,6 +40,13 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
   const peringatanDi = (i) => peringatan.filter((g) => g.i === i + 1).map((g) => g.pesan);
   const bentrok = err && err.code === 'ISI_BENTROK';
   const bahasa = kitab && kitab.bahasa && kitab.bahasa !== 'lain' ? kitab.bahasa : (arab ? 'ar' : undefined);
+  const aktif = halamanAktif[0];
+  const tambahDariTerpilih = () => {
+    const t = rapikanJudul(ambilTerpilih());
+    if (!t) { setInfo('Blok dulu teks judul di halaman kitab, lalu tekan tombol ini.'); return; }
+    if (t.length > MAKS_JUDUL_ISI) { setInfo(`Teks terpilih terlalu panjang untuk judul (maksimal ${MAKS_JUDUL_ISI} karakter).`); return; }
+    setBaris((l) => [...l, { id: ++nomor, judul: t, level: levelUsul(t), seq: String(Math.min(Math.max(1, kursor || 1), total || 1)) }]); setInfo(`Judul ditambahkan di halaman ${kursor}. Periksa levelnya.`); onKotor(true);
+  };
   const gagal = (e, tujuan) => { const x = apiErr(e); if (x) tujuan(x); };
 
   const ubah = (id, kunci, nilai) => { setBaris((l) => l.map((b) => (b.id === id ? { ...b, [kunci]: nilai } : b))); setInfo(''); onKotor(true); };
@@ -109,8 +118,13 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
         </p>
       </div>
 
+      <p role="status" aria-live="polite" className="rounded-lg border border-line px-3 py-1.5 text-xs">
+        Halaman kitab yang sedang dibuka (di sebelah): <b>urutan {kursor}</b> dari {total}{aktif && aktif.hal !== undefined ? ` · cetak ${aktif.hal}` : ''}{aktif && aktif.juz ? ` · juz ${aktif.juz}` : ''}. Ganti halaman di pembaca, lalu pakai "Halaman ini".
+      </p>
+
       <div className="flex flex-wrap items-center gap-2">
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={tambah} disabled={busy || baris.length >= MAKS_ENTRI_ISI}><Plus size={14} />Tambah judul (halaman {kursor})</Btn>
+        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onMouseDown={(e) => e.preventDefault()} onClick={tambahDariTerpilih} disabled={busy || baris.length >= MAKS_ENTRI_ISI} title="Blok teks judul di halaman kitab, lalu tekan"><Quote size={14} />Judul dari teks terpilih</Btn>
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={buatUsul} disabled={busy || sibuk === 'usul' || !!ai}>{sibuk === 'usul' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}Buat otomatis dari teks kitab</Btn>
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={jalankanAi} disabled={busy || sibuk === 'usul' || !!ai}><Bot size={14} />Sempurnakan dengan AI</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={urutkan} disabled={busy || baris.length < 2}>Urutkan menurut halaman</Btn>
@@ -163,7 +177,7 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
         {baris.map((b, i) => {
           const g = galatDi(i); const w = peringatanDi(i);
           return (
-            <li key={b.id} className={`rounded-xl border p-2 ${g.length ? 'border-bad' : 'border-line'}`}>
+            <li key={b.id} aria-current={Number(b.seq) === kursor ? 'true' : undefined} className={`rounded-xl border p-2 ${g.length ? 'border-bad' : Number(b.seq) === kursor ? 'border-ink bg-soft/50' : 'border-line'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-8 text-xs text-mute">{i + 1}.</span>
                 <input data-judul dir={arab ? 'rtl' : 'ltr'} {...(bahasa ? { lang: bahasa } : {})} spellCheck={false} autoComplete="off" maxLength={MAKS_JUDUL_ISI + 50} aria-label={`Judul ke-${i + 1}`}
@@ -175,6 +189,7 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
                     onChange={(e) => ubah(b.id, 'seq', e.target.value)} onBlur={urutkan} /></label>
                 {b.hal !== undefined && <span className="text-[11px] text-mute" title="Nomor cetak saat ini">cetak {b.hal}</span>}
                 <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => ubah(b.id, 'seq', String(kursor))} disabled={busy} title="Pakai halaman yang sedang dibuka">Halaman ini</Btn>
+                <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => onLihat(Number(b.seq))} disabled={busy || !Number.isInteger(Number(b.seq)) || Number(b.seq) < 1 || Number(b.seq) > total} aria-label={`Lihat halaman judul ke-${i + 1} di kitab`} title="Buka halaman ini di pembaca"><Eye size={14} />Lihat</Btn>
                 <Btn kind="ghost" className="!px-2 !py-1 !text-xs" onClick={() => hapus(b.id)} disabled={busy} aria-label={`Hapus judul ke-${i + 1}`}><Trash2 size={14} /></Btn>
               </div>
               {g.map((m) => <p key={m} role="alert" className="mt-1 text-xs text-bad">{m}</p>)}

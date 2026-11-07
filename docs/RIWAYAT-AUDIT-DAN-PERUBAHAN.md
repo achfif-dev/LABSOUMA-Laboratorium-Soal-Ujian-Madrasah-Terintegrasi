@@ -38,6 +38,7 @@ Dokumen rujukan yang tetap terpisah: `docs/SKEMA-KITAB.md` (skema database kitab
 | 26 | 7 Nov 2026 | Audit dan perubahan | Audit dan perluasan kamus serapan Arab kitab pesantren (647 menjadi 1287 entri) | - |
 | 27 | 7 Nov 2026 | Perubahan | Perubahan 7 Nov 2026: penyuntingan dan pembuatan daftar isi kitab dari dalam aplikasi | - |
 | 28 | 7 Nov 2026 | Perubahan | Mesin Buat otomatis daftar isi diperkuat dan dibantu AI (bertahap, hanya memilih kandidat) | - |
+| 29 | 7 Nov 2026 | Perbaikan | Galat Gemini "Permintaan ke AI ditolak" pada pemilahan daftar isi; halaman kitab tetap tampil saat menyunting daftar isi | - |
 
 ---
 
@@ -1568,3 +1569,25 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 **Tes.** `test/daftarIsi.test.js` kini 34 tes (17 baru): harakat dan "ال", level, pembersihan judul, header berulang, pemotongan baris panjang, kandidat dan batasnya, pemeriksaan pilihan AI, aksi server dengan klien AI tiruan (jendela, konteks, tanpa kandidat tanpa panggilan AI, alat salah 502, penolakan AI 422, nomor ngawur, peran), validasi masukan, dan jalur /api/kitab. Seluruh suite: 688 lulus; 13 berkas gagal karena paket `react`, `docx`, `write-excel-file`, `lucide-react` tidak terpasang di lingkungan ini (sama seperti sebelumnya).
 
 **Belum diuji.** AI sungguhan (tes memakai klien tiruan, jadi mutu pilihan dan level AI pada kitab nyata belum terukur), layar di browser, dan Firestore sungguhan. Disarankan mencoba pada satu kitab yang daftar isinya sudah benar dan membandingkan hasil AI dengan daftar itu sebelum dipakai massal.
+
+## 29. [Perbaikan] Galat Gemini pada pemilahan daftar isi; halaman kitab tetap tampil saat menyunting (7 Nov 2026)
+
+**Laporan.** Dengan penyedia Gemini, "Sempurnakan dengan AI" gagal: "Permintaan ke AI ditolak. Hubungi administrator." Selain itu, saat menyunting daftar isi halaman kitab hilang, sehingga sulit menetapkan halaman yang tepat.
+
+**Penyebab galat.** Pesan itu adalah pemetaan HTTP 400 dari penyedia AI (`AI_REQUEST_REJECTED`, `src/soalService.js`). Skema alat `hasil_daftar_isi` (bagian 28) memuat `level: { type: 'integer', enum: [1, 2, 3, 4] }`. Gemini hanya menerima `enum` pada tipe string dan menolak seluruh permintaan bila ada enum pada integer/number (kasus serupa dilaporkan di pihak lain, mis. server MCP ClickUp). Alat lain di aplikasi tidak memakai enum bilangan, jadi hanya fitur ini yang kena. Dengan penyedia Claude skema itu sah, itu sebabnya tes tidak menangkapnya. Kesimpulan ini ditarik dari kode, aturan Gemini, dan pola galat; belum diuji langsung ke Gemini dari lingkungan ini (tanpa kunci dan jaringan ke penyedia).
+
+**Perbaikan.**
+- `src/kitabIsi.js`: `enum` pada `level` dihapus; rentang 1-4 dinyatakan di deskripsi dan dijaga kode (`entriDariPilihanAi`: level di luar 1-4 atau bukan bilangan bulat kembali ke level dari kata kunci).
+- `src/gemini.js` (`toGeminiSchema`): perlindungan umum. Enum pada tipe non-string dibuang dan nilainya dipindah ke deskripsi ("Nilai yang diizinkan: 1, 2, 3, 4."), supaya alat baru di masa depan tidak mengulang galat ini. Enum string tidak diubah.
+- Tes: alat daftar isi tidak punya enum non-string (mentah maupun setelah adaptor), adaptor memindahkan enum bilangan ke deskripsi, dan level ngawur dari AI ditangani.
+
+**Halaman kitab tetap tampil saat menyunting** (`web/PembacaKitab.jsx`, `web/DaftarIsiEditor.jsx`).
+- Penyunting menggantikan panel samping, bukan seluruh tampilan baca: penyunting di kiri (di atas pada layar sempit), halaman kitab di kanan, keduanya bisa digulir sendiri-sendiri. Berlaku juga di layar lebar.
+- Ganti halaman di pembaca (panah, nomor halaman, hasil pencarian) lalu pakai **Halaman ini** pada baris judul. Banner di atas penyunting menyebut halaman yang sedang dibuka (urutan, nomor cetak, juz).
+- **Lihat** pada tiap baris membuka halaman judul itu di pembaca untuk memeriksa apakah sudah tepat. Baris yang halamannya sedang dibuka disorot.
+- **Judul dari teks terpilih**: blok teks judul di halaman kitab, tekan tombolnya; judul baru ditambahkan di halaman yang sedang dibuka dengan level dari kata kuncinya.
+- Perubahan penting: dulu ketikan di penyunting memakai penanda "belum disimpan" yang sama dengan koreksi teks, sehingga berpindah halaman akan menanyakan "buang perubahan?". Kini daftar isi punya penanda sendiri (`kotorIsiRef`) yang hanya ditanyakan saat meninggalkan kitab, bukan saat berpindah halaman.
+
+**Batas.** Selama menyunting, tab Cari teks di panel samping tersembunyi (panel digantikan penyunting); mencari halaman judul masih lewat panah dan kolom nomor halaman. Pencarian di dalam penyunting adalah langkah berikutnya yang wajar. Tampilan belum dicoba di browser (tidak ada `react` di lingkungan ini; JSX hanya diperiksa sintaksnya).
+
+**Tes.** Seluruh suite: 691 lulus; 13 berkas gagal karena paket `react`, `docx`, `write-excel-file`, `lucide-react` tidak terpasang di lingkungan ini (sama seperti sebelumnya).

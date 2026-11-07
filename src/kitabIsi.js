@@ -117,7 +117,7 @@ export async function aksiIsiRiwayat(b, kid, m, pengguna) {
 
 export const JUMLAH_AI_MAKS = 60;   // halaman per panggilan AI
 const MAKS_KANDIDAT_AI = 250;       // kandidat per panggilan AI
-const TOOL_DAFTAR_ISI = {
+export const TOOL_DAFTAR_ISI = {
   name: 'hasil_daftar_isi',
   description: 'Menyerahkan kandidat yang benar-benar judul beserta levelnya.',
   input_schema: {
@@ -129,7 +129,8 @@ const TOOL_DAFTAR_ISI = {
           type: 'object', additionalProperties: false, required: ['id', 'level'],
           properties: {
             id: { type: 'integer', description: 'Nomor kandidat.' },
-            level: { type: 'integer', enum: [1, 2, 3, 4], description: '1 = kitab/pengantar/penutup, 2 = bab, 3 = fasal/mabhats, 4 = sub-judul (far\', mathlab, tatimmah).' },
+            // Tanpa `enum`: Gemini hanya menerima enum pada tipe string dan menolak seluruh permintaan (400, "Permintaan ke AI ditolak"). Rentang 1-4 dijaga entriDariPilihanAi.
+            level: { type: 'integer', description: 'Bilangan bulat 1 sampai 4. 1 = kitab/pengantar/penutup, 2 = bab, 3 = fasal/mabhats, 4 = sub-judul (far\', mathlab, tatimmah).' },
             judul: { type: 'string', description: 'Isi HANYA bila judul hanya awal dari baris kandidat: salin persis bagian awal itu. Selain itu kosongkan.' },
           },
         },

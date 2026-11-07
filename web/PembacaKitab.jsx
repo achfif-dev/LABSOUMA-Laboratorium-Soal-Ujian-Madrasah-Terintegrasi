@@ -42,9 +42,10 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [cariBusy, setCariBusy] = useState(false);
   const [kataSorot, setKataSorot] = useState(null);        // { kata[], mode }: kata yang disorot di teks halaman
   const [sunting, setSunting] = useState(null);          // urutan halaman yang sedang dikoreksi (satu per satu)
-  const [suntingIsi, setSuntingIsi] = useState(false);   // true = penyunting daftar isi terbuka (menggantikan tampilan baca)
+  const [suntingIsi, setSuntingIsi] = useState(false);   // true = penyunting daftar isi terbuka (menggantikan panel samping; halaman kitab tetap tampil)
   const kursorRef = useRef(kursor); kursorRef.current = kursor;
   const kotorRef = useRef(false);                        // true = ada ketikan koreksi yang belum disimpan
+  const kotorIsiRef = useRef(false);                     // true = ada suntingan daftar isi yang belum disimpan. Terpisah dari kotorRef: berpindah halaman TIDAK boleh menanyakan ini, karena penyunting daftar isi dipakai sambil membuka halaman kitab
   const urut = useRef(0);
   const urutCari = useRef(0);
   const cariRef = useRef(null);
@@ -59,6 +60,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
     kotorRef.current = false; setSunting(null); setKursorRaw(nilai);
   }, []);
   const bolehTinggal = () => !kotorRef.current || window.confirm(BUANG);
+  const bolehKeluarKitab = () => bolehTinggal() && (!kotorIsiRef.current || window.confirm('Suntingan daftar isi belum disimpan. Buang suntingan?'));
   const ubahPref = (p) => setPref((s) => { const n = { ...s, ...p }; simpanPengaturanBaca(n); return n; });
 
   // Tautan baru dari luar (mis. tombol "Buka di kitab" pada kartu soal) mengganti kitab dan halaman yang dibuka.
@@ -69,7 +71,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
   useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
   useEffect(() => {
-    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false;
+    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false; kotorIsiRef.current = false;
     urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
     if (!kitabId) return;
     setErr(null);
@@ -207,7 +209,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   return (
     <div className={`fade-in ${bungkus}`}>
       <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mb-0' : ''}`} role="toolbar" aria-label="Alat pembaca kitab">
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehTinggal()) return; setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehKeluarKitab()) return; setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={14} />Daftar isi</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={14} />Cari teks</Btn>
         <div className="flex items-center gap-1.5">
@@ -256,17 +258,20 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
           <button type="button" className="ml-auto underline" onClick={() => setSorot(null)}>Hilangkan sorotan</button>
         </p>)}
 
-      {bisaKoreksi && suntingIsi && isi && (
-        <div className={lebarLayar ? 'flex-1 overflow-auto p-2' : ''}>
-          <DaftarIsiEditor key={isi.rev || 0} kitab={kitab} kitabId={kitabId} isi={isi} arab={arab} kursor={kursor} total={total} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}
-            onKotor={(v) => { kotorRef.current = v; }}
-            onSimpan={(r) => { setIsi((s) => ({ ...s, entri: r.entri, rev: r.rev })); kotorRef.current = false; setSuntingIsi(false); setInfo(r.tidakBerubah ? 'Tidak ada perubahan untuk disimpan.' : 'Daftar isi disimpan. Pemilih bab dan pembaca langsung memakai daftar baru.'); }}
-            onBatal={() => { kotorRef.current = false; setSuntingIsi(false); }}
-            onMuatUlang={() => { pem.simpanan.isi.delete(kitabId); kotorRef.current = false; pem.isi(kitabId).then((x) => { setIsi(x); setSuntingIsi(false); setInfo('Daftar isi dimuat ulang dari server.'); }).catch(gagal); }} />
-        </div>)}
-
-      <div className={`grid min-h-0 gap-3 ${suntingIsi ? 'hidden' : ''} ${lebarLayar ? 'flex-1 p-2' : ''} ${panelIsi ? 'lg:grid-cols-[18rem_minmax(0,1fr)]' : ''}`}>
-        {panelIsi && (
+      {/* Saat menyunting daftar isi, penyunting menggantikan panel samping dan halaman kitab TETAP tampil di sebelahnya (di bawahnya pada layar sempit), supaya halaman yang tepat mudah ditetapkan. */}
+      <div className={`grid min-h-0 gap-3 ${lebarLayar ? 'flex-1 p-2' : ''} ${bisaKoreksi && suntingIsi ? 'lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]' : panelIsi ? 'lg:grid-cols-[18rem_minmax(0,1fr)]' : ''}`}>
+        {bisaKoreksi && suntingIsi && isi && (
+          <div className={`min-h-0 overflow-auto ${lebarLayar ? '' : 'max-h-[85vh] lg:sticky lg:top-2 lg:self-start'}`}>
+            <DaftarIsiEditor key={isi.rev || 0} kitab={kitab} kitabId={kitabId} isi={isi} arab={arab} kursor={kursor} total={total} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}
+              halamanAktif={halaman.map((x) => ({ seq: x.seq, hal: x.hal, juz: x.juz }))}
+              onLihat={(seq) => setKursor(kursorSah(seq, total, jumlah))}
+              ambilTerpilih={() => { const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null; const area = areaRef.current; return sel && !sel.isCollapsed && area && area.contains(sel.anchorNode) ? sel.toString() : ''; }}
+              onKotor={(v) => { kotorIsiRef.current = v; }}
+              onSimpan={(r) => { setIsi((x) => ({ ...x, entri: r.entri, rev: r.rev })); kotorIsiRef.current = false; setSuntingIsi(false); setInfo(r.tidakBerubah ? 'Tidak ada perubahan untuk disimpan.' : 'Daftar isi disimpan. Pemilih bab dan pembaca langsung memakai daftar baru.'); }}
+              onBatal={() => { kotorIsiRef.current = false; setSuntingIsi(false); }}
+              onMuatUlang={() => { pem.simpanan.isi.delete(kitabId); kotorIsiRef.current = false; pem.isi(kitabId).then((x) => { setIsi(x); setSuntingIsi(false); setInfo('Daftar isi dimuat ulang dari server.'); }).catch(gagal); }} />
+          </div>)}
+        {panelIsi && !(bisaKoreksi && suntingIsi) && (
           <aside aria-label="Panel samping" className={`flex min-h-0 flex-col rounded-2xl border border-line bg-surface ${lebarLayar ? '' : 'max-h-[70vh]'}`}>
             <div className="flex gap-1 border-b border-line p-1.5" role="tablist" aria-label="Isi panel samping">
               {[['isi', 'Daftar isi'], ['cari', 'Cari teks']].map(([id, label]) => (
