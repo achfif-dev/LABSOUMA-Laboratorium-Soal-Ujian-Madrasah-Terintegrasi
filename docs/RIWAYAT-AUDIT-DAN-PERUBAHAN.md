@@ -35,6 +35,7 @@ Dokumen rujukan yang tetap terpisah: `docs/SKEMA-KITAB.md` (skema database kitab
 | 23 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (3): pembantu bersama dipindah ke web/ui.jsx | `PERUBAHAN-06-NOV-2026-UI-BERSAMA.md` |
 | 24 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (4): tab Export dipisah dari App.jsx | `PERUBAHAN-06-NOV-2026-PISAH-TAB-EXPORT.md` |
 | 25 | 6 Nov 2026 | Perubahan | Perubahan 6 Nov 2026 (5): mesin Pegon dimuat malas | `PERUBAHAN-06-NOV-2026-PEGON-LAZY.md` |
+| 26 | 7 Nov 2026 | Audit dan perubahan | Audit dan perluasan kamus serapan Arab kitab pesantren (647 menjadi 1287 entri) | - |
 
 ---
 
@@ -1488,3 +1489,26 @@ Export membaca `window.Pegon` saat render (`nkPegon = !!window.Pegon`). Bila mes
 
 #### Tes
 `test/muatPegon.test.js` (baru): globals tidak mengimpor pegon.js; sebelum dimuat `window.Pegon` kosong dan pembungkus menampilkan "Memuat"; snapshot kamus yang datang lebih dulu diterapkan setelah dimuat; pemuatan bersama memakai satu janji.
+
+## 26. [Audit dan perubahan] Audit dan perluasan kamus serapan Arab kitab pesantren (7 Nov 2026)
+
+**Permintaan.** Audit `docs/kamus-serapan-arab-kitab-pesantren.json` lalu tambah entri. Semua istilah kitab memakai kata aslinya (ejaan Arab); kata berakhiran "nya" memakai يا, bukan نيا.
+
+#### Hasil audit entri lama (647)
+- Tidak ada kunci ganda, tidak ada yang bentrok dengan kamus bawaan, dan semua entri lolos impor dan tes.
+- `mudhaaf` tertulis مضعف; istilah sharaf "fi'il mudha'af" ejaan aslinya **مضاعف**. **Diperbaiki.** (`mudhaf` = مضاف sudah ada di kamus bawaan.)
+- `ila` tertulis إيلاء (sumpah suami tidak menggauli istri). Dalam teks kitab "ila" jauh lebih sering berarti **إلى** (ila akhirihi, ila yaumil qiyamah). **Diubah menjadi إلى**; istilah fikihnya dipindah ke kunci `iilaa` = إيلاء.
+- Varian ejaan Latin untuk satu kata (mis. `thawaf`/`tawaf`, `shaum`/`saum`) sengaja dipertahankan.
+
+#### Penambahan (640 entri, total 1287)
+Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, siyasah; ushul fikih dan mushthalah hadits; perawi dan penulis hadits; ulama dan kitab rujukan (Fathul Qarib, Fathul Muin, Minhajuth Thalibin, Safinatun Naja, dan lain-lain); nahwu-sharaf, balaghah, mantiq; akidah dan firqah; tasawuf; tajwid, qiraat, dan tahfizh; sejarah, nabi, sahabat, ummahatul mukminin; istilah kitab dan bahar syair; ungkapan penutup kitab (wallahu a'lam, radhiyallahu 'anhu, dan sejenisnya). Kunci yang artinya lain dalam bahasa Indonesia sehari-hari (mal, hajar, hawa, sama, hal, jam, madin, dan sejenisnya) sengaja tidak dimasukkan.
+
+#### Bentuk -nya
+67 kunci berakhiran -nya (hukumnya, dalilnya, rukunnya, sunnahnya, dan seterusnya) ditulis **akar Arab + يا disambung**. Akar berakhir ta marbuthah ditulis ت (sunnahnya = سنتيا). Untuk akar berakhir nun (rukunnya = ركنيا, matannya = متنيا) nun itu milik akar, bukan suffix, jadi tidak ada nun ganda.
+
+**Perhatian.** Aturan ini hanya berlaku untuk kunci utuh di kamus. Mesin tetap menulis -nya di luar kamus sebagai پا, terpisah pada akar serapan Arab (aturan Al-Qolam '24, juga dipakai kalibrasi), mis. `sifatnya` = صفة پا. Hasilnya, "hukumnya" (يا, disambung) dan "sifatnya" (پا, terpisah) kini berbeda gaya. Bila yang dikehendaki satu gaya untuk semua, aturan mesin dan kalibrasinya perlu diubah; itu tidak dikerjakan di sini.
+
+#### Tes
+`test/kamusPesantren.test.js`, `test/kamusRules.test.js`, dan `test/pegon.test.js` lulus (jumlah cocok dengan `_meta`, tiap kata dipegonkan persis seperti isinya, kalibrasi tetap lulus). `test/muatPegon.test.js` gagal karena paket `react` tidak terpasang di lingkungan ini (gagal juga pada berkas asli).
+
+**Belum dilakukan.** Peninjauan ejaan Arab oleh ustadz, sebagaimana catatan di `_meta`.
