@@ -134,5 +134,5 @@ Pengecualian indeks `halaman.teks`, `soal.teks`, `soal.pembahasan` dari v1 tetap
 - Dokumen soal TIDAK menyimpan bahasa (aturan Firestore membatasi kolom soal). Bahasa dikirim ke server saat membuat soal dan dideteksi dari teks sumber (`bahasaOtomatis`).
 
 ## Koreksi teks (3 November 2026)
-Lihat `docs/PERUBAHAN-03-NOV-2026-KOREKSI-KITAB.md`. Bidang baru pada `halaman/{halId}` (semua opsional): `rev` (naik tiap perubahan; dasar deteksi bentrok), `dikoreksi {oleh, nama, at, jumlah}`, `diverifikasi {oleh, nama, at}` (dicocokkan dengan kitab asli).
+Lihat `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 14. Bidang baru pada `halaman/{halId}` (semua opsional): `rev` (naik tiap perubahan; dasar deteksi bentrok), `dikoreksi {oleh, nama, at, jumlah}`, `diverifikasi {oleh, nama, at}` (dicocokkan dengan kitab asli).
 Pada `kitab/{id}`: `koreksi` (penghitung; ikut kunci simpanan pencarian), `koreksiAt`, `koreksiOleh`. Aksi server: `perpus-koreksi`, `perpus-riwayat` (editor dan admin).
