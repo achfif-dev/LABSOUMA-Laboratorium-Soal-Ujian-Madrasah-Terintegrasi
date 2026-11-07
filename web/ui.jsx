@@ -1,6 +1,6 @@
 // Pembantu antarmuka dan API yang dipakai bersama oleh App.jsx dan berkas tab yang dimuat malas (mis. AdminKonfigurasi.jsx).
 // Dipisah dari App.jsx agar tidak ada impor melingkar: berkas ini tidak mengimpor App.jsx.
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { AlertTriangle, ChevronDown, Filter, Loader2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import * as NK from './lib/naskah.js';
 import * as PK from './lib/paket.js';
 import * as SK from './lib/saringKitab.js';
 import * as AL from './lib/alurSoal.js';
+import { muatPegon } from './lib/muatPegon.js';
 import { Draft, Bt, FALLBACK_CFG, STATUS, mapelUntuk } from './lib/dasar.js';
 
 // Kelas, sistem ujian, dan penempatan kitab: fungsi murni dari public/ujian.js (window.Ujian). Bila modul belum/tidak termuat, fitur kelas dan ujian diam (tidak merusak halaman).
@@ -185,4 +186,34 @@ function Filters({ f, setF, withStatus, count, qs = [], uid = '' }) {
 
 const applyFilter = (qs, f, alur = AL.ALUR_BAWAAN) => qs.filter((q) => (!f.penyusun || q.authorUid === f.penyusun) && (!f.tahap || !alur.aktif || (q.status === 'pending' && AL.tahapSoal(q, alur) === Number(f.tahap))) && (!f.mapel || q.mapel === f.mapel) && (!f.tingkat || q.tingkat === f.tingkat) && (!f.kelas || q.kelas === f.kelas) && (!f.periode || q.periode === f.periode) && (!f.paket || q.paket === f.paket) && (!f.bentuk || Bt.bentukDari(q) === f.bentuk) && (!f.status || q.status === f.status) && SK.cocokKitabBab(q, f));
 
-export { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg };
+// Membungkus komponen yang membaca window.Pegon: ia baru dirender setelah mesin Pegon siap, sehingga isinya aman memakai window.Pegon seperti semula.
+// Dimuat di latar belakang sejak aplikasi dibuka (main.jsx), jadi biasanya sudah siap sebelum tab Pegon dibuka.
+function usePegon() {
+  const [P, setP] = useState(() => (typeof window !== 'undefined' && window.Pegon) || null);
+  const [gagal, setGagal] = useState(false);
+  const [coba, setCoba] = useState(0);
+  useEffect(() => {
+    if (P) return undefined;
+    let hidup = true;
+    setGagal(false);
+    muatPegon().then((m) => { if (hidup) setP(m); }).catch(() => { if (hidup) setGagal(true); });
+    return () => { hidup = false; };
+  }, [P, coba]);
+  const ulang = useCallback(() => setCoba((n) => n + 1), []);
+  return { P, gagal, ulang };
+}
+const denganPegon = (Komp) => function DenganPegon(props) {
+  const { P, gagal, ulang } = usePegon();
+  if (P) return <Komp {...props} />;
+  if (gagal) {
+    return (
+      <div role="alert" className="rounded-xl border border-line bg-white p-4 text-sm text-mute">
+        Mesin Pegon gagal dimuat (mungkin sinyal terputus).{' '}
+        <button type="button" className="font-semibold text-ink underline" onClick={ulang}>Coba lagi</button>
+      </div>
+    );
+  }
+  return <div className="p-4 text-sm text-mute" aria-busy="true">Memuat mesin Pegon…</div>;
+};
+
+export { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, usePegon, denganPegon };

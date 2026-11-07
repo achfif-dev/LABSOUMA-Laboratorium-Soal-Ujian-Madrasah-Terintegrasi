@@ -33,7 +33,7 @@ const AiConfig = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({
 const AppCfgAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AppCfgAdmin })));
 const AlurEditorAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AlurEditorAdmin })));
 const PemeliharaanAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.PemeliharaanAdmin })));
-const Export = lazyPanel(() => import('./ExportTab.jsx'));
+const Export = denganPegon(lazyPanel(() => import('./ExportTab.jsx')));
 const TanyaKitab = lazyPanel(() => import('./TanyaKitab.jsx'));
 const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
@@ -53,9 +53,10 @@ import * as SH from './lib/serahTerima.js';
 import * as SK from './lib/saringKitab.js';
 import * as AL from './lib/alurSoal.js';
 import { muatDocx } from './lib/muatDocx.js';
+import { kamusBersamaMasuk } from './lib/muatPegon.js';
 import { Bt, FALLBACK_CFG, KEYS, LEVEL, STATUS, bacaPref, cariKitab, ejaanTersimpan, levelLabel, namaArabKitab, optsOf, mapelUntuk } from './lib/dasar.js';
 
-import { AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
+import { denganPegon, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -94,6 +95,10 @@ const emptyForm = () => ({
   opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '', jawaban: '', rubrik: '', // jawaban/rubrik: isian dan uraian
   ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
 });
+
+// Komponen yang membaca window.Pegon dibungkus: baru dirender setelah mesin Pegon (dimuat malas) siap.
+const PegonSoal = denganPegon(PegonSoalInti);
+const PegonTab = denganPegon(PegonTabInti);
 
 function useEjaan() {
   const [e, setE] = useState(ejaanTersimpan);
@@ -408,7 +413,7 @@ function AssistView({ state, onIdea }) {
 
 /* ---------- Tab 1: Penyusunan ---------- */
 /* ---------- Pegonkan: pratinjau Pegon dari isian soal (isian Latin TIDAK diubah) + perbaikan kata bersorot ke kamus ---------- */
-function PegonSoal({ form, toast }) {
+function PegonSoalInti({ form, toast }) {
   const P = window.Pegon;
   const kc = useKamus();
   const [ejaan, setEjaan] = useEjaan();
@@ -2053,7 +2058,7 @@ function PegonKamus({ onChange }) {
   );
 }
 
-function PegonTab({ toast }) {
+function PegonTabInti({ toast }) {
   const P = window.Pegon;
   // Mode dan teks Latin dipulihkan setelah muat ulang. Foto (berkas), hasil konversi, dan hasil suntingan manual tidak ikut: konversi ulang dengan satu klik.
   const pgAwal = useRef(undefined); if (pgAwal.current === undefined) { const d = Draft.read('pegonTab'); pgAwal.current = d && typeof d === 'object' ? d : {}; }
@@ -2824,7 +2829,7 @@ function App({ user, profile }) {
   useEffect(() => db.collection('kamusPegon').onSnapshot(
     (snap) => {
       const docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
-      if (window.Pegon) window.Pegon.kamus.muatBersama(docs);
+      kamusBersamaMasuk(docs);
       setKamusDocs(docs); setKamusErr(null); setKamusVer((n) => n + 1);
     },
     () => setKamusErr('Kamus bersama tidak dapat dimuat. Pegon memakai kamus bawaan dan kamus perangkat ini.'),
@@ -3337,7 +3342,7 @@ function AppUstadz({ user, profile }) {
   useEffect(() => db.collection('kamusPegon').onSnapshot(
     (snap) => {
       const docs = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
-      if (window.Pegon) window.Pegon.kamus.muatBersama(docs);
+      kamusBersamaMasuk(docs);
       setKamusDocs(docs); setKamusErr(null); setKamusVer((n) => n + 1);
     },
     () => setKamusErr('Kamus bersama tidak dapat dimuat. Pegon memakai kamus bawaan dan kamus perangkat ini.'),

@@ -1,5 +1,6 @@
 // Pembuat berkas ekspor (DOCX, Moodle GIFT/XML, CSV) dan daftar FORMATS. Murni (tanpa React); docx dimuat malas lewat muatDocx.
 import { muatDocx } from './muatDocx.js';
+import { muatPegon } from './muatPegon.js';
 import { FileCode, FileSpreadsheet, FileText, Languages, Layers } from 'lucide-react';
 import { Bt, KEYS, csvEsc, fullQ, levelLabel, optsOf, umpanUraian } from './dasar.js';
 
@@ -67,6 +68,7 @@ const buildCsvRdm = (qs, catatan = '') =>
 
 const buildDocx = async (qs, mode, catatan = '', ejaan = 'alqolam') => {
   const D = await muatDocx();
+  await muatPegon(); // mesin Pegon dimuat malas; ekspor Pegon dan Naskah memakainya lewat window.Pegon
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } = D;
   const T = (text, o = {}) => new TextRun({ text: String(text || ''), font: 'Calibri', size: 24, ...o });
   const P = (children, o = {}) => new Paragraph({ children: Array.isArray(children) ? children : [children], spacing: { after: 100 }, ...o });
