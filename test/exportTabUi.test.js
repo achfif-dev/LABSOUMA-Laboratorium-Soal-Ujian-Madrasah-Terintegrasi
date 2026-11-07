@@ -42,5 +42,5 @@ test('tidak ada impor melingkar ke App.jsx dari modul turunan', () => {
   for (const f of ['ui.jsx', 'ExportTab.jsx', 'AdminKonfigurasi.jsx', 'lib/exportBuilders.js', 'lib/dasar.js']) {
     assert.doesNotMatch(readFileSync(new URL(`../web/${f}`, import.meta.url), 'utf8'), /from '(\.\.?\/)+App\.jsx'/, f);
   }
-  assert.match(readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8'), /const Export = lazyPanel\(\(\) => import\('\.\/ExportTab\.jsx'\)\)/);
+  assert.match(readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8'), /const Export = denganPegon\(lazyPanel\(\(\) => import\('\.\/ExportTab\.jsx'\)\)\)/);
 });
