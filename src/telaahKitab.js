@@ -4,7 +4,7 @@
 //   2. pencarian: kode mencari dan meranking halaman di indeks perpustakaan (tanpa AI), membaca halaman terbaik.
 //   3. jawaban  : AI hanya boleh menjawab dari halaman itu dan wajib menyertakan kutipan Arab untuk tiap butir.
 //   4. verifikasi: kode mencocokkan tiap kutipan dengan halaman (src/kutipan). Tanpa butir yang cocok, jawaban TIDAK ditampilkan.
-// Otoritas kitab (admin) dan penanda OCR/koreksi (editor) dibaca dari data perpustakaan, bukan ditebak model: lihat docs/PERUBAHAN-03-NOV-2026-OTORITAS-ASWAJA.md.
+// Otoritas kitab (admin) dan penanda OCR/koreksi (editor) dibaca dari data perpustakaan, bukan ditebak model: lihat docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md bagian 15.
 // Alasan tidak memakai putaran alat: adaptor Gemini (penyedia bawaan) hanya mendukung satu giliran per panggilan, dan putaran terbuka sulit dibatasi biayanya.
 import { ApiError, getModel, getClient, clean } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
