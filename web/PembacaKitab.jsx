@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, Search, X } from 'lucide-react';
+import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
@@ -32,6 +32,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [lebarLayar, setLebarLayar] = useState(false);   // true = menutupi seluruh jendela
+  const [alatBuka, setAlatBuka] = useState(false);         // HP: pengaturan tampilan (hal. cetak, huruf, lebar, jumlah halaman, salin) tersembunyi sampai dibuka
   const [panelIsi, setPanelIsi] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
   const [saring, setSaring] = useState('');
   const [tabSamping, setTabSamping] = useState('isi');     // 'isi' | 'cari'
@@ -174,7 +175,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const hasilSebelum = [...hasilLama].reverse().find((r) => r.seq < kursor) || null;
   const hasilBerikut = hasilLama.find((r) => r.seq > kursor + jumlah - 1) || null;
 
-  const bungkus = lebarLayar ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'space-y-3';
+  const bungkus = lebarLayar ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'space-y-2 sm:space-y-3';
 
   // ---------- Layar pilih kitab ----------
   if (!kitabId) {
@@ -208,10 +209,15 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   // ---------- Pembaca ----------
   return (
     <div className={`fade-in ${bungkus}`}>
-      <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mb-0' : ''}`} role="toolbar" aria-label="Alat pembaca kitab">
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehKeluarKitab()) return; setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={14} />Kitab lain</Btn>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={14} />Daftar isi</Btn>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={14} />Cari teks</Btn>
+      <div className={`flex flex-wrap items-center gap-1.5 rounded-2xl border border-line bg-surface px-2 py-1.5 shadow-sm sm:gap-2 sm:px-3 sm:py-2 ${lebarLayar ? 'm-2 mb-0' : ''}`} role="toolbar" aria-label="Alat pembaca kitab">
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (!bolehKeluarKitab()) return; setKitabId(''); setSorot(null); onPosisi({ kitabId: '', seq: 0 }); }} aria-label="Kembali ke daftar kitab"><X size={16} /><span className="hidden sm:inline">Kitab lain</span></Btn>
+        {kitab && <p className="min-w-0 flex-1 truncate text-sm font-semibold sm:hidden" title={kitab.judulLatin}>{kitab.judulLatin}</p>}
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={16} /><span className="hidden sm:inline">Daftar isi</span></Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={16} /><span className="hidden sm:inline">Cari teks</span></Btn>
+        <Btn kind="ghost" className="!px-2.5 !py-1.5 !text-xs sm:!hidden" onClick={() => setAlatBuka((v) => !v)} aria-expanded={alatBuka} aria-label="Pengaturan tampilan" title="Pengaturan tampilan"><SlidersHorizontal size={16} /></Btn>
+        <Btn kind="ghost" className="!px-2.5 !py-1.5 !text-xs sm:!hidden" onClick={() => setLebarLayar((v) => !v)} aria-pressed={lebarLayar} aria-label={lebarLayar ? 'Tutup layar lebar' : 'Layar lebar'} title={lebarLayar ? 'Tutup layar lebar' : 'Layar lebar'}>{lebarLayar ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</Btn>
+        {/* Pengaturan: di HP berupa panel yang dibuka tombol di atas; di layar lebar (sm+) menyatu di baris yang sama (sm:contents). */}
+        <div className={`${alatBuka ? 'mt-1 flex' : 'hidden'} w-full flex-wrap items-center gap-2 border-t border-line pt-2 sm:contents`}>
         <div className="flex items-center gap-1.5">
           <label htmlFor="bk-hal" className="text-xs text-mute">Hal. cetak</label>
           <input id="bk-hal" type="number" min="0" inputMode="numeric" className="field !w-20 !py-1.5" value={halInput} onChange={(e) => setHalInput(e.target.value)}
@@ -233,10 +239,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
           <label className="flex items-center gap-1.5 text-xs text-mute">Bagian
             <select aria-label="Bagian halaman" className="field !w-auto !py-1.5" value={pref.bagian} onChange={(e) => ubahPref({ bagian: e.target.value })}>
               <option value="semua">Matn + syarah</option><option value="matn">Matn saja</option><option value="syarah">Syarah saja</option></select></label>)}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 sm:ml-auto">
           <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={salin} disabled={!halaman.length} aria-label="Salin teks halaman"><Copy size={14} />Salin</Btn>
-          <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => setLebarLayar((v) => !v)} aria-pressed={lebarLayar}>
-            {lebarLayar ? <><Minimize2 size={14} />Tutup layar lebar</> : <><Maximize2 size={14} />Layar lebar</>}</Btn>
+          <div className="hidden sm:block">
+            <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => setLebarLayar((v) => !v)} aria-pressed={lebarLayar}>
+              {lebarLayar ? <><Minimize2 size={14} />Tutup layar lebar</> : <><Maximize2 size={14} />Layar lebar</>}</Btn>
+          </div>
+        </div>
         </div>
       </div>
 
@@ -343,27 +352,27 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
         <section ref={areaRef} aria-label="Isi kitab" aria-busy={busy} className={`min-h-0 min-w-0 rounded-2xl border border-line bg-surface ${lebarLayar ? 'overflow-auto' : ''}`}>
           {kitab && (
-            <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-2">
-              <span {...tk('text-lg')}>{kitab.judul}</span>
-              <span className="text-xs text-mute">{kitab.judulLatin}</span>
+            <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-3 py-1.5 sm:px-4 sm:py-2">
+              <span {...tk('text-base sm:text-lg')}>{kitab.judul}</span>
+              <span className="hidden text-xs text-mute sm:inline">{kitab.judulLatin}</span>
               {babInfo && entri[aktif] && <span className="text-xs text-mute">· bab: <span {...tk()}>{entri[aktif].judul}</span></span>}
             </div>)}
           {!halaman.length && (busy || !isi) && <p className="flex items-center gap-2 p-6 text-sm text-mute"><Loader2 size={16} className="spin" />Memuat halaman...</p>}
           {halaman.length > 0 && (
-            <div dir={arab ? 'rtl' : 'ltr'} className={`mx-auto flex gap-4 px-4 py-5 ${jumlah === 2 ? 'max-w-none flex-col xl:flex-row' : lebar.kelas}`}>
+            <div dir={arab ? 'rtl' : 'ltr'} className={`mx-auto flex gap-4 px-1.5 py-3 sm:px-4 sm:py-5 ${jumlah === 2 ? 'max-w-none flex-col xl:flex-row' : lebar.kelas}`}>
               {halaman.map((p) => {
                 const disorot = sorot && p.seq >= sorot.dari && p.seq <= sorot.sampai;
                 const teks = bagianTeks(p, bagian);
                 return (
-                  <article key={p.seq} aria-label={`Halaman ${p.hal}`} className={`min-w-0 flex-1 rounded-xl px-4 py-3 ${disorot ? 'bg-soft ring-2 ring-brand' : ''}`}>
-                    <header dir="ltr" className="mb-2 flex flex-wrap items-center gap-x-3 border-b border-line pb-1.5 text-xs text-mute">
-                      <b className="text-ink">Hal. {p.hal}</b><span>juz {p.juz}</span><span>urutan {p.seq}/{total}</span>
+                  <article key={p.seq} aria-label={`Halaman ${p.hal}`} className={`min-w-0 flex-1 rounded-xl px-2 py-2 sm:px-4 sm:py-3 ${disorot ? 'bg-soft ring-2 ring-brand' : ''}`}>
+                    <header dir="ltr" className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-1.5 text-xs text-mute">
+                      <b className="text-ink">Hal. {p.hal}</b><span>juz {p.juz}</span><span className="hidden sm:inline">urutan {p.seq}/{total}</span>
                       {p.potongan && <span>bagian {p.potongan.ke}/{p.potongan.dari}</span>}
                       {p.nomorAnomali && <span className="text-warn">nomor cetak {p.nomorAnomali}</span>}
-                      {p.diverifikasi && <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 font-semibold text-ok"><BadgeCheck size={12} />dicocokkan dengan kitab asli</span>}
+                      {p.diverifikasi && <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 font-semibold text-ok"><BadgeCheck size={12} /><span className="sm:hidden">terverifikasi</span><span className="hidden sm:inline">dicocokkan dengan kitab asli</span></span>}
                       {p.dikoreksi && <span className="rounded-full bg-soft px-2 py-0.5 text-soft-ink">dikoreksi</span>}
                       {disorot && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 font-semibold text-brand-fg">rujukan soal</span>}
-                      {bisaKoreksi && sunting !== p.seq && <button type="button" onClick={() => { if (sunting !== null && !bolehTinggal()) return; kotorRef.current = false; setSunting(p.seq); }} className={`${disorot ? '' : 'ml-auto '}inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft`} aria-label={`Koreksi teks halaman ${p.hal}`}><Pencil size={12} />Koreksi teks</button>}
+                      {bisaKoreksi && sunting !== p.seq && <button type="button" onClick={() => { if (sunting !== null && !bolehTinggal()) return; kotorRef.current = false; setSunting(p.seq); }} className={`${disorot ? '' : 'ml-auto '}inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft`} aria-label={`Koreksi teks halaman ${p.hal}`}><Pencil size={12} /><span className="hidden sm:inline">Koreksi teks</span></button>}
                     </header>
                     {bisaKoreksi && sunting === p.seq ? (
                       <PenyuntingHalaman key={`${p.seq}:${p.rev || 0}`} p={p} kitab={kitab} kitabId={kitabId} arab={arab} px={px} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}
@@ -382,14 +391,14 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
         </section>
       </div>
 
-      <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 shadow-sm ${lebarLayar ? 'm-2 mt-0' : ''}`}>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1} aria-keyshortcuts={arab ? 'ArrowRight' : 'ArrowLeft'} title={arab ? 'Halaman sebelumnya (→)' : 'Halaman sebelumnya (←)'}>{arab ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}Sebelumnya</Btn>
+      <div className={`flex items-center gap-2 rounded-2xl border border-line bg-surface px-2 py-1.5 shadow-sm sm:px-3 sm:py-2 ${lebarLayar ? 'm-2 mt-0' : 'sticky bottom-2 z-10 sm:static'}`}>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1} aria-label="Halaman sebelumnya" aria-keyshortcuts={arab ? 'ArrowRight' : 'ArrowLeft'} title={arab ? 'Halaman sebelumnya (→)' : 'Halaman sebelumnya (←)'}>{arab ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}<span className="hidden sm:inline">Sebelumnya</span></Btn>
         <div className="min-w-0 flex-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-soft" role="progressbar" aria-valuemin={1} aria-valuemax={total || 1} aria-valuenow={kursor} aria-label="Posisi baca">
             <div className="h-full bg-brand transition-all" style={{ width: `${total ? Math.round((kursor / total) * 100) : 0}%` }} /></div>
           <p className="mt-1 text-center text-xs text-mute">{halaman.length ? <>Hal. <b className="text-ink">{halaman.length > 1 ? `${halaman[0].hal}–${halaman[halaman.length - 1].hal}` : halaman[0].hal}</b> · urutan {kursor}/{total}</> : `Urutan ${kursor}/${total}`}{info ? ` · ${info}` : ''}</p>
         </div>
-        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total} aria-keyshortcuts={arab ? 'ArrowLeft' : 'ArrowRight'} title={arab ? 'Halaman berikutnya (←, arah baca Arab)' : 'Halaman berikutnya (→)'}>Berikutnya{arab ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}</Btn>
+        <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total} aria-keyshortcuts={arab ? 'ArrowLeft' : 'ArrowRight'} aria-label="Halaman berikutnya" title={arab ? 'Halaman berikutnya (←, arah baca Arab)' : 'Halaman berikutnya (→)'}><span className="hidden sm:inline">Berikutnya</span>{arab ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</Btn>
       </div>
       {kembar.length > 0 && (
         <div className={`flex flex-wrap items-center gap-2 ${lebarLayar ? 'mx-2 mb-2' : ''}`} role="group" aria-label="Pilih halaman bernomor kembar">
