@@ -28,14 +28,23 @@ const izinkan = (pengguna, untuk) => { if (!pengguna || !PERAN_KOREKSI.includes(
 const ukuran = (o) => JSON.stringify(o).length;
 const bersih = (e) => ({ judul: e.judul, level: e.level, juz: e.juz, hal: e.hal, seq: e.seq });
 
+const TTL_USUL_MS = 30 * 60_000; const MAKS_CACHE_USUL = 6; const cacheUsul = new Map(); // memori instance; kunci = kitab + revisi + jumlah halaman + penghitung koreksi
+export const _ujiUsul = { reset: () => cacheUsul.clear() };
+
 /** Aksi `perpus-isi-usul`: usulan daftar isi dari teks kitab. Tidak menulis apa pun. Masukan: { kitabId }. Keluaran: { usul, dibaca, terpotong }. */
 export async function aksiIsiUsul(b, kid, m, pengguna) {
   izinkan(pengguna, 'Membuat usulan daftar isi');
+  const kunci = `${kid}:${m.revisi || 1}:${m.ruang || ''}:${m.jumlahHalaman}:${m.koreksi || 0}`; // koreksi teks atau impor ulang mengganti kunci
+  const t = Date.now(); const ada = cacheUsul.get(kunci);
+  if (ada && t - ada.at < TTL_USUL_MS) return ada.hasil; // satu usulan membaca SELURUH halaman kitab (ratusan bacaan): ulangan tidak perlu membaca lagi
   const { db } = await firestoreAdmin();
   const snap = await db.collection(koleksiHalaman(kid, m)).select('seq', 'juz', 'hal', 'teks', 'bab').get();
   const halaman = snap.docs.map((d) => d.data()).filter((h) => Number.isInteger(h.seq));
   const semua = usulDariHalaman(halaman);
-  return { usul: semua.slice(0, MAKS_ENTRI_ISI), dibaca: halaman.length, terpotong: semua.length > MAKS_ENTRI_ISI };
+  const hasil = { usul: semua.slice(0, MAKS_ENTRI_ISI), dibaca: halaman.length, terpotong: semua.length > MAKS_ENTRI_ISI };
+  cacheUsul.delete(kunci); cacheUsul.set(kunci, { at: t, hasil });
+  while (cacheUsul.size > MAKS_CACHE_USUL) cacheUsul.delete(cacheUsul.keys().next().value);
+  return hasil;
 }
 
 /**

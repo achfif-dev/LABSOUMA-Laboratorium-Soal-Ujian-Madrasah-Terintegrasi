@@ -726,6 +726,8 @@ function AlurEditorAdmin({ alur, mapel, onSaved, toast }) {
 function PemeliharaanAdmin({ toast }) {
   const [hasil, setHasil] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pangkas, setPangkas] = useState(null);
+  const [simpan, setSimpan] = useState('10');
   const jalan = async (hapus) => {
     if (hapus && !window.confirm(`Hapus ${hasil.riwayatYatim} riwayat versi dari ${hasil.soalYatim} soal yang sudah dihapus? Tidak bisa dibatalkan.`)) return;
     setBusy(true);
@@ -733,6 +735,17 @@ function PemeliharaanAdmin({ toast }) {
       const r = await callApi('/api/backup', { aksi: 'bersihriwayat', hapus });
       setHasil(hapus ? { ...r, riwayatYatim: 0, soalYatim: 0 } : r);
       toast(hapus ? `${r.dihapus} riwayat yatim dihapus.` : (r.riwayatYatim ? `Ditemukan ${r.riwayatYatim} riwayat yatim.` : 'Tidak ada riwayat yatim.'));
+    } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : 'Gagal memindai riwayat.'); }
+    finally { setBusy(false); }
+  };
+  const jalanPangkas = async (hapus) => {
+    const n = Number(simpan);
+    if (hapus && !window.confirm(`Hapus ${pangkas.riwayatKelebihan} riwayat versi paling lama dari ${pangkas.soalDipangkas} soal? Tiap soal menyimpan ${pangkas.simpan} versi terbaru. Tidak bisa dibatalkan.`)) return;
+    setBusy(true);
+    try {
+      const r = await callApi('/api/backup', { aksi: 'pangkasriwayat', simpan: n, hapus });
+      setPangkas(hapus ? { ...r, riwayatKelebihan: 0, soalDipangkas: 0 } : r);
+      toast(hapus ? `${r.dihapus} riwayat lama dihapus.` : (r.riwayatKelebihan ? `${r.riwayatKelebihan} riwayat melebihi batas.` : 'Tidak ada riwayat yang perlu dipangkas.'));
     } catch (e) { const er = apiErr(e); toast(er && er.message ? er.message : 'Gagal memindai riwayat.'); }
     finally { setBusy(false); }
   };
@@ -747,6 +760,17 @@ function PemeliharaanAdmin({ toast }) {
         {hasil && hasil.riwayatYatim > 0 && <Btn kind="danger" disabled={busy} onClick={() => jalan(true)}><Trash2 size={16} />Hapus {hasil.riwayatYatim} riwayat yatim</Btn>}
       </div>
       {hasil && <p className="text-xs text-mute">Total riwayat: {hasil.riwayatTotal}. Yatim: {hasil.riwayatYatim}{hasil.terpotong ? '. Pindai dibatasi 20.000 dokumen; ulangi setelah menghapus.' : '.'}</p>}
+      <div className="space-y-2 border-t border-line pt-3">
+        <p className="text-xs leading-relaxed text-mute">Riwayat versi ikut diindeks dan membengkak tiap soal disunting. Pangkas menyisakan hanya versi terbaru per soal (3–50). Setiap pindai membaca seluruh riwayat, jadi cukup sesekali.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-mute">Simpan terbaru
+            <input type="number" min="3" max="50" value={simpan} onChange={(e) => setSimpan(e.target.value)} className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink" /> versi
+          </label>
+          <Btn kind="ghost" disabled={busy} onClick={() => jalanPangkas(false)}>{busy ? <Loader2 size={16} className="spin" /> : <Search size={16} />}Pindai riwayat berlebih</Btn>
+          {pangkas && pangkas.riwayatKelebihan > 0 && <Btn kind="danger" disabled={busy} onClick={() => jalanPangkas(true)}><Trash2 size={16} />Hapus {pangkas.riwayatKelebihan} riwayat lama</Btn>}
+        </div>
+        {pangkas && <p className="text-xs text-mute">Total riwayat: {pangkas.riwayatTotal}. Melebihi batas: {pangkas.riwayatKelebihan}{pangkas.terpotong ? '. Pindai dibatasi 20.000 dokumen; ulangi setelah menghapus.' : '.'}</p>}
+      </div>
     </section>
   );
 }

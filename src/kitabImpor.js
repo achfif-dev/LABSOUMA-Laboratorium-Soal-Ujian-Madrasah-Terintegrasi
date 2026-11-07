@@ -5,6 +5,7 @@
 import { ApiError } from './soalService.js';
 import { normalOtoritas, validasiOtoritas } from '../web/lib/otoritas.js';
 import { firestoreAdmin } from './platform.js';
+import { batalkanDaftar } from './daftarKitab.js';
 import { VERSI_INDEKS, bangunPotongan } from '../web/lib/cariKitab.js';
 import { BAHASA, AKSARA, aksaraBawaan } from '../web/lib/bahasa.js';
 
@@ -170,8 +171,17 @@ const ringkasMeta = (id, d) => ({
   aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, isiDisunting: d.isiDisunting || 0, otoritas: normalOtoritas(d.otoritas), hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
 });
 
+// Aksi yang mengubah metadata kitab (bukan hanya halaman): ringkasan daftar kitab (src/daftarKitab.js) dibatalkan setelahnya, berhasil atau gagal sebagian.
+const AKSI_UBAH_META = new Set(['impor-mulai', 'impor-selesai', 'impor-otoritas', 'impor-aktif']);
+
 /** Satu pintu untuk semua aksi impor. `uid` = admin yang memanggil. */
-export async function aksiImpor(body, uid, { sekarang = () => new Date().toISOString() } = {}) {
+export async function aksiImpor(body, uid, opsi = {}) {
+  try { return await aksiImporInti(body, uid, opsi); } finally {
+    if (body && AKSI_UBAH_META.has(body.aksi)) { try { await batalkanDaftar((await firestoreAdmin()).db); } catch { /* hanya penghemat bacaan */ } }
+  }
+}
+
+async function aksiImporInti(body, uid, { sekarang = () => new Date().toISOString() } = {}) {
   const b = body && typeof body === 'object' ? body : {};
   const { db } = await firestoreAdmin();
   const metaRef = (kid) => db.doc(`kitab/${kid}`);

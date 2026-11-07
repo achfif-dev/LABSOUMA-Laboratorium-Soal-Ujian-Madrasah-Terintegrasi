@@ -19,7 +19,7 @@ import { parseList } from '../src/access.js';
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
 const LIMIT_ISI_AI = { perMinute: num('LIMIT_ISI_AI_PER_MINUTE', 15), perDay: num('LIMIT_ISI_AI_PER_DAY', 600) }; // satu kitab = sekitar 10 sampai 15 panggilan
-const LIMIT_ISI_USUL = { perMinute: 6, perDay: 100 };   // satu usulan membaca seluruh halaman kitab (ratusan dokumen), jadi lebih ketat
+const LIMIT_ISI_USUL = { perMinute: 6, perDay: num('LIMIT_ISI_USUL_PER_DAY', 20) };   // satu usulan membaca seluruh halaman kitab (ratusan dokumen), jadi lebih ketat
 
 export default route(async (req) => {
   const aksi = req.body && typeof req.body === 'object' ? req.body.aksi : undefined;

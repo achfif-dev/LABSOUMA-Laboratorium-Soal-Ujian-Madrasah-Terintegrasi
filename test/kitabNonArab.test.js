@@ -15,6 +15,7 @@ import { validatePaket, sistemPaketFor, SISTEM_PAKET } from '../src/paketService
 import { __setFirebaseForTest } from '../src/platform.js';
 import handler from '../api/kitab.js';
 import { fakeDb } from './_fakeDb.js';
+import { batalkanDaftar } from '../src/daftarKitab.js';
 
 const KAL = ['Fikih adalah ilmu tentang hukum syariat yang bersifat praktis dan diambil dari dalil yang terperinci.', 'Shalat lima waktu adalah kewajiban setiap muslim yang baligh dan berakal, tidak boleh ditinggalkan.',
   'Wudhu merupakan syarat sah shalat dan harus dilakukan dengan air yang suci dan menyucikan menurut mazhab.', 'Zakat dikeluarkan bila harta telah mencapai nisab dan haul, dan diberikan kepada delapan golongan penerima.'];
@@ -146,6 +147,7 @@ test('impor buku Latin ujung ke ujung lewat /api/kitab, lalu dibaca lewat perpus
   // kitab lama tanpa bidang bahasa dibaca sebagai Arab
   data['kitab/lama'] = { ...data['kitab/pengantar-fikih-dasar'], bahasa: undefined, aksara: undefined, judulLatin: 'Lama' };
   delete data['kitab/lama'].bahasa; delete data['kitab/lama'].aksara;
+  await batalkanDaftar(db); // daftar kitab dicache (src/daftarKitab.js); data diubah langsung di atas, jadi batalkan seperti yang dilakukan impor
   const d2 = await lewat(db, { aksi: 'perpus-daftar' }, 'tok_editor'); const lama = d2.body.kitab.find((k) => k.id === 'lama'); assert.equal(lama.bahasa, 'ar'); assert.equal(lama.aksara, 'arab');
 });
 

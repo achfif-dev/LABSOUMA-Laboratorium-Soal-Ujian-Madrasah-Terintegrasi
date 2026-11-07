@@ -10,6 +10,7 @@ import { ApiError, getModel, getClient, clean } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { runTool } from './assistService.js';
 import { validasiKitabId, koleksiHalaman, idHalaman } from './kitabImpor.js';
+import { daftarAktif } from './daftarKitab.js';
 import { cariTerbaik } from './kitabCari.js';
 import { siapkanKueri } from '../web/lib/cariKitab.js';
 import { barisOtoritas, peringatanOtoritas, normalOtoritas, bolehJadiDasar } from './otoritas.js';
@@ -92,16 +93,14 @@ export async function tanyaKitab(body, deps = {}) {
 
   // 1. kitab yang dicari
   let daftar = [];
-  if (v.kitabIds.length) {
-    for (const id of v.kitabIds) {
-      const d = await db.doc(`kitab/${id}`).get();
-      if (!d.exists || d.data().aktif !== true || d.data().status !== 'siap') throw new ApiError(404, 'KITAB_TIDAK_ADA', `Kitab "${id}" tidak ditemukan atau belum diaktifkan admin.`);
-      daftar.push({ id, m: d.data() });
-    }
-  } else {
-    const snap = await db.collection('kitab').get();
-    daftar = snap.docs.filter((d) => d.data().aktif === true && d.data().status === 'siap').map((d) => ({ id: d.id, m: d.data() }))
-      .sort((a, b) => String(a.m.judulLatin).localeCompare(String(b.m.judulLatin))).slice(0, MAKS_KITAB_TANYA);
+  // Tanpa pilihan kitab: ambil ID dari ringkasan (1 pembacaan), lalu baca metadata segar HANYA untuk paling banyak MAKS_KITAB_TANYA kitab
+  // (metadata menentukan ruang halaman dan kunci cache indeks, jadi tidak boleh basi).
+  const ids = v.kitabIds.length ? v.kitabIds : (await daftarAktif(db)).slice(0, MAKS_KITAB_TANYA).map((k) => k.id);
+  for (const id of ids) {
+    const d = await db.doc(`kitab/${id}`).get();
+    const ok = d.exists && d.data().aktif === true && d.data().status === 'siap';
+    if (!ok) { if (v.kitabIds.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', `Kitab "${id}" tidak ditemukan atau belum diaktifkan admin.`); continue; }
+    daftar.push({ id, m: d.data() });
   }
   if (!daftar.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', 'Belum ada kitab aktif di perpustakaan.');
 

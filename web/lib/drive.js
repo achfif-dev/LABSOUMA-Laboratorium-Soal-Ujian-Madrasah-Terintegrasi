@@ -33,10 +33,13 @@ export function serialisasiSoal(id, data) {
   return o;
 }
 
-export function buatBackup({ soal, config, kustom, oleh, now = new Date() }) {
+export function buatBackup({ soal, config, kustom, oleh, now = new Date(), jenis = 'penuh', dasar = '', penuhSejak = '' }) {
   const cfg = config && typeof config === 'object' ? config : null;
   return {
     format: FORMAT, versi: VERSI, dibuat: now.toISOString(), oleh: String(oleh || ''),
+    // Berkas selalu LENGKAP (semua soal) supaya bisa dipulihkan sendiri. `jenis` hanya mencatat cara membuatnya:
+    // 'penuh' = semua soal dibaca dari Firestore; 'inkremental' = berkas `dasar` digabung dengan soal yang berubah sejak itu.
+    jenis: jenis === 'inkremental' ? 'inkremental' : 'penuh', dasar: String(dasar || ''), penuhSejak: String(penuhSejak || now.toISOString()),
     jumlah: { soal: soal.length, kitab: cfg && Array.isArray(cfg.kitab) ? cfg.kitab.length : 0 },
     konfigurasiKustom: !!kustom,
     konfigurasi: cfg,
@@ -65,6 +68,7 @@ export function periksaBackup(obj) {
   const cfg = obj.konfigurasi && typeof obj.konfigurasi === 'object' && !Array.isArray(obj.konfigurasi) ? obj.konfigurasi : null;
   return {
     dibuat: typeof obj.dibuat === 'string' ? obj.dibuat : '', oleh: typeof obj.oleh === 'string' ? obj.oleh : '',
+    jenis: obj.jenis === 'inkremental' ? 'inkremental' : 'penuh', penuhSejak: typeof obj.penuhSejak === 'string' ? obj.penuhSejak : '',
     soal: obj.soal, konfigurasi: cfg, jumlahKitab: cfg && Array.isArray(cfg.kitab) ? cfg.kitab.length : 0,
   };
 }
@@ -75,6 +79,42 @@ const ms = (v) => { const t = Date.parse(v); return Number.isNaN(t) ? null : t; 
 export function kandidatArsip(soal, { hari, now = Date.now() }) {
   const batas = now - Number(hari) * 86_400_000;
   return soal.filter((q) => q && q.status === 'approved' && ms(q.updatedAt) !== null && ms(q.updatedAt) < batas);
+}
+
+/* ------------------------------------------------------------ Cadangan inkremental */
+// Membaca SEMUA soal tiap cadangan memakan jatah baca harian Spark (satu dokumen = satu bacaan). Inkremental: unduh cadangan terakhir dari Drive
+// (tidak memakai Firestore), baca dari Firestore hanya soal dengan updatedAt lebih baru, lalu gabungkan. Penghapusan tidak tercatat di updatedAt,
+// jadi hasil gabungan diperiksa terhadap jumlah dokumen di server: selisih = ada yang dihapus -> cadangan penuh.
+export const NAMA_BERKAS_CADANGAN = /^labsouma-backup-\d{4}-\d{2}-\d{2}-\d{4}\.json$/;
+export const HARI_PENUH_MAKS = 30;      // paling lama sejak cadangan penuh terakhir; lebih dari itu dipaksa penuh
+export const MARGIN_JAM_MS = 15 * 60_000; // selisih jam perangkat dan server
+
+/** Berkas cadangan terbaru di daftar Drive (nama memuat tanggal dan jam), atau null. */
+export function cadanganTerbaru(files) {
+  const l = (files || []).filter((f) => f && NAMA_BERKAS_CADANGAN.test(String(f.name || ''))).sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+  return l[0] || null;
+}
+
+/** Layak dijadikan dasar? `dasar` = hasil periksaBackup. Alasan penolakan dikembalikan untuk ditampilkan. */
+export function layakInkremental(dasar, { now = Date.now() } = {}) {
+  if (!dasar) return { ok: false, alasan: 'Belum ada cadangan sebelumnya.' };
+  const dibuat = ms(dasar.dibuat);
+  if (dibuat === null) return { ok: false, alasan: 'Cadangan terakhir tidak memuat waktu pembuatan.' };
+  const penuh = ms(dasar.penuhSejak) ?? dibuat;
+  if (now - penuh > HARI_PENUH_MAKS * 86_400_000) return { ok: false, alasan: `Cadangan penuh terakhir lebih dari ${HARI_PENUH_MAKS} hari lalu.` };
+  if (dibuat > now + MARGIN_JAM_MS) return { ok: false, alasan: 'Waktu cadangan terakhir di masa depan (jam perangkat tidak cocok).' };
+  return { ok: true, alasan: '' };
+}
+
+/** Batas bawah updatedAt untuk dibaca dari Firestore (ISO): waktu cadangan dasar dikurangi margin jam. */
+export const batasUbah = (dasar) => new Date(ms(dasar.dibuat) - MARGIN_JAM_MS).toISOString();
+
+/** Gabungkan soal dasar dengan soal yang berubah (menurut id; yang berubah menang). Hasil terurut menurut id. */
+export function gabungInkremental(soalDasar, soalUbah) {
+  const peta = new Map();
+  for (const q of soalDasar || []) if (q && typeof q.id === 'string') peta.set(q.id, q);
+  for (const q of soalUbah || []) if (q && typeof q.id === 'string') peta.set(q.id, q);
+  return [...peta.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** Pecah daftar menjadi potongan berukuran tetap. */

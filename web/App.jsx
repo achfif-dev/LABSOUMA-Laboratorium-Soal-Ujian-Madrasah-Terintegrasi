@@ -3642,6 +3642,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
   const [status, setStatus] = useState('');
   const [hasil, setHasil] = useState(null);      // cadangan terakhir yang sudah terverifikasi di Drive (soalnya dipakai untuk arsip)
   const [hari, setHari] = useState('180');
+  const [paksaPenuh, setPaksaPenuh] = useState(false); // true = baca semua soal dari Firestore (memakai jatah baca), bukan gabung cadangan terakhir
   const [arsipRes, setArsipRes] = useState(null);
   const [files, setFiles] = useState(null);
   const [pilih, setPilih] = useState(null);      // cadangan yang akan dipulihkan
@@ -3695,23 +3696,60 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
     return out;
   };
 
+  // Hanya soal yang updatedAt-nya lebih baru dari `iso` (cadangan inkremental). Indeks updatedAt sudah ada (otomatis); paksa server agar salinan lokal usang tidak ikut.
+  const bacaSoalSejak = async (iso) => {
+    const db = firebase.firestore(); const out = []; let akhir = null;
+    const batas = firebase.firestore.Timestamp.fromDate(new Date(iso));
+    for (;;) {
+      let q = db.collection('soal').where('updatedAt', '>', batas).orderBy('updatedAt').limit(300);
+      if (akhir) q = q.startAfter(akhir);
+      const snap = await q.get({ source: 'server' });
+      snap.docs.forEach((d) => out.push(Drv.serialisasiSoal(d.id, d.data())));
+      setStatus(`Membaca soal yang berubah: ${out.length}...`);
+      if (snap.docs.length < 300) break;
+      akhir = snap.docs[snap.docs.length - 1];
+    }
+    return out;
+  };
+
+  // Coba cadangan inkremental. Mengembalikan { soal, jenis, dasar, penuhSejak, ringkas } atau { alasan } bila harus penuh. Galat apa pun = penuh (tidak pernah menggagalkan cadangan).
+  const cobaInkremental = async (drive, folderId) => {
+    try {
+      setStatus('Mencari cadangan terakhir di Google Drive...');
+      const f = Drv.cadanganTerbaru(await drive.daftar(folderId));
+      if (!f) return { alasan: 'Belum ada cadangan sebelumnya.' };
+      let dasar;
+      try { dasar = Drv.periksaBackup(JSON.parse(await drive.unduh(f.id))); } catch (e) { return { alasan: 'Cadangan terakhir tidak bisa dibaca.' }; }
+      const layak = Drv.layakInkremental(dasar); if (!layak.ok) return { alasan: layak.alasan };
+      const ubah = await bacaSoalSejak(Drv.batasUbah(dasar));
+      setStatus('Memeriksa jumlah soal di server...');
+      const { jumlah } = await callApi('/api/backup', { aksi: 'hitung' });
+      const gabung = Drv.gabungInkremental(dasar.soal, ubah);
+      if (!Number.isInteger(jumlah)) return { alasan: 'Jumlah soal di server tidak bisa dihitung.' };
+      if (gabung.length !== jumlah) return { alasan: `Ada soal yang dihapus sejak cadangan terakhir (cadangan ${gabung.length}, server ${jumlah}).` };
+      return { soal: gabung, jenis: 'inkremental', dasar: f.name, penuhSejak: dasar.penuhSejak || dasar.dibuat, ringkas: `${ubah.length} soal berubah digabung dengan ${f.name}` };
+    } catch (e) { if (e && e.code === 'DRIVE_TOKEN') throw e; return { alasan: 'Cadangan inkremental gagal; dipakai cadangan penuh.' }; }
+  };
+
   const cadangkan = () => jalan('backup', async () => {
     setHasil(null); setArsipRes(null);
     setStatus('Meminta izin Google Drive...');
     await ambilToken(); // pertama, supaya jendela izin muncul dari klik pengguna
     const drive = Drv.buatDrive({ ambilToken });
-    const soal = await bacaSemuaSoal();
+    const folderId = await drive.siapkanFolder();
+    const ink = paksaPenuh ? { alasan: 'Cadangan penuh dipilih.' } : await cobaInkremental(drive, folderId);
+    const soal = ink.soal || await bacaSemuaSoal();
     setStatus('Membaca katalog kitab...');
     const cfg = await callApi('/api/app-config', { aksi: 'baca' });
-    const cad = Drv.buatBackup({ soal, config: cfg.config, kustom: cfg.kustom, oleh: user.email || user.uid });
+    const cad = Drv.buatBackup({ soal, config: cfg.config, kustom: cfg.kustom, oleh: user.email || user.uid, jenis: ink.soal ? 'inkremental' : 'penuh', dasar: ink.dasar || '', penuhSejak: ink.penuhSejak || '' });
     const isi = JSON.stringify(cad); const nama = Drv.namaBerkas();
     setStatus('Mengunggah ke Google Drive...');
-    const f = await drive.unggah(await drive.siapkanFolder(), nama, isi);
+    const f = await drive.unggah(folderId, nama, isi);
     setStatus('Memeriksa berkas di Google Drive...');
     if ((await drive.unduh(f.id)) !== isi) throw new Drv.DriveError('DRIVE_VERIFIKASI', 'Berkas di Google Drive tidak sama dengan data yang dikirim, jadi cadangan tidak dianggap berhasil dan tidak ada soal yang dihapus. Coba lagi.');
     setHasil({ nama, link: f.webViewLink || '', soal: cad.soal, jumlah: cad.jumlah, ukuran: new Blob([isi]).size, waktu: cad.dibuat });
     setFiles(null);
-    toast('Cadangan tersimpan dan terverifikasi di Google Drive.');
+    toast(ink.soal ? `Cadangan inkremental tersimpan dan terverifikasi (${ink.ringkas}).` : `Cadangan penuh tersimpan dan terverifikasi di Google Drive.${ink.alasan && !paksaPenuh ? ' ' + ink.alasan : ''}`);
   });
 
   // ---- Arsip (admin): hapus dari Firestore soal Disetujui yang lama tidak berubah, hanya yang ada di cadangan terverifikasi ----
@@ -3783,7 +3821,7 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
       <div className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-mute">
         Semua soal (termasuk draf) dan katalog kitab disimpan sebagai satu berkas JSON ke <b className="text-ink">Google Drive</b> akun yang Anda pilih di jendela izin, dalam folder “LABSOUMA Backup”.
         Aplikasi hanya melihat berkas yang dibuatnya sendiri. Gunakan akun Google madrasah, bukan akun pribadi, supaya cadangan tidak ikut hilang saat pengelola berganti.
-        <p className="mt-2">Satu cadangan membaca seluruh soal dari Firestore: satu dokumen sama dengan satu bacaan dari jatah gratis harian. Cadangan sendiri tidak mengosongkan Firestore; untuk itu pakai <b className="text-ink">Arsipkan</b> (khusus admin) setelah cadangan terverifikasi.</p>
+        <p className="mt-2">Cadangan pertama (dan tiap 30 hari, atau bila ada soal yang dihapus) membaca seluruh soal dari Firestore: satu dokumen sama dengan satu bacaan dari jatah gratis harian. Cadangan berikutnya inkremental: hanya soal yang berubah dibaca dari Firestore dan digabung dengan cadangan terakhir di Drive, tetapi berkasnya tetap lengkap. Cadangan sendiri tidak mengosongkan Firestore; untuk itu pakai <b className="text-ink">Arsipkan</b> (khusus admin) setelah cadangan terverifikasi.</p>
       </div>
       {err && <ErrorBox e={err} />}
       {info && !siap && (
@@ -3794,6 +3832,10 @@ function BackupTab({ user, isAdmin, toast, onCfg }) {
 
       <Section title="Cadangkan sekarang" icon={CloudUpload}>
         <Btn kind="primary" onClick={cadangkan} disabled={sibuk || !siap}>{busy === 'backup' ? <Loader2 size={16} className="spin" /> : <CloudUpload size={16} />}Cadangkan ke Google Drive</Btn>
+        <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-mute">
+          <input type="checkbox" className="mt-0.5" checked={paksaPenuh} disabled={sibuk} onChange={(e) => setPaksaPenuh(e.target.checked)} />
+          <span>Paksa cadangan penuh (baca semua soal dari Firestore; memakai jatah baca harian sebanyak jumlah soal)</span>
+        </label>
         {busy && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
         {hasil && (
           <div className="mt-4 rounded-xl bg-ok-bg px-4 py-3 text-sm text-ok">

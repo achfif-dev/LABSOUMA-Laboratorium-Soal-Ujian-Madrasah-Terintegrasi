@@ -8,18 +8,13 @@ import { firestoreAdmin } from './platform.js';
 import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kitabImpor.js';
 import { aksiCari } from './kitabCari.js';
 import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
+import { daftarAktif, ringkas } from './daftarKitab.js';
 import { aksiIsiUsul, aksiIsiAi, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
+export { ringkas };
 const tolak = (status, kode, pesan) => { throw new ApiError(status, kode, pesan); };
 
-const ringkas = (id, d) => ({
-  id, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang || '', fan: d.fan || '', mazhab: d.mazhab || '',
-  jumlahHalaman: d.jumlahHalaman, jumlahJuz: d.jumlahJuz || 1, bentukMatn: d.bentukMatn, berharakat: d.berharakat === true,
-  halamanVirtual: d.halamanVirtual === true, sumberJenis: (d.sumber && d.sumber.jenis) || '', ocrHalaman: d.ocrHalaman || 0,
-  otoritas: (({ status, akidah, catatan }) => ({ status, akidah, catatan }))(normalOtoritas(d.otoritas)), // tanpa uid penetap
-  bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab', // kitab lama (sebelum impor non-Arab) tidak punya bidang ini: Arab
-});
 const dokHalaman = halamanKlien;
 const bulat = (v, min, maks, nama) => {
   if (!Number.isInteger(v) || v < min || v > maks) tolak(422, 'PERPUS_INVALID', `${nama} harus bilangan bulat ${min}-${maks}.`);
@@ -32,10 +27,7 @@ export async function aksiBaca(body, pengguna = null, deps = {}) {
   const { db } = await firestoreAdmin();
 
   if (b.aksi === 'perpus-daftar') {
-    const snap = await db.collection('kitab').get();
-    const kitab = snap.docs.filter((d) => d.data().aktif === true && d.data().status === 'siap').map((d) => ringkas(d.id, d.data()))
-      .sort((x, y) => String(x.judulLatin).localeCompare(String(y.judulLatin)));
-    return { kitab };
+    return { kitab: await daftarAktif(db) }; // 1 pembacaan (ringkasan), bukan satu per kitab
   }
 
   const kid = validasiKitabId(b.kitabId);

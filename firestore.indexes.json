@@ -15,5 +15,526 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "halaman",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r2",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r2",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r2",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r2",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r2",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r2",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r3",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r3",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r3",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r3",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r3",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r3",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r4",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r4",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r4",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r4",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r4",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r4",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r5",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r5",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r5",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r5",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r5",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r5",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r6",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r6",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r6",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r6",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r6",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r6",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r7",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r7",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r7",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r7",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r7",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r7",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r8",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r8",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r8",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r8",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r8",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r8",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r9",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r9",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r9",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r9",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r9",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r9",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r10",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r10",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r10",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r10",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r10",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r10",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r11",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r11",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r11",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r11",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r11",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r11",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r12",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "halaman_r12",
+      "fieldPath": "bab",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r12",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r12",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r12",
+      "fieldPath": "h",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "cari_r12",
+      "fieldPath": "j",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "daftar",
+      "fieldPath": "entri",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "koreksi",
+      "fieldPath": "teksLama",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "koreksi",
+      "fieldPath": "teksBaru",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "isiRiwayat",
+      "fieldPath": "entriLama",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "stimulus",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "pertanyaan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "pembahasan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "indikator",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "jawaban",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "rubrik",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "catatan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "sumberUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "opsi.A",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "opsi.B",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "opsi.C",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "opsi.D",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "soal",
+      "fieldPath": "opsi.E",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.teks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.stimulus",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.pertanyaan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.pembahasan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.indikator",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.jawaban",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.rubrik",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.catatan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.sumberUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.opsi.A",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.opsi.B",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.opsi.C",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.opsi.D",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "riwayat",
+      "fieldPath": "snapshot.opsi.E",
+      "indexes": []
+    }
+  ]
 }

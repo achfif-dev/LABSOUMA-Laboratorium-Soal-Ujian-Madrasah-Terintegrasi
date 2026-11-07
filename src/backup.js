@@ -144,3 +144,15 @@ export async function pulihkanSoal(_user, body) {
 export function infoBackup() {
   return { driveClientId: String(process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim(), folder: NAMA_FOLDER, maksPemulihan: MAKS_PER_PEMULIHAN };
 }
+
+/**
+ * Jumlah dokumen `soal` untuk cadangan inkremental (web/lib/drive.js: gabungInkremental). Memakai agregasi count():
+ * Firestore menagih 1 pembacaan per 1.000 entri indeks (minimal 1), jauh di bawah membaca semua soal.
+ * `jumlah: null` bila agregasi tidak tersedia: klien lalu membuat cadangan penuh. Tidak pernah memindai koleksi.
+ */
+export async function hitungSoal() {
+  const { db } = await firestoreAdmin();
+  const col = db.collection('soal');
+  if (typeof col.count !== 'function') return { jumlah: null };
+  try { return { jumlah: (await col.count().get()).data().count }; } catch { return { jumlah: null }; }
+}

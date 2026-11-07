@@ -21,6 +21,7 @@ kitab/{kitabId}                  metadata (satu dokumen)
 kitab/{kitabId}/daftar/isi       daftar isi (satu dokumen, satu bacaan)
 kitab/{kitabId}/halaman/{halId}  satu dokumen per halaman, halId = p + seq 5 digit
 kitab/{kitabId}/koreksi/{id}     arsip koreksi teks (hanya tambah, hanya server): seq, teksLama, teksBaru, oleh, at, catatan
+kitab_ringkas/daftar             ringkasan daftar kitab aktif untuk pemilih (satu dokumen; hanya Admin SDK; dibatalkan saat impor, otoritas, aktif; lihat src/daftarKitab.js)
 kitab/{kitabId}/cari/{cNNNNN}    indeks pencarian teks: potongan <= 250 ribu karakter teks normal; cari/meta = status indeks
 soal/{id}                        field opsional baru: kitabId, halId
 ```
@@ -112,7 +113,7 @@ match /kitab/{kid} {
 }
 // soal: tambahkan 'kitabId' dan 'halId' ke daftar kunci opsional + validasi string (maks 100 / 20)
 ```
-Pengecualian indeks `halaman.teks`, `soal.teks`, `soal.pembahasan` dari v1 tetap berlaku. Dampaknya pada simpanan belum diukur.
+Pengecualian indeks (halaman.teks, cari.t/s/h/j, teks panjang soal dan riwayat) kini benar-benar ada di `firestore.indexes.json` (bagian 30 di RIWAYAT-AUDIT-DAN-PERUBAHAN.md; sebelumnya hanya tertulis di sini). Dampaknya pada simpanan masih perkiraan.
 
 ## Batas yang masih ada
 - **Matn Fathul Qarib tidak terpisah** (`batasMatn: null`): matn Abu Syuja' ada di dalam kurung di tengah syarah. Bisa diekstrak dengan aturan kurung, tapi kurung juga dipakai untuk hal lain; belum dikerjakan.
