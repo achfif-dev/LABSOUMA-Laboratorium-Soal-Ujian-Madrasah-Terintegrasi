@@ -13,6 +13,43 @@ Cloud Functions tidak dipakai karena butuh paket Blaze. Fungsi server ada di fol
 
 Peran: **pending** (baru daftar), **penyusun**, **editor** (menyetujui atau meminta revisi, tidak untuk soal buatannya sendiri), **admin** (mengelola pengguna dan semua soal), **ustadz** (alat bantu pribadi, lihat bagian Peran Ustadz), **nonaktif**.
 
+## Kondisi aplikasi saat ini (7 Nov 2026)
+
+Ringkasan keadaan kode di `main`; riwayat lengkap tiap audit dan perubahan ada di `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` (25 bagian, kronologis).
+
+**Yang sudah ada**
+- **Penyusunan soal berbantuan AI** dari teks kitab: lima bentuk soal, terjemah, analisis teks, telaah dan perbaikan, uji jawab buta, pemeriksa kutipan Arab dan nada, Paket Dauri (materi panjang menjadi soal bersegmen), kisi-kisi, dan haluan Ahlussunnah wal Jamaah yang moderat satu sumber di semua prompt (`src/aswaja.js`).
+- **Perpustakaan kitab di Firestore** (bukan lagi hanya tempel teks): impor ekspor Syamilah (.txt/.docx), teks bertanda `[ص N]`, PDF (lapisan teks atau OCR AI Arab, Latin, Pegon), EPUB, HTML, JSON; pembaca layar penuh dengan pencarian isi; pilih kitab, bab, dan halaman langsung dari form soal; tautan balik soal ke halaman kitab; koreksi teks oleh editor dan admin; status otoritas kitab; tanya-jawab bersumber dan pemeriksaan soal terhadap halaman rujukan. Lihat bagian *Perpustakaan kitab* di bawah.
+- **Alur editor bertahap** (1 sampai 3 editor) dan filter penyusun; persetujuan hanya lewat server dengan gerbang kutipan, uji buta, dan sumber.
+- **Pegonizer**: mesin aturan al-Qolam '24 di browser, bantuan AI, kamus bersama di Firestore, ekspor Soal Pegon dan Naskah Ujian IMDA.
+- **Admin**: konfigurasi aplikasi dengan cadangan dan riwayat, pengaturan AI (Gemini atau Claude), pengguna dan peran (termasuk tahap editor), dasbor kuota, backup dan arsip ke Google Drive, impor Excel.
+- **Peran Ustadz**: alat bantu pribadi, soal disimpan hanya di perangkat.
+
+**Menu** (dua tingkat: grup lalu sub-tab)
+
+| Grup | Sub-tab | Siapa |
+|---|---|---|
+| Susun | Penyusunan, Paket Dauri, Pegonizer | staf (Ustadz: Penyusunan dan Pegonizer) |
+| Baca Kitab | pembaca, pencarian isi, Tanya Kitab | staf |
+| Bank Soal | Review (editor, admin), Approved | staf |
+| Ujian | Fokus & Kisi-kisi, Export, Analisis Butir | staf (Ustadz: Fokus dan Export untuk soalnya sendiri) |
+| Kelola | Backup Drive (editor, admin); Dasbor, Pengguna, Konfigurasi, Perpustakaan, Pengaturan AI (admin) | sesuai peran |
+
+Ustadz hanya mendapat lima sub-tab: Penyusunan, Soal Saya, Export, Fokus & Kisi-kisi, dan Pegonizer.
+
+**Angka terukur** (clone `main`, 7 Nov 2026)
+- `npm test`: 770 tes, 769 lulus, 1 dilewati (uji berkas nyata Dasuqi; jalankan dengan `KITAB_DASUQI_DOCX=...`). `npm run lint`: 0 error, 72 peringatan (kebanyakan `react-hooks/exhaustive-deps`, belum ditriase). `npm run build` lolos.
+- Bundel awal 994 KB (gzip 305 KB), turun dari 1.984 KB (gzip 622 KB) pada 6 Nov. Dimuat saat dipakai: mesin Pegon 259 KB, `docx` 466 KB, tab Export 30 KB, tab Konfigurasi/Pengaturan AI 50 KB, dan tujuh panel lain. Lihat *Arsitektur frontend*.
+- Fungsi Vercel: 11 dari 12 yang diizinkan paket Hobby. Fitur API baru harus digabung ke berkas `api/` yang ada.
+
+**Yang belum teruji atau belum dikerjakan (jujur)**
+- Aturan Firestore hanya diuji sebagai teks (`firestore.rules` belum diuji di emulator). Pemuatan malas dan tampilan di HP belum dicoba di perangkat sungguhan; setelah memperbarui, uji tab Pegon, Export, dan Konfigurasi.
+- Mutu OCR AI (Arab, Latin, Pegon), deteksi dua kolom, dan pembersih PDF baru diuji dengan data buatan dan beberapa berkas nyata; periksa sampel halaman sebelum kitab dijadikan rujukan soal.
+- `npm run eval` (set soal emas, butuh kunci AI) belum dijalankan setelah prompt generate berubah (aturan haluan 9). `eval/golden.json` masih draf yang harus diverifikasi ustadz.
+- `npm audit`: 6 temuan moderat, semuanya transitif lewat `firebase-admin` (terkunci di `@google-cloud/firestore-api`), risiko praktis rendah karena berjalan di server; belum ada perbaikan hulu. Jangan memakai `npm audit fix --force` (menurunkan `firebase`).
+- `web/App.jsx` masih 4.014 baris; tab Paket Dauri dan Penyusunan belum dipisah. Migrasi Firebase compat ke modular ditunda dengan sengaja (hemat ±22 KB gzip tidak sebanding risikonya; alasan di bagian 20 riwayat).
+- Pencarian isi hanya dalam satu kitab; pencarian lintas kitab belum ada.
+
 ## Pemasangan
 
 ### 1. Firebase (paket Spark)
@@ -56,7 +93,7 @@ Pastikan `git status` tidak menampilkan `.env` atau file kunci JSON. Repositori 
    | `GEMINI_API_KEY` | kunci dari langkah 2 |
    | `ADMIN_EMAILS` | email Google Anda (admin pertama), pisahkan dengan koma bila lebih dari satu |
 
-   Opsional: `ALLOWED_EMAIL_DOMAIN`, `AI_MODEL`, `LIMIT_*` (termasuk `LIMIT_OCR_PER_MINUTE` 20 dan `LIMIT_OCR_PER_DAY` 1500 untuk OCR PDF pindai Arab, Latin, atau Pegon saat impor kitab; lihat docs/AUDIT-01-NOV-2026-IMPOR-PDF.md).
+   Opsional: `ALLOWED_EMAIL_DOMAIN`, `AI_MODEL`, `LIMIT_*` (termasuk `LIMIT_OCR_PER_MINUTE` 20 dan `LIMIT_OCR_PER_DAY` 1500 untuk OCR PDF pindai Arab, Latin, atau Pegon saat impor kitab; lihat `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 11).
 3. **Deploy.**
 4. **Izinkan domain Vercel di Firebase** (wajib, kalau tidak login Google ditolak): Firebase Console > Authentication > Settings > **Authorized domains** > Add domain > isi domain Vercel Anda (mis. `nama-proyek.vercel.app`, dan domain kustom bila ada).
 5. Buka situs, masuk dengan email admin. Akun itu otomatis menjadi admin. Guru lain yang masuk berstatus "Menunggu persetujuan" sampai Anda memberi peran di tab **Pengguna**.
@@ -67,7 +104,7 @@ Mengubah environment variable di Vercel hanya berlaku pada deploy berikutnya: la
 
 Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortografi al-Qolam '24). Dipakai semua pengguna aktif.
 
-- **Mesin aturan** berjalan di browser tanpa kuota AI: `web/lib/pegon.js` (sumber tunggal; `src/pegon.js` hanya meneruskannya ke server dan tes, sama seperti `kutipan.js`). Aturan master untuk prompt AI ada di `src/pegonRules.js`.
+- **Mesin aturan** berjalan di browser tanpa kuota AI: `web/lib/pegon.js` (sumber tunggal; `src/pegon.js` hanya meneruskannya ke server dan tes, sama seperti `kutipan.js`). Aturan master untuk prompt AI ada di `src/pegonRules.js`. Mesin (±259 KB) **dimuat malas**: diunduh di latar belakang setelah layar pertama tampil (`web/lib/muatPegon.js`) dan dipasang sebagai `window.Pegon`. Komponen yang membutuhkannya (Pegonizer, Pegonkan, Export) dibungkus `denganPegon` dan menampilkan "Memuat mesin Pegon…" sampai siap. Kode baru yang memakai Pegon harus memakai pola itu atau `await muatPegon()`, jangan membaca `window.Pegon` langsung saat render.
 - **Masukan:** teks, suara (Web Speech API bawaan browser), file Word/PDF (pustaka mammoth dan pdf.js dimuat hanya saat dibutuhkan), dan foto.
 - **Bantuan AI** lewat `/api/assist`, aksi `pegon` (memperkuat hasil mesin) dan `pegonfoto` (membaca teks Latin dari foto). Memakai login, peran, batas pemakaian, plafon harian madrasah, dan pengembalian kuota yang sama dengan fitur AI lain. Foto diperkecil di browser (maks. 1600 px) dan dibatasi di server. Adapter Gemini kini mendukung gambar, jadi kedua penyedia AI bisa membaca foto.
 - **Ekspor soal:** di tab Export/Download ada format **Soal Pegon (DOCX)**. Teks soal, opsi, kunci, dan pembahasan ditulis Pegon (aksara Arab di dalam teks tidak diubah); kata yang diragukan mesin disorot kuning agar diperiksa editor. Setiap sorotan diberi komentar Word berisi alasannya. Format **Soal Pegon + Latin (DOCX)** menambahkan baris Latin asli di bawah tiap paragraf Pegon. Angka, nominal (Rp1.000,00), URL, email, dan kode (C2) tidak dialihaksarakan.
@@ -208,7 +245,7 @@ Pemeriksaan otomatis membantu editor, tidak menggantikannya. Hasilnya disimpan d
 - **Kutipan Arab:** kutipan di soal dan pembahasan dicocokkan dengan teks kitab. Kata yang sama tetapi **harakatnya berbeda** ditandai "mirip" (bukan lolos). Pemeriksaan ini tidak menilai kebenaran kunci atau terjemahan.
 - **Uji jawab buta:** model menjawab soal tanpa melihat kunci dan pembahasan. Bila jawabannya berbeda (termasuk "tidak ada yang benar" atau "lebih dari satu benar"), soal ditandai. Berjalan otomatis setelah Generate dan bisa diulang dari tombol **Uji jawab buta** (penyusun dan editor). Biayanya satu panggilan AI tambahan. Isi `AI_VERIFY_MODEL` agar penguji memakai model berbeda dari pembuat soal.
 - **Nada soal:** kata yang menyalahkan atau mengkafirkan ditandai untuk diperiksa manusia (kata seperti "kafir" sah dalam bahasan fiqih, jadi ini peringatan, bukan penolakan).
-- **Gerbang persetujuan:** persetujuan hanya lewat server (`POST /api/assist`, aksi `setujui`); aturan Firestore tidak lagi mengizinkan klien menaikkan soal ke Approved. Server menghitung ulang kutipan dari teks dan isi soal tersimpan, memakai catatan uji buta milik server (`cekbutaHasil`), dan mencocokkan teks dengan halaman `sumberUrl`. Soal dengan kutipan "gagal", uji buta "beda", atau teks yang hampir seluruhnya tidak ada di halaman sumber hanya bisa disetujui dengan catatan alasan. Rincian dan batasnya: `docs/PERUBAHAN-29-OKT-2026.md`.
+- **Gerbang persetujuan:** persetujuan hanya lewat server (`POST /api/assist`, aksi `setujui`); aturan Firestore tidak lagi mengizinkan klien menaikkan soal ke Approved. Server menghitung ulang kutipan dari teks dan isi soal tersimpan, memakai catatan uji buta milik server (`cekbutaHasil`), dan mencocokkan teks dengan halaman `sumberUrl`. Soal dengan kutipan "gagal", uji buta "beda", atau teks yang hampir seluruhnya tidak ada di halaman sumber hanya bisa disetujui dengan catatan alasan. Rincian dan batasnya: `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 7.
 - **Terjemahan** ditandai sebagai draf mesin yang perlu ditinjau ustadz atau guru.
 - **Tautan sumber** diisi penyusun dan tidak otomatis terikat ke teks yang disimpan; aturan Firestore hanya mensyaratkan `https://`. Editor perlu mencocokkannya.
 - **Penolakan penyedia AI:** bila penyedia memblokir teks karena kebijakan keamanan, pengguna melihat pesan khusus (bukan galat generik). Penolakan ini tetap menghitung kuota.
@@ -230,9 +267,37 @@ Tes `npm test` hanya menguji kode (tanpa model sungguhan). Mutu keluaran model d
 
 - **Tautan per kitab:** di menu Konfigurasi, isi kolom *Tautan kitab* (mis. `https://shamela.ws/book/823`). Saat kitab itu dipilih di penyusunan soal, muncul tombol **Buka di situs** dan **Ambil halaman N**. Kolom **Tempel banyak kitab** menerima kolom ke-4 berisi tautan. Nomor di akhir alamat shamela.ws adalah urutan halaman situs, bukan selalu nomor halaman cetak.
 - **Ambil teks dari tautan:** (tautan boleh ditempel tanpa `https://`; hasil di-cache 5 menit dan server mencoba ulang sekali bila situs sumber galat sementara) shamela.ws, al-maktaba.org, islamweb.net, ar.wikisource.org, archive.org (teks). Satu halaman per permintaan; nama kitab dan nomor halaman terisi dari judul halaman bila terbaca. Tautan sumber disimpan bersama soal. Struktur halaman situs bisa berubah; bila gagal, salin manual.
-- **Maktabah Syamilah desktop:** berjalan offline di Windows dan tidak bisa diakses dari web. Salin teks atau ekspor ke .txt, tempel atau **Impor file .txt**, lalu **Bersihkan teks**.
+- **Maktabah Syamilah desktop:** berjalan offline di Windows dan tidak bisa diakses dari web. Ekspor ke .txt lalu impor ke Perpustakaan (bagian *Perpustakaan kitab*), atau untuk satu-dua halaman: tempel teks atau **Impor file .txt** di form, lalu **Bersihkan teks**.
 - **Terjemahkan**, **Analisis teks** (ide soal per level, calon pengecoh), dan **Telaah & Perbaiki** (editor punya **Telaah AI** di tab Review). Semuanya berdasar teks Arab yang diberikan, dengan konteks Ahlussunnah wal Jamaah yang moderat. Hasil AI perlu ditelaah manusia.
 - Pastikan pemakaian teks sesuai ketentuan situs sumber dan hak cipta edisi kitabnya.
+
+## Perpustakaan kitab
+
+Skema data dan keputusannya: `docs/SKEMA-KITAB.md`. Kronologi pengerjaan: `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 6 sampai 16.
+
+**Impor (Kelola > Perpustakaan, admin).** Semua format dibaca di browser lalu dikirim per halaman lewat `/api/kitab` (`aksi: impor-*`); server menulis dengan Admin SDK dan koleksi `kitab` tidak pernah ditulis klien.
+- Format: ekspor Syamilah `.txt` dan `.docx`; `.txt/.docx/.html` dengan penanda `[ص N]`; PDF berlapis teks (judul berjalan dan nomor halaman dibuang, penanda buku dan metadata dipakai, dua kolom dikenali); PDF pindai lewat **OCR AI** (`impor-ocr`, khusus admin, aksara Arab, Latin, atau Pegon, batas `LIMIT_OCR_PER_MINUTE` 20 dan `LIMIT_OCR_PER_DAY` 1500, hasil per halaman disimpan di IndexedDB agar bisa dilanjutkan); EPUB; HTML; JSON halaman; berkas tanpa penanda dengan halaman virtual (ditandai dan diperingatkan). Halaman yang terlalu panjang dipecah otomatis.
+- Pemeriksa mutu isi di layar impor (mojibake, huruf terpisah, urutan terbalik, halaman kosong atau ganda, dan sebagainya) dan peringatan bentrok ID atau judul sebelum menekan impor. Kitab non-Arab (Indonesia, Inggris, Jawa, Sunda) bisa diimpor dan dipakai untuk soal; arah dan prompt mengikuti `aksara` kitab.
+- Impor ulang ("timpa") bertahap dan bisa dilanjutkan, tidak menghapus kitab yang sedang dipakai; jilid berikutnya bisa ditambahkan ke kitab yang sudah ada.
+- **Hak cipta:** status awal "belum dicek"; admin yang menentukan. Pastikan pemakaian sesuai ketentuan edisi kitabnya.
+
+**Dipakai penyusun dan staf lain.**
+- **Pemilih kitab** di Penyusunan Soal dan Paket Dauri: pilih kitab, bab, dan halaman; teks terisi otomatis (batas 6.000 karakter). Soal membawa tautan balik opsional `kitabId`, `halId`, `halIdAkhir` (muncul chip "Tertaut ke perpustakaan" dan tautan "Buka di kitab" di Review dan Bank Soal). Teks tetap disalin ke soal, jadi soal yang sudah disetujui tidak berubah bila teks kitab dikoreksi.
+- **Baca Kitab**: layar lebar, huruf 20 sampai 60 px, daftar isi, lompat ke nomor cetak, matn dan syarah, salin dengan rujukan, alamat `#baca/<kitab>/<urutan>` yang bisa dibagikan. **Cari teks** mengabaikan harakat dan tatwil dan menyatukan varian huruf; memakai indeks di `kitab/{id}/cari/*` yang dibangun otomatis pada pencarian pertama kitab lama.
+- **Tanya Kitab** (`aksi: tanyakitab`, 1 kuota AI per pertanyaan): AI menyusun kata kunci Arab, kode meranking halaman, AI menjawab hanya dari halaman itu. Gagal-tertutup: tanpa butir yang terbukti ada di halaman, jawaban tidak ditampilkan. Bisa memilih 1 sampai 4 kitab.
+- **Periksa rujukan** (`aksi: periksarujukan`, tanpa AI dan tanpa kuota AI): kutipan pada pembahasan dan jawaban harus ada di halaman rujukan, dan kunci dibandingkan dengan pengecoh terhadap halaman (heuristik kata, bukan makna). Hasil: selaras, perlu dicek, tidak selaras, atau tidak dapat dinilai.
+
+**Mutu teks dan haluan.**
+- **Koreksi teks** oleh editor dan admin (tombol Koreksi teks di pembaca): satu koreksi satu transaksi, dengan arsip lama dan baru, deteksi bentrok (409), centang "sudah dicocokkan dengan kitab asli" (mencabut peringatan OCR), dan indeks pencarian ikut diperbarui. Impor ulang menimpa koreksi (arsipnya tetap).
+- **Otoritas kitab** (admin): `belum_dinilai` (bawaan), `muktamad`, `rujukan`, `pembanding`, `luar_rumpun`, ditambah akidah dan catatan. Server yang membacanya dari Firestore lewat `kitabId` dan memasukkannya ke prompt; klien tidak bisa memalsukannya. Kitab pembanding, di luar rumpun, atau belum dinilai memunculkan peringatan. Status ini belum memblokir persetujuan soal.
+- Teks yang dibaca dari perpustakaan paling jauh sejajar dengan teks tersimpan, bukan dengan kitab cetak: hasil OCR yang belum dicocokkan ditandai di pembaca dan di hasil Tanya Kitab.
+
+## Alur editor bertahap
+
+Satu editor (bawaan, seperti dulu) atau 1 sampai 3 tahap: penyusun, editor 1, (revisi), editor 2, (revisi), editor 3, persetujuan. Editor boleh meloloskan tanpa revisi; satu editor tidak boleh meninjau dua tahap pada soal yang sama; admin bisa meninjau tahap mana pun. Approved hanya lewat server (gerbang kutipan, uji buta, dan sumber).
+- **Atur:** Konfigurasi > Alur Editor Bertahap (jumlah tahap standar dan per mata pelajaran; disimpan di `config/alur`) dan Pengguna > Tahap editor.
+- **Filter:** Bank Soal punya filter Penyusun dan Tahap Editor.
+- **Urutan rilis:** unggah kode dan tunggu deploy, baru publish `firestore.rules`, lalu atur tahap editor dan aktifkan alur. Pemulihan dari cadangan tidak membawa `tahap` dan `tinjauan`. Rincian: `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 19.
 
 ## Saran bab penting dan kisi-kisi
 
@@ -331,60 +396,88 @@ Tab **Export/Download**, format **Naskah Ujian IMDA (DOCX)**. Soal Approved yang
 - **Ringkas sesuai contoh.** Template hanya punya satu kalimat soal per nomor, jadi narasi/stimulus **tidak dicetak** (nyalakan **Sertakan narasi** bila perlu), dan opsi ditulis `(أ-2 ب-3 ج-4)` dalam satu baris. Form memberi catatan bila kalimat soal lebih dari ±150 karakter atau satu opsi lebih dari 40 karakter; isi soal tidak pernah dipotong otomatis.
 - Arti "ص" pada template **diasumsikan** halaman kitab (karena soal sudah punya kolom Halaman). Bila maksudnya lain, ubah `rujukanHalaman` di `web/lib/naskah.js`.
 
+## Variabel lingkungan (ringkasan)
+
+Diisi di Vercel > Settings > Environment Variables (lihat juga `.env.example`, yang hanya memuat sebagian). Perubahan berlaku pada deploy berikutnya.
+
+| Nama | Fungsi |
+|---|---|
+| `FIREBASE_WEB_CONFIG`, `FIREBASE_SERVICE_ACCOUNT` | konfigurasi web (publik) dan kunci server (rahasia penuh, base64) |
+| `ADMIN_EMAILS`, `ALLOWED_EMAIL_DOMAIN` | admin pertama; membatasi domain email yang boleh masuk |
+| `AI_PROVIDER`, `AI_MODEL`, `AI_VERIFY_MODEL` | penyedia (`gemini` atau `anthropic`), model, dan model penguji jawab buta |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` | kunci penyedia AI (bisa diganti dari tab Pengaturan AI) |
+| `CONFIG_ENCRYPTION_KEY` | kunci enkripsi 32 byte base64 untuk kunci AI tersimpan (opsional) |
+| `GOOGLE_DRIVE_CLIENT_ID` | OAuth Client ID untuk Backup Drive dan cadangan Soal Saya |
+| `KITAB_ALLOWED_HOSTS` | daftar host yang boleh diambil teks kitabnya |
+| `SUMBER_WAJIB` | `1` = menyetujui soal yang halaman sumbernya kosong atau tidak terjangkau wajib memakai catatan alasan (dibaca `api/assist.js`, dipakai `src/review.js`) |
+| `LIMIT_PER_MINUTE`, `LIMIT_PER_DAY`, `LIMIT_GLOBAL_PER_DAY` | batas AI per pengguna dan plafon harian madrasah |
+| `LIMIT_KITAB_PER_MINUTE`, `LIMIT_KITAB_PER_DAY` | batas ambil teks kitab dari situs |
+| `LIMIT_USTADZ_PER_MINUTE`, `LIMIT_USTADZ_PER_DAY`, `LIMIT_USTADZ_GLOBAL_PER_DAY`, `LIMIT_USTADZ_KITAB_PER_MINUTE`, `LIMIT_USTADZ_KITAB_PER_DAY` | batas dan plafon peran Ustadz |
+| `LIMIT_OCR_PER_MINUTE`, `LIMIT_OCR_PER_DAY` | batas OCR AI saat impor kitab (admin) |
+
 ## Pengembangan lokal
 
+Butuh Node.js 22.12 atau lebih baru.
+
 ```bash
-npm install
-npm test            # tes server dan logika murni (tanpa kunci, tanpa internet)
+npm ci
+npm run lint        # eslint (0 error; peringatan hooks belum ditriase)
+npm test            # node --test: tes server dan logika murni, plus render SSR komponen (tanpa kunci, tanpa internet)
 npm run build       # bundel frontend ke dist/ (Vite)
+npm run eval        # evaluasi mutu AI terhadap set soal emas (butuh kunci API; lihat bagian Evaluasi mutu AI)
 vercel dev          # frontend (vite) dan fungsi api/ bersama; butuh variabel lingkungan seperti di Vercel
 ```
 
-Frontend ada di `web/` (Vite, React, Tailwind sebagai build; tidak ada skrip CDN). Setelah mengubah `package.json`, commit juga `package-lock.json`.
+CI (`.github/workflows/ci.yml`, tiap push dan pull request) menjalankan `npm ci`, `npm run lint`, `npm test`, dan `npm run build`. `eval.yml` dijalankan manual. Setelah mengubah `package.json`, commit juga `package-lock.json`.
+
+## Arsitektur frontend
+
+Frontend ada di `web/` (Vite, React, Tailwind sebagai build; tidak ada skrip CDN). Agar unduhan awal kecil (penting di HP), bagian yang jarang dipakai dimuat malas:
+
+- **Dimuat saat dipakai:** mesin Pegon (`web/lib/muatPegon.js`), pustaka `docx` (`web/lib/muatDocx.js`), tab Export (`ExportTab.jsx`), tab Konfigurasi dan Pengaturan AI (`AdminKonfigurasi.jsx`), dan panel `KitabImpor`, `PembacaKitab`, `PemilihKitab`, `TanyaKitab`, `PeriksaRujukan`, `ImporExcel`, `AnalisisButir`. Pembungkusnya `lazyPanel` di `App.jsx`: kegagalan memuat (mis. offline dan belum pernah dibuka) hanya menampilkan tombol "Coba lagi" di panel itu, tidak merobohkan aplikasi. `pdf.js`, `mammoth`, dan pustaka Excel juga hanya dimuat saat dibutuhkan.
+- **Aturan impor (jangan dilanggar):** `web/lib/dasar.js` (konstanta dan pembantu murni) tidak mengimpor berkas proyek selain `lib/kitabNama.js`; `web/ui.jsx` (pembantu tampilan dan API bersama: `Btn`, `Section`, `callApi`, konteks, `Filters`, `denganPegon`) mengimpor `dasar.js`; `exportBuilders.js` mengimpor `dasar.js`; tab yang dimuat malas mengimpor dari `ui.jsx` dan `lib/*`. **Tidak ada berkas selain `main.jsx` yang boleh mengimpor `App.jsx`.** Tes `exportTabUi` dan `adminKonfigurasiUi` menjaganya.
+- **Memisahkan tab baru:** pindahkan komponen ke berkas sendiri yang mengimpor dari `./ui.jsx` dan `./lib/*`, daftarkan di `App.jsx` dengan `lazyPanel(() => import('./NamaTab.jsx'))` (dibungkus `denganPegon` bila membaca `window.Pegon`), lalu jalankan lint untuk menangkap identifier yang tertinggal. Tes yang memeriksa teks kode membaca sumber gabungan lewat `test/_sumberWeb.js`.
+- **Layanan Firebase di klien** masih memakai SDK compat (`firebase/compat/*`) di `web/main.jsx` dan `App.jsx`; migrasi ke API modular ditunda (lihat bagian 20 di `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md`).
 
 ## Struktur
 
 ```
-index.html              pintu masuk Vite
-web/main.jsx            memulai aplikasi (Firebase, React); web/globals.js memasang modul murni ke window
-web/App.jsx             frontend React (satu berkas; dipecah per komponen di tahap berikutnya)
-web/styles.css          gaya halaman + lapisan Tailwind (tailwind.config.js)
-public/                 berkas statis: ikon, manifest
-web/lib/drive.js        cadangan ke Google Drive: format, klien Drive, kandidat arsip (kode asli; src/drive.js untuk tes)
-web/lib/cadanganDrive.js cadangan otomatis Soal Saya (Ustadz) ke Drive pribadi
-web/lib/duplikat.js     deteksi soal kembar/mirip saat menyimpan
-web/lib/dasbor.js       ringkasan antrean review dan format tampilan Dasbor
-web/lib/naskah.js       penyusunan naskah ujian IMDA (preset Dauri I-IV, nilai); web/lib/naskahDocx.js membuat DOCX-nya
-src/adminStats.js       data Dasbor admin (pemakaian AI per pengguna, sisa kuota) dari dokumen rate/*
-api/                     fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
-src/backup.js            pemulihan soal dari cadangan (validasi ketat, Admin SDK)
-src/gemini.js            adapter Gemini (tanpa dependensi)
-src/soalService.js       validasi, system prompt, pemilihan penyedia AI
-src/assistService.js     terjemah, analisis, telaah soal
-src/kitabFetch.js        pengambilan dan penyaringan teks kitab online
-src/platform.js          Firebase Admin, autentikasi, peran, batas pemakaian
-src/aiConfig.js          pengaturan AI dari admin (penyedia, model, kunci terenkripsi) dan uji koneksi
-src/appConfig.js         konfigurasi aplikasi: tingkatan, kelas, sistem ujian, mata pelajaran, katalog kitab (dan pemetaannya)
-web/lib/ustadz.js         peran Ustadz: catatan wajib ekspor dan penyimpanan Soal Saya di perangkat (kode asli; src/ustadz.js untuk tes)
-web/lib/ujian.js          kelas, sistem ujian, penempatan kitab per kelas dan ujian (kode asli; src/ujian.js untuk server dan tes)
-src/configBackup.js      cadangan dan riwayat konfigurasi (otomatis, titik pulih, perbandingan, pangkas)
-src/secrets.js           enkripsi AES-256-GCM untuk kunci tersimpan
-src/kutipan.js           pemeriksa kutipan Arab (kode asli: web/lib/kutipan.js)
-src/sikap.js             pemeriksa nada soal (kode asli: web/lib/sikap.js)
-src/babService.js       saran bab penting (aksi bab di /api/assist): validasi, pencocokan daftar isi, alokasi soal
-src/aswaja.js            kerangka haluan Ahlussunnah wal Jamaah untuk prompt saran bab
-web/lib/kisi.js           kisi-kisi dari soal: kelompok bab, cakupan, DOCX/CSV/teks (kode asli; src/kisi.js untuk server dan tes)
-src/cekButa.js           uji jawab buta oleh model penguji
+index.html               pintu masuk Vite
+web/main.jsx             memulai aplikasi (Firebase compat, React), memuat Pegon di latar belakang; web/globals.js memasang modul murni ke window
+web/App.jsx              frontend React (±4.000 baris): tab penyusunan, paket, review, bank, fokus, pegon, backup, pengguna, ustadz
+web/ui.jsx               pembantu tampilan dan API bersama (Btn, Section, callApi, konteks, Filters, denganPegon)
+web/ExportTab.jsx        tab Export (dimuat malas)
+web/AdminKonfigurasi.jsx tab Konfigurasi, Alur Editor, Pengaturan AI, Pemeliharaan (dimuat malas)
+web/KitabImpor.jsx, PembacaKitab.jsx, PemilihKitab.jsx, PenyuntingHalaman.jsx, TanyaKitab.jsx, PeriksaRujukan.jsx    perpustakaan kitab
+web/ImporExcel.jsx, AnalisisButir.jsx                                                                                impor Excel konfigurasi; analisis butir
+web/styles.css           gaya halaman + lapisan Tailwind (tailwind.config.js)
+public/                  berkas statis: ikon, manifest, logo, sw.js (service worker: cangkang offline)
+web/lib/dasar.js         konstanta dan pembantu murni bersama (LEVEL, KEYS, Bt, bacaPref, optsOf, ...)
+web/lib/exportBuilders.js  pembuat berkas ekspor: DOCX, Moodle GIFT/XML, CSV, daftar FORMATS
+web/lib/muatPegon.js, muatDocx.js    pemuat malas mesin Pegon dan pustaka docx
+web/lib/pegon.js         mesin alih aksara Pegon (kode asli; src/pegon.js meneruskannya ke server dan tes)
+web/lib/naskah.js, naskahDocx.js, naskahMeta.js, kopAsli.js   naskah ujian IMDA (preset Dauri I-IV, nilai, DOCX, kop)
+web/lib/syamilah.js, dokumenKitab.js, penandaSisip.js, docx.js, sumberLain.js, bacaPdf.js, pdfKitab.js, ocrPdf.js, simpananOcr.js,
+  pecahHalaman.js, kualitasKitab.js, bahasa.js, imporKitab.js    impor perpustakaan (semua format, OCR, mutu isi, bahasa)
+web/lib/perpus.js, pembaca.js, rujukan.js, cariKitab.js, koreksi.js, otoritas.js, telaahKitab.js, periksaRujukan.js   baca, cari, koreksi, otoritas, tanya kitab
+web/lib/alurSoal.js, bentuk.js, ujian.js, kisi.js, paket.js, kutipan.js, sikap.js, duplikat.js, riwayat.js, analisisButir.js, excelConfig.js, navigasi.js, dasbor.js   logika murni lain (dipakai klien; sebagian punya salinan di src/ untuk server dan tes)
+web/lib/drive.js, cadanganDrive.js, ustadz.js, draft.js          cadangan Drive, cadangan Soal Saya, peran Ustadz, draf otomatis
+api/                     11 fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
+src/platform.js, access.js, secrets.js   Firebase Admin, autentikasi, peran, batas pemakaian; enkripsi AES-256-GCM
+src/soalService.js, assistService.js, paketService.js, babService.js, cekButa.js, pegonService.js, pegonCek.js, pegonRules.js, gemini.js, aswaja.js   layanan AI: soal, terjemah, telaah, paket, bab, uji buta, Pegon, adapter Gemini, haluan Aswaja
+src/kitabImpor.js, kitabBaca.js, kitabCari.js, kitabKoreksi.js, kitabOcr.js, kitabFetch.js, fotoKitab.js, syamilah.js, otoritas.js, telaahKitab.js, periksaRujukan.js   perpustakaan kitab di server (impor, baca, cari, koreksi, OCR, otoritas, tanya)
+src/review.js, alurSoal.js, alurEditor.js, appConfig.js, aiConfig.js, configBackup.js, backup.js, adminStats.js   review bertahap, konfigurasi, cadangan, dasbor
+firestore.rules          aturan keamanan data (soal, users, kamusPegon, kitab dan subkoleksi tertutup untuk klien, config tertutup)
+docs/                    RIWAYAT-AUDIT-DAN-PERUBAHAN.md (25 bagian kronologis), SKEMA-KITAB.md, kamus-serapan-arab-kitab-pesantren.json
 eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
-.github/workflows/       ci.yml (npm test) dan eval.yml (evaluasi manual)
-src/access.js            logika murni: peran, domain, batas
-firestore.rules          aturan keamanan data (bentuk soal: field opsional bentuk, jawaban, rubrik)
-test/                    npm test (tanpa kunci, tanpa internet)
+scripts/periksa-syamilah.mjs   pemeriksa berkas ekspor Syamilah
+.github/workflows/       ci.yml (lint, tes, build) dan eval.yml (evaluasi manual)
+test/                    npm test (tanpa kunci, tanpa internet); _sumberWeb.js, _fakeDb.js, _epub.js adalah pembantu tes
 ```
 
 ## Draf otomatis
 
-Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/LAPORAN-AUDIT.md` bagian 9. Kodenya di `web/lib/draft.js`.
+Isian yang belum disimpan ke server (form soal, konfigurasi admin, pilihan Pengaturan AI, catatan review, teks Pegonizer, filter) dititipkan di `localStorage` per akun dan dipulihkan setelah muat ulang halaman. Kunci API tidak pernah disimpan di browser. Draf kedaluwarsa setelah 30 hari dan dihapus begitu berhasil disimpan. Di komputer bersama, tekan **Kosongkan** sebelum Keluar. Rincian dan batasan: `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 1 (pasal 9). Kodenya di `web/lib/draft.js`.
 
 ## Impor dan template Excel (menu Konfigurasi)
 
@@ -398,4 +491,4 @@ Admin bisa mengisi tingkat, kelas, sistem ujian, mapel, kitab, dan penempatan ki
 
 ## Analisis butir, riwayat versi, pencarian, offline
 
-Ringkasan dan langkah pemasangan: `docs/PERUBAHAN-28-OKT-2026.md`. Setelah memperbarui kode, **terbitkan ulang `firestore.rules`** agar riwayat versi soal tercatat.
+Ringkasan dan langkah pemasangan: `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` bagian 5. Setelah memperbarui kode, **terbitkan ulang `firestore.rules`** agar riwayat versi soal tercatat.
