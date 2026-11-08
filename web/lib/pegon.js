@@ -458,12 +458,27 @@ function transliterateWord(rawWord){
   }
   return res;
 }
+// Kata yang artinya BERBEDA bila apostrofnya dibuang (normKey membuangnya): a'lam (أعلم) vs alam, ma'na (معنى) vs mana, ba'da (بعد) vs bada.
+// Dicek lebih dulu dengan apostrof utuh; tanpa apostrof tetap lewat kamus biasa.
+const KUNCI_APOSTROF = Object.assign(Object.create(null), {
+  "a'lam": 'أعلم', "ma'na": 'معنى', "ma'nawi": 'معنوي', "ba'da": 'بعد', "ba'dh": 'بعض', "ba'dhu": 'بعض', "ba'dhuhum": 'بعضهم',
+  "ta'ala": 'تعالى', "su'al": 'سؤال', "ra'yu": 'رأي', "mas'ul": 'مسؤول', "ma'lum": 'معلوم', "ma'ruf": 'معروف', "mu'min": 'مؤمن', "mu'minin": 'مؤمنين',
+});
 function transliterateWordCore(rawWord){
+  const ka = KUNCI_APOSTROF[String(rawWord).replace(/[\u2019\u2018\u02bc\u02bb`\u00b4]/g, "'").toLowerCase()];
+  if (ka) return { pegon: ka, flagged:false, note:'serapan Arab' };
   if (/^ke$/i.test(rawWord)) return { pegon:'ك', flagged:true, note:'kata depan «ke» berdiri sendiri — Master Prompt belum mengaturnya (e-pepet tidak ditulis ⇒ ك). Putuskan.' };
   const word = normKey(rawWord);
   if (word === '') return { pegon:'', flagged:false, note:'' };
 
   if (VERIFIED_WHOLE_WORD[word]) return { pegon: VERIFIED_WHOLE_WORD[word], flagged:false, note:'' };
+
+  // majemuk Arab bertanda hubung (ahlus-sunnah, asbabun-nuzul, bish-shawab): bila gabungannya tanpa tanda hubung ada di kamus, pakai ejaan Arab utuhnya.
+  // Tanpa ini mesin memperlakukan tanda hubung sebagai reduplikasi dan mentransliterasi tiap bagian terpisah (أسبابون-نزول).
+  if (word.includes('-')){
+    const gabung = word.replace(/-/g, '');
+    if (ARABIC_DICT[gabung]) return { pegon: ARABIC_DICT[gabung], flagged:false, note:'serapan Arab' };
+  }
 
   // reduplikasi
   if (word.includes('-')){
@@ -569,6 +584,47 @@ function convertSegmen(text){
 // alamat web ikut dipegonkan menjadi huruf acak. Bagian terlindung dilewatkan apa adanya; sisanya lewat mesin asli.
 const LINDUNG_SRC = String.raw`https?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]]|www\.[^\s<>"]*[^\s<>".,;:!?)\]]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\bRp\.?\s?\d+(?:[.,]\d+)*|\b[A-Za-z]{1,4}\d+\b|\d+(?:[.,]\d+)+`;
 
+// Singkatan doa/penghormatan dan sitasi yang BUKAN kata: tanpa ini "saw" menjadi ساو, "swt" سوت, "r.a." ر.أ., "H.R." ه.ر.
+// Pola memakai tanda titik di antara huruf (s.a.w, a.s, r.a); hanya yang tanpa titik tidak ambigu (saw, swt) yang berlaku tanpa titik, karena
+// "ra" (Jawa: tidak), "as" (as-Syafi'i), dan "hr" kata biasa. Titik penutup tidak ikut dimakan (bisa jadi titik kalimat).
+// `titik` = titik penutup bagian dari singkatan (H.R., Q.S.), selalu ikut; pada yang lain titik ikut hanya bila disusul huruf kecil (r.a. berkata) dan dipertahankan di akhir kalimat.
+// `tandai` = ada pilihan yang tidak bisa diputuskan mesin (jenis kelamin/jumlah): dipegonkan bentuk lazim dan ditandai ⚠ untuk dicek.
+const SINGKATAN = [
+  { pola: /^s\.?a\.?w$/i, arab: 'صلى الله عليه وسلم' },
+  { pola: /^s\.?a\.?a\.?w$/i, arab: 'صلى الله عليه وسلم' },
+  { pola: /^s\.?w\.?t$/i, arab: 'سبحانه وتعالى' },
+  { pola: /^r\.a$/i, arab: 'رضي الله عنه', tandai: 'r.a. = رضي الله عنه (laki-laki). Untuk perempuan عنها, dua orang عنهما, jamak عنهم.' },
+  { pola: /^r\.a\.?h$/i, arab: 'رضي الله عنها', tandai: 'r.a.h = رضي الله عنها (perempuan).' },
+  { pola: /^a\.s$/i, arab: 'عليه السلام', tandai: 'a.s. = عليه السلام (laki-laki). Untuk perempuan عليها, jamak عليهم.' },
+  { pola: /^r\.h$/i, arab: 'رحمه الله', tandai: 'r.h. = رحمه الله (laki-laki). Untuk perempuan رحمها الله, jamak رحمهم الله.' },
+  { pola: /^h\.r$/i, arab: 'رواه', titik: true },
+  { pola: /^q\.s$/i, arab: 'سورة', titik: true, tandai: 'Q.S. = Qur\u2019an Surat (سورة). Bila yang dimaksud قدس سره, ganti manual.' },
+];
+// kandidat: rangkaian huruf-titik-huruf (s.a.w, a.s, r.a, h.r) atau kata utuh saw/swt
+const SINGKATAN_RE = /(^|[^A-Za-z.])((?:[A-Za-z]\.){1,3}[A-Za-z](?![A-Za-z])|[Ss][Aa][Ww](?![A-Za-z])|[Ss][Ww][Tt](?![A-Za-z]))/g;
+
+function convertSegmenSingkatan(seg){
+  let last = 0, pegon = '', html = '';
+  const details = [];
+  const m0 = (s) => { if (!s) return; const r = convertSegmen(s); pegon += r.pegon; html += r.html; details.push(...r.details); };
+  SINGKATAN_RE.lastIndex = 0;
+  let m;
+  while ((m = SINGKATAN_RE.exec(seg)) !== null){
+    const awal = m.index + m[1].length, kata = m[2];
+    const e = SINGKATAN.find((x) => x.pola.test(kata));
+    if (!e) continue;
+    m0(seg.slice(last, awal));
+    pegon += e.arab;
+    html += e.tandai ? `<span class="flag" title="${escapeHtml(e.tandai)}">${escapeHtml(e.arab)}</span>` : escapeHtml(e.arab);
+    details.push({ latin: kata, pegon: e.arab, flagged: !!e.tandai, note: e.tandai || 'singkatan' });
+    last = awal + kata.length;
+    if (seg[last] === '.' && (e.titik || /^\s+[a-z]/.test(seg.slice(last + 1, last + 4)))) last += 1;
+    SINGKATAN_RE.lastIndex = last;
+  }
+  m0(seg.slice(last));
+  return { pegon, html, details };
+}
+
 function convertText(text){
   const s = String(text == null ? '' : text);
   const re = new RegExp(LINDUNG_SRC, 'gi');
@@ -576,7 +632,7 @@ function convertText(text){
   const details = [];
   const tambah = (seg) => {
     if (!seg) return;
-    const r = convertSegmen(seg);
+    const r = convertSegmenSingkatan(seg);
     pegon += r.pegon; html += r.html; details.push(...r.details);
   };
   let m;

@@ -1607,3 +1607,30 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 **Yang perlu dilakukan setelah menerapkan.** `firebase deploy --only firestore:indexes` (penghapusan indeks lama berjalan di latar belakang; simpanan turun bertahap), lalu deploy aplikasi. Tidak ada perubahan `firestore.rules`.
 
 **Tes.** `test/hematKuota.test.js` (12 tes): ringkasan daftar kitab (jumlah baca 100 -> 1), pembatalan, gabungan dan syarat cadangan inkremental, pemangkasan riwayat, dan pengecualian indeks. `test/kitabNonArab.test.js` disesuaikan: data diubah langsung di fake DB sehingga cache daftar dibatalkan eksplisit. Di lingkungan audit ini 13 berkas tes UI gagal sebelum dan sesudah perubahan karena `node_modules` (mis. `lucide-react`) tidak terpasang; jalankan `npm install && npm test` di mesin Anda. `web/App.jsx` dan `web/AdminKonfigurasi.jsx` hanya diperiksa sintaksnya (esbuild), belum dijalankan di browser.
+
+## 31. [Audit dan perubahan] Kamus serapan 1.2, singkatan, majemuk bertanda hubung, dan kunci beraposisi (8 Nov 2026)
+
+**Temuan audit (kamus 1.1, 1.287 entri).**
+- Singkatan salah tanpa peringatan: `saw` menjadi ساو, `swt` سوت, `r.a.` ر.أ., `H.R.` ه.ر., `Q.S.` ق.س.
+- Majemuk Arab bertanda hubung dipecah seperti reduplikasi: `ahlus-sunnah` menjadi أهلوس-سنة, `bish-shawab` بيسه-سهاواب.
+- `a\u2019lam` dan `alam` sama-sama menjadi `alam` karena apostrof dibuang saat mencari (ألام, salah dan hanya kebetulan ditandai).
+- Kalimat singkatan dan salam tertulis huruf demi huruf tanpa tanda: `bismillahirrahmanirrahim`, `assalamualaikum`, `sallallahu` (satu l) dan kawan-kawan.
+- Nama surah (±100 hilang: Baqarah, Imran, Nisa, dan seterusnya), Asmaul Husna, bulan Hijriah, dan banyak istilah fikih/ushul/hadits/nahwu belum ada.
+- Ejaan KBBI/tanpa digraf hampir tidak tercakup (salat, hadis, istigfar, wudu, ijmak, kias, dan sejenisnya).
+
+**Perubahan mesin (`web/lib/pegon.js`).**
+1. `SINGKATAN`: s.a.w/saw, s.a.a.w, s.w.t/swt, r.a., r.a.h, a.s., r.h., H.R., Q.S. Hanya `saw` dan `swt` berlaku tanpa titik; `ra` (Jawa: tidak), `as` (as-Syafii), dan `hr` tidak disentuh tanpa titik. Yang bergantung jenis kelamin/jumlah (r.a., a.s., r.h.) dan Q.S. (سورة atau قدس سره) dipegonkan bentuk lazim dan **ditandai ⚠**. Titik penutup ikut hanya bila disusul huruf kecil (r.a. berkata) atau pada H.R./Q.S.
+2. Majemuk bertanda hubung: bila gabungannya tanpa tanda hubung ada di kamus, dipakai ejaan Arab utuhnya; selain itu reduplikasi berjalan seperti semula.
+3. `KUNCI_APOSTROF`: a\u2019lam, ma\u2019na, ba\u2019da, ba\u2019dh(u), ta\u2019ala, su\u2019al, ra\u2019yu, mas\u2019ul, ma\u2019lum, ma\u2019ruf, mu\u2019min(in) dicek dengan apostrof utuh sebelum apostrof dibuang. Tanpa apostrof tetap lewat kamus biasa.
+
+**Perubahan data (`docs/kamus-serapan-arab-kitab-pesantren.json`, 1.287 menjadi 2.036 entri).**
+- Kalimat singkatan/naht dan doa: basmalah, hamdalah, hauqalah, hasbalah, hailalah, tahlil dan sejenisnya, salam lengkap, sallallahu/radiyallahu/rahimahullah dan variannya, hadratussyaikh, hujjatulislam.
+- Nama 114 surah dan Asmaul Husna **tanpa ال** (mesin menambah ال setelah al-/ar-, jadi al-Baqarah = البقرة dan kata biasa seperti ikhlas tidak keliru memakai ال).
+- Istilah ibadah, muamalah, munakahat, jinayat, faraid, ushul, hadits, tafsir/tajwid, nahwu, balaghah, mantiq, akidah, tasawuf, bulan Hijriah, ulama dan kitab yang belum ada.
+- Ejaan varian otomatis (sh/dh/th/dz/gh/ts disederhanakan; ll menjadi l pada kata Allah) dengan saringan: ≥6 huruf, tidak ada nilai ganda, dan bukan kata Indonesia KBBI kecuali daftar putih serapan Arab (wudu, hadis, istigfar, dan seterusnya). Ditambah ejaan KBBI manual (ijmak, kias, iktikad, taklid, nifak, solat, dan lain-lain).
+- Sengaja TIDAK dimasukkan karena artinya lain dalam bahasa Indonesia: raja, dam, mani, sunan, ahad, rami, wasi, muhrim, saraf, alah, miras, dan sejenisnya. Dijaga tes.
+
+**Belum diputuskan (butuh keputusan Anda).** Singkatan Indonesia (dll, dst, dsb, yg, dgn, tsb) tetap dipegonkan huruf demi huruf; belum ada kebiasaan baku di naskah Pegon yang saya yakini, jadi tidak ditebak. Ejaan Arab entri baru perlu ditinjau ustadz seperti catatan `_meta`.
+
+**Tes.** `test/kamusPesantren.test.js` bertambah 3 tes (singkatan, majemuk dan apostrof, entri 1.2); seluruh entri tetap lolos uji pulang-pergi dan kalibrasi. 13 berkas tes UI yang gagal tanpa `node_modules` tetap sama seperti sebelum perubahan.
+
