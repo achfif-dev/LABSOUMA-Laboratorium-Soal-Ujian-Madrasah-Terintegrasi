@@ -761,6 +761,31 @@ export const kamus = {
   },
 };
 
+/* ---- Pendukung pemeriksa tulisan (web/lib/periksaTulisan.js): kamus dan KBBI yang sedang aktif ---- */
+/** Kunci kamus serapan Arab yang aktif (bawaan + bersama + lokal). */
+export const kunciKamus = () => Object.keys(ARABIC_DICT);
+/** Kata sudah dikenal sebagai serapan Arab (dengan pelepasan imbuhan sederhana)? */
+export const dikenalSebagaiArab = (kata) => !!tryArabic(normKey(String(kata || '')));
+const NASAL = { meny: 's', men: 't', mem: 'p', meng: 'k', peny: 's', pen: 't', pem: 'p', peng: 'k' };
+/** Kata tampak kata Indonesia: akar KBBI dengan 0-2 imbuhan dan akhiran dilepas (membaca -> baca, menulis -> tulis, dibicarakan -> bicara). */
+export function adaKataIndonesia(kata) {
+  const w = normKey(String(kata || '')).replace(/-/g, '');
+  if (w.length < 3) return false;
+  if (ROOTS.has(w)) return true;
+  if (/(?:bel|pel)ajar/.test(w)) return true; // belajar, pelajar, pembelajaran, mempelajari: ber-/pe- + ajar tidak teratur
+  const akhiran = ['', 'kan', 'nya', 'an', 'i', 'lah', 'kah', 'pun', 'kannya', 'annya'];
+  const coba = (b) => { for (const a of akhiran) { if (a && !b.endsWith(a)) continue; const r = a ? b.slice(0, -a.length) : b; if (r.length >= 3 && ROOTS.has(r)) return true; } return false; };
+  if (coba(w)) return true;
+  for (const p of ['', ...PREFIXES]) {
+    if (p && !w.startsWith(p)) continue;
+    const sisa = p ? w.slice(p.length) : w;
+    if (p && coba(sisa)) return true;
+    if (p && NASAL[p] && coba(NASAL[p] + sisa)) return true;
+    for (const p2 of PREFIXES) { if (p && sisa.startsWith(p2) && coba(sisa.slice(p2.length))) return true; }
+  }
+  return false;
+}
+
 export { convertText, escapeHtml };
 
 /* ---------- Ejaan huruf ----------

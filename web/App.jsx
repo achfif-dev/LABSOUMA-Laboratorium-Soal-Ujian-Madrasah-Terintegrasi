@@ -97,6 +97,8 @@ const emptyForm = () => ({
 });
 
 // Komponen yang membaca window.Pegon dibungkus: baru dirender setelah mesin Pegon (dimuat malas) siap.
+import SaranTulisan from './SaranTulisan.jsx';
+import { saranSorotan } from './lib/periksaTulisan.js';
 const PegonSoal = denganPegon(PegonSoalInti);
 const PegonTab = denganPegon(PegonTabInti);
 
@@ -413,7 +415,7 @@ function AssistView({ state, onIdea }) {
 
 /* ---------- Tab 1: Penyusunan ---------- */
 /* ---------- Pegonkan: pratinjau Pegon dari isian soal (isian Latin TIDAK diubah) + perbaikan kata bersorot ke kamus ---------- */
-function PegonSoalInti({ form, toast }) {
+function PegonSoalInti({ form, toast, onUbah }) {
   const P = window.Pegon;
   const kc = useKamus();
   const [ejaan, setEjaan] = useEjaan();
@@ -463,8 +465,17 @@ function PegonSoalInti({ form, toast }) {
     finally { setBusy(''); }
   };
   if (!bagian.length) return <p className="mt-3 text-xs text-mute">Isi stimulus, pertanyaan, atau opsi dulu.</p>;
+  // Saran perbaikan tulisan Latin per isian (salah ketik/ejaan tidak baku yang membuat Pegon keliru). Hanya isian yang ikut dipegonkan.
+  const medan = [['Stimulus', form.stimulus, 'stimulus'], ['Pertanyaan', form.pertanyaan, 'pertanyaan']];
+  if (Bt.bentukDari(form) !== 'benarsalah') ['A', 'B', 'C', 'D', 'E'].forEach((k) => medan.push(['Opsi ' + k, (form.opsi || {})[k], 'opsi.' + k]));
+  if (Bt.BENTUK[Bt.bentukDari(form)].jawaban) medan.push(['Jawaban', form.jawaban, 'jawaban']);
+  if (Bt.bentukDari(form) === 'uraian') medan.push(['Pedoman penskoran', form.rubrik, 'rubrik']);
+  if (bahas) medan.push(['Pembahasan', form.pembahasan, 'pembahasan']);
   return (
     <div className="mt-3 space-y-3">
+      {onUbah && medan.filter(([, t]) => String(t || '').trim()).map(([label, t, f]) => (
+        <SaranTulisan key={f} label={label} teks={String(t)} P={P} ver={kc.ver + tick} Btn={Btn} onUbah={(v) => onUbah(f, v)} />
+      ))}
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-[200px]"><EjaanPilih id="pg-soal-ejaan" value={ejaan} onChange={setEjaan} /></div>
         <Btn onClick={salin}><Copy size={16} />Salin Pegon</Btn>
@@ -1044,7 +1055,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
               <Btn kind="soft" onClick={() => setPg((v) => !v)} aria-expanded={pg}><Languages size={16} />{pg ? 'Tutup Pegon' : 'Pegonkan'}</Btn>
               <span className="text-xs text-mute">Lihat soal ini dalam aksara Pegon. Isian Latin tidak diubah.</span>
             </div>
-            {pg && <PegonSoal form={form} toast={toast} />}
+            {pg && <PegonSoal form={form} toast={toast} onUbah={(f, v) => (f.startsWith('opsi.') ? set('opsi', { ...(form.opsi || {}), [f.slice(5)]: v }) : set(f, v))} />}
           </div>
           {Bt.punyaOpsi(form.bentuk) ? (
           <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-sm">
@@ -2060,6 +2071,7 @@ function PegonKamus({ onChange }) {
 
 function PegonTabInti({ toast }) {
   const P = window.Pegon;
+  const kcTab = useKamus();
   // Mode dan teks Latin dipulihkan setelah muat ulang. Foto (berkas), hasil konversi, dan hasil suntingan manual tidak ikut: konversi ulang dengan satu klik.
   const pgAwal = useRef(undefined); if (pgAwal.current === undefined) { const d = Draft.read('pegonTab'); pgAwal.current = d && typeof d === 'object' ? d : {}; }
   const [ejaan, setEjaan] = useEjaan();
@@ -2162,6 +2174,7 @@ function PegonTabInti({ toast }) {
                 <span className="text-xs text-mute">{!SR ? 'Tidak didukung di browser ini. Coba Chrome di Android.' : mic.hint}</span>
               </div>
               <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Tempel atau ketik teks Latin di sini…" />
+              <div className="mt-2"><SaranTulisan teks={latin} P={P} Btn={Btn} ver={kcTab.ver} onUbah={setLatin} /></div>
             </div>
           )}
           {mode === 'file' && (
@@ -2173,6 +2186,7 @@ function PegonTabInti({ toast }) {
               {fileInfo && <p className="text-xs text-mute">{fileInfo.nama}</p>}
               {fileInfo && fileInfo.arab && <p className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">File ini memuat aksara Arab. Dari PDF, teks Arab sering terbaca rusak (huruf bersambung hilang). Aksara Arab tidak diubah oleh mesin, tetapi periksa hasil ekstraksinya.</p>}
               <textarea className="field" rows={8} value={latin} onChange={(e) => setLatin(e.target.value)} placeholder="Teks hasil ekstraksi muncul di sini, bisa diedit sebelum dikonversi." />
+              <div className="mt-2"><SaranTulisan teks={latin} P={P} Btn={Btn} ver={kcTab.ver} onUbah={setLatin} /></div>
             </div>
           )}
           {mode === 'foto' && (
@@ -2219,6 +2233,8 @@ function PegonTabInti({ toast }) {
               <div className="mt-4 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
                 <p className="font-bold">Perlu diperiksa manual{flagged ? ` (${flagged} kata bersorot)` : ''}</p>
                 {warns.map((w, i) => <p key={i} className="mt-1"><b>{w.kata}</b> — {w.catatan}</p>)}
+                {(() => { const lihat = new Set(); return hasil.details.filter((d) => d.flagged && !lihat.has(d.latin.toLowerCase()) && lihat.add(d.latin.toLowerCase())).slice(0, 15).map((d, i) => (
+                  <p key={'s' + i} className="mt-1 text-xs"><b>{d.latin}</b> — {saranSorotan(d.note)}</p>)); })()}
               </div>
             )}
             {infoAI && (

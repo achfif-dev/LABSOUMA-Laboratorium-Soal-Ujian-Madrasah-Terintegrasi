@@ -1634,3 +1634,18 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 
 **Tes.** `test/kamusPesantren.test.js` bertambah 3 tes (singkatan, majemuk dan apostrof, entri 1.2); seluruh entri tetap lolos uji pulang-pergi dan kalibrasi. 13 berkas tes UI yang gagal tanpa `node_modules` tetap sama seperti sebelum perubahan.
 
+## 32. [Perubahan] Saran perbaikan tulisan Latin sebelum dipegonkan (8 Nov 2026)
+
+**Masalah.** Bila penyusun mengetik atau menyunting soal sendiri, salah ketik dan ejaan tidak baku tetap dikonversi mesin Pegon tanpa tanda apa pun, hanya hasilnya keliru: `sholat` ditulis huruf demi huruf (bukan صلاة), `diatas` dianggap awalan, `tdk` menjadi تدك, kata ganda dan spasi ganjil menggeser kata. Peringatan lama hanya menyorot kata yang tidak dikenal mesin, tanpa tahu apa yang harus dilakukan.
+
+**Perubahan.**
+- `web/lib/periksaTulisan.js` (baru, murni, tanpa AI atau jaringan): memeriksa teks Latin dan mengembalikan item berisi kata asal, saran, alasan, dan posisi. Aturan: karakter spasi tak terlihat; spasi ganda; spasi sebelum tanda baca; tanda baca tanpa spasi sesudahnya; singkatan tidak baku (tdk, yg, dgn, utk, krn, dll, dst, dsb, dan lain-lain, dengan saran bentuk lengkap); ejaan tidak baku (karna, resiko, analisa, praktek, sholat, wudlu, dan lain-lain); kata depan disambung (diatas, didalam, disini, kedalam; dimana dan kemana hanya diperiksa); `di` + kata kerja yang seharusnya awalan (di ambil menjadi diambil); kata ganda berturut-turut (dengan pilihan kata ulang yang-yang); kurung dan kutip tidak seimbang; dan kata yang tidak ada di kamus tetapi MIRIP kata kamus (shalatt menjadi shalat, wajibb menjadi wajib), dengan jarak sunting terbatas dan nama berhuruf kapital tidak disaran.
+- Perbaikan dibedakan: **pasti** (spasi, singkatan baku, ejaan baku, kata depan) boleh diterapkan sekaligus lewat satu tombol; **periksa** (dimana, di ambil, kata ganda, mirip kamus) hanya diterapkan penyusun per kata. Teks tidak pernah diubah otomatis. Item yang sudah usang (teks berubah) dilewati.
+- `web/SaranTulisan.jsx` (baru): kotak saran dengan tombol Terapkan, Terapkan semua tempat, pilihan alternatif, dan Terapkan N perbaikan pasti. Dipasang di (a) panel Pegonkan pada editor soal, per isian (stimulus, pertanyaan, opsi, jawaban, pedoman penskoran, pembahasan) dengan penerapan langsung ke isian, dan (b) di bawah kolom Teks Latin pada tab Pegon.
+- Blok "Perlu diperiksa manual" pada tab Pegon kini memberi saran tindakan per kata bersorot (`saranSorotan`): perbaiki salah ketik di sumber atau tambahkan ke kamus; keraguan e keras/pepet diselesaikan lewat kamus.
+- `web/lib/pegon.js`: ekspor `kunciKamus`, `dikenalSebagaiArab`, dan `adaKataIndonesia` (akar KBBI dengan imbuhan dan akhiran dilepas, termasuk belajar dan pelajar) sebagai pendukung.
+
+**Batas.** Pemeriksa tidak memahami arti kalimat: salah ketik yang kebetulan menjadi kata sah tidak terdeteksi, dan daftar ejaan tidak baku serta singkatan dibatasi pada yang umum. Singkatan lazim lain (mis. dr, no) tidak disentuh. Ejaan Arab yang disarankan berasal dari kamus 1.2 dan perlu ditinjau ustadz.
+
+**Tes.** `test/periksaTulisan.test.js` (8 tes): teks bersih tanpa peringatan, saran dan tingkatnya, kapitalisasi, spasi dan URL/angka tidak disentuh, mirip kamus tanpa salah sasaran pada nama dan kata Indonesia berimbuhan, penerapan dari belakang dan item usang, serta bukti hasil Pegon berubah menjadi benar setelah perbaikan. 13 berkas tes UI yang gagal tanpa `node_modules` tetap sama; `App.jsx` dan `SaranTulisan.jsx` baru diperiksa sintaksnya (esbuild), belum dijalankan di browser.
+
