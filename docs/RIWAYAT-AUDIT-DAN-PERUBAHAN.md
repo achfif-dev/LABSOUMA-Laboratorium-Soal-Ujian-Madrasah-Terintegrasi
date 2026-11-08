@@ -1649,3 +1649,35 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 
 **Tes.** `test/periksaTulisan.test.js` (8 tes): teks bersih tanpa peringatan, saran dan tingkatnya, kapitalisasi, spasi dan URL/angka tidak disentuh, mirip kamus tanpa salah sasaran pada nama dan kata Indonesia berimbuhan, penerapan dari belakang dan item usang, serta bukti hasil Pegon berubah menjadi benar setelah perbaikan. 13 berkas tes UI yang gagal tanpa `node_modules` tetap sama; `App.jsx` dan `SaranTulisan.jsx` baru diperiksa sintaksnya (esbuild), belum dijalankan di browser.
 
+
+## 33. [Audit dan perubahan] Gerbang imbuhan, frasa baku, dan kamus 1.3 (8 Nov 2026)
+
+**Permintaan.** Audit komprehensif mesin Pegonizer dan kamus serapan; tambah istilah, singkatan, dan frasa yang belum ada. Dikerjakan di atas commit `bc289d2` (kamus 1.2 dan bagian 31–32), tanpa menimpa desainnya: nama surah tetap tanpa ال, singkatan Indonesia (dll, dst, yg) tetap tidak ditebak.
+
+#### Temuan (terbukti dengan uji sebelum/sesudah, bukan dugaan)
+1. **Kata Indonesia sehari-hari berubah diam-diam setelah kamus diimpor**, tanpa ⚠. Uji: ±22 ribu bentuk (kata fungsi + imbuhan me-/di-/ber-/ter-/pe-/se-/ke- dan akhiran -an/-kan/-i/-nya/-lah) dibandingkan sebelum dan sesudah impor.
+   - `saja` menjadi سجع (kunci `saja`, 35 bentuk ikut berubah). **Dicabut**; istilah badi\' memakai kunci `saj`.
+   - `terima` menjadi ترإيماء (kunci `ima` + awalan ter-), `menilai` menjadi منإلىي (kunci `ila` + akhiran -i), `kebaikan` menjadi كبيعكن (kunci `bai` + akhiran -kan).
+   - Akar masalahnya di mesin, bukan di data: `tryArabic` melepas imbuhan dari kata apa pun lalu mencocokkan sisa dengan kunci kamus yang pendek. Perbaikan data saja tidak cukup; kunci pendek baru akan memunculkan kasus serupa.
+2. Frasa lebih dari satu kata dipecah per kata: `insya Allah` menjadi إنشاء الله (benar: إن شاء الله), `Assalamu\'alaikum warahmatullahi wabarakatuh` kehilangan separuhnya bila diketik bertahap, `ahlussunnah wal jamaah` menjadi أهل السنة وال جماعة, `Rabiul Awal` menjadi رابيول أوال, `Idul Fitri` menjadi عيد فيتري, `Abu Bakar` menjadi أبو باكار.
+3. Apostrof pembuka `\'anhuma` tertinggal sebagai tanda \' liar di hasil Pegon.
+4. `bin`/`binti` (partikel nasab) menjadi بين/بينتي, seharusnya بن/بنت.
+5. Singkatan huruf kapital (NU, SD, RA, AS) dieja huruf demi huruf tanpa tanda; `RA` bisa Raudlatul Athfal atau radhiyallahu anhu, `AS` bisa Amerika Serikat atau alaihissalam.
+
+#### Perubahan mesin (`web/lib/pegon.js`)
+- **Gerbang imbuhan** (`turunanIndonesia`, dipakai `tryArabic`): bila kata utuh adalah akar KBBI, atau turunan akar KBBI (imbuhan dilepas, sisa nasal dipulihkan) yang akarnya BUKAN kunci kamus, kata itu tidak diurai sebagai Arab + imbuhan. Kunci yang cocok utuh tetap menang lebih dulu.
+- **Lapisan frasa** (`FRASA_ARAB`, `convertSegmen` baru; yang lama menjadi `convertSegmenDasar`): ±45 frasa baku dengan banyak varian ejaan (basmalah, salam lengkap, wallahu a\'lam bish shawab, amma ba\'du, sallallahu alaihi wasallam, radhiyallahu anhu/anha/anhum/anhuma, subhanahu wa ta\'ala, insya/masya Allah, la ilaha illallah, ahlussunnah wal jamaah, khulafaur rasyidin, Idul Fitri/Adha, Raudhatul Athfal, Nahdlatul Ulama, bulan Hijriah majemuk, Abu Bakar, Ali bin Abi Thalib, Umar bin Khattab). Frasa yang bergantung orang/lawan bicara (anhu/anha, jazaka/jazaki) dan yang bisa nama orang (Ali Imran) bersorot ⚠. **Tanpa lookbehind** karena Safari iOS lama tidak mendukungnya dan satu regex gagal mematikan seluruh mesin.
+- **Singkatan tambahan**: `Wr. Wb.`; `QS`, `HR`, `KH` huruf kapital tanpa titik di tengah (huruf kecil dan `RA`/`AS` tanpa titik tetap tidak ditebak). Singkatan bertitik tetap ditangani lapisan `SINGKATAN` bagian 31.
+- Apostrof pembuka 'ain/hamzah di depan serapan Arab dibuang; singkatan huruf kapital yang tak dikenal (dan bukan kata Indonesia berimbuhan, memakai `adaKataIndonesia`) kini bersorot ⚠.
+
+#### Perubahan data (kamus 1.2 menjadi 1.3, 2.036 menjadi 2.348 entri)
+312 entri yang benar-benar belum ada: tajwid dan qiraat, mushthalah hadits, tasawuf, akidah dan firqah, istilah madrasah dan organisasi, nama ulama/sahabat/tempat, bulan Hijriah, muamalah dan jinayat tambahan, partikel nasab. Kunci yang juga kata Indonesia dengan arti lain (lahir, batin, jamu, jual, hamil, aman, ketua, nikmat, hajah, nafi) sengaja tidak dimasukkan.
+
+#### Belum diputuskan (butuh keputusan Anda)
+- `hafizh`: kamus 1.2 = حفيظ (Asmaul Husna), umumnya yang dimaksud pembaca kitab = حافظ. Tidak diubah.
+- `khawatir` = خواتر (kamus bawaan, dari master prompt); ejaan Arab asalnya خواطر. Tidak diubah karena berasal dari master prompt.
+- `manut` = منعوت (bawaan): benar untuk nahwu, tetapi dalam teks Jawa "manut" = patuh.
+- Ejaan Arab seluruh entri baru perlu ditinjau ustadz (catatan `_meta`).
+
+#### Tes
+`test/frasaDanGerbang.test.js` (10 tes): gerbang tidak menyentuh kata Indonesia dan tidak terlalu ketat pada serapan berimbuhan, daftar kata fungsi Indonesia tidak boleh jadi kunci kamus, frasa dan varian, apostrof, tidak menelan "sawah", kutip dan tanda baca, ejaan klasik, singkatan kapital, kinerja (3000 kalimat < 2 detik). Seluruh suite: 738 tes, 724 lulus; 13 berkas UI yang gagal identik dengan sebelum perubahan (paket `react` tidak terpasang).
