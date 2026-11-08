@@ -393,8 +393,30 @@ function transliterateBase(word, isWordStart){
 }
 
 // Coba cocokkan kata dengan kamus serapan Arab (dengan pelepasan imbuhan sederhana)
+// [AUDIT 08-NOV-2026] Pelepasan imbuhan di tryArabic mencocokkan sisa kata dengan kunci kamus yang pendek, sehingga kata Indonesia biasa
+// ikut berubah: terima (kunci ima) -> ترإيماء, menilai (kunci ila + i) -> منإلىي, kebaikan (kunci bai + kan) -> كبيعكن.
+// Gerbang: bila kata utuh adalah kata dasar Indonesia, atau turunan kata dasar Indonesia (imbuhan dilepas, sisa nasal dipulihkan,
+// akar ada di daftar kata dasar dan BUKAN kunci kamus), kata itu Indonesia biasa dan tidak boleh diurai sebagai Arab + imbuhan.
+const NASAL_PULIH = { meng:['k',''], peng:['k',''], meny:['s'], peny:['s'], mem:['p','b'], pem:['p','b'], men:['t','d'], pen:['t','d'] };
+function turunanIndonesia(word){
+  if (ROOTS.has(word) && !ARABIC_DICT[word]) return true;
+  for (const p of ['', ...E_PREFIXES]){
+    if (p && !word.startsWith(p)) continue;
+    const sisa = word.slice(p.length);
+    const bentuk = [sisa, ...(NASAL_PULIH[p] || []).map((h) => h + sisa)];
+    for (const b of bentuk){
+      for (const s of E_SUFFIXES){
+        if (s && !b.endsWith(s)) continue;
+        const inti = s ? b.slice(0, b.length - s.length) : b;
+        if (inti.length >= 3 && !ARABIC_DICT[inti] && ROOTS.has(inti)) return true;
+      }
+    }
+  }
+  return false;
+}
 function tryArabic(word){
   if (ARABIC_DICT[word]) return { prefix:'', arabic:ARABIC_DICT[word], suffix:'' };
+  if (turunanIndonesia(word)) return null;
   for (const p of ARABIC_PREFIXES){
     if (!word.startsWith(p)) continue;
     const rest = word.slice(p.length);
@@ -453,6 +475,10 @@ function transliterateWord(rawWord){
     return { pegon: (r.pegon.startsWith('ال') ? '' : 'ال') + r.pegon, flagged: r.flagged || !tryArabic(normKey(m[2])), note: 'setelah al-: periksa ejaan Arab nama/istilah' };
   }
   const res = transliterateWordCore(raw);
+  // [AUDIT 08-NOV-2026] singkatan huruf kapital (NU, SD, RA, AS ...) dieja huruf demi huruf TANPA tanda; RA bisa Raudlatul Athfal atau radhiyallahu anhu, AS bisa Amerika Serikat atau alaihissalam
+  if (!res.flagged && /^[A-Z]{2,5}$/.test(raw) && !/^[IVXLCDM]+$/.test(raw) && res.note !== 'serapan Arab' && !adaKataIndonesia(key) && !tryArabic(key)){
+    return { pegon: res.pegon, flagged: true, note: 'singkatan huruf kapital: dieja huruf demi huruf, pastikan artinya' };
+  }
   if (!res.flagged && res.note !== 'serapan Arab' && looksArabic(raw) && !tryArabic(key)){
     return { pegon: res.pegon, flagged: true, note: 'kemungkinan serapan Arab yang belum ada di kamus — pastikan ejaan Arabnya, lalu tambahkan ke kamus' };
   }
@@ -547,7 +573,7 @@ function arabizePunctuation(s){
   return s.replace(/,/g, '،').replace(/;/g, '؛').replace(/\?/g, '؟');
 }
 
-function convertSegmen(text){
+function convertSegmenDasar(text){
   const tokenRe = /[A-Za-z\u00C0-\u024F]+(?:[-'\u2019\u2018\u02bc\u02bb`\u00b4][A-Za-z\u00C0-\u024F]+)*/g;
   let lastIndex = 0;
   let outPegon = '';
@@ -555,7 +581,11 @@ function convertSegmen(text){
   const details = [];
   let m;
   while ((m = tokenRe.exec(text)) !== null){
-    const gap = arabizePunctuation(text.slice(lastIndex, m.index));
+    let gapMentah = text.slice(lastIndex, m.index);
+    // [AUDIT 08-NOV-2026] apostrof pembuka yang menandai 'ain/hamzah di depan serapan Arab ("'anhu", "'alim") dibuang; sebelumnya tertinggal sebagai tanda ' liar di hasil Pegon
+    if (/['\u2019\u2018\u02bc\u02bb`\u00b4]$/.test(gapMentah) && /^[aiueoAIUEO]/.test(m[0]) && (gapMentah.length === 1 ? (lastIndex === 0 || /\s/.test(text[lastIndex - 1] || '')) : /\s/.test(gapMentah[gapMentah.length - 2]))
+        && !/['\u2019\u2018\u02bc\u02bb`\u00b4]/.test(text[m.index + m[0].length] || '') && tryArabic(normKey(m[0]))) gapMentah = gapMentah.slice(0, -1);
+    const gap = arabizePunctuation(gapMentah);
     outPegon += gap;
     outHtml += escapeHtml(gap).replace(/\n/g, '<br>');
     let word = m[0];
@@ -577,6 +607,121 @@ function convertSegmen(text){
   outPegon += tailGap;
   outHtml += escapeHtml(tailGap).replace(/\n/g, '<br>');
   return { pegon: outPegon, html: outHtml, details };
+}
+
+/* ======================= FRASA, SINGKATAN, DAN RUMUS BAKU (v2.3, 8 Nov 2026) =======================
+ * Dua kegagalan yang ditutup di sini:
+ *  1) Singkatan (SAW, SWT, QS, HR, dll, dst) dan frasa baku (insya Allah, assalamualaikum, wallahu a'lam)
+ *     dulu dialihaksarakan huruf demi huruf TANPA tanda (SAW menjadi ساو, "insya Allah" menjadi إنشاء الله).
+ *  2) Kata yang ambigu (RA, AS, KH) dan singkatan huruf kapital yang tak dikenal kini bersorot ⚠, bukan ditebak diam-diam.
+ * Prinsip yang sama dengan sisa mesin: ejaan Arab hanya dari tabel ini; sisanya Indonesia lewat mesin biasa. */
+const AP_RE = `['\\u2019\\u2018\\u02bc\\u02bb\\u0060\\u00b4]?`;
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// "wallahu alam" -> pola longgar: apostrof opsional di antara huruf, spasi = satu atau lebih spasi/tab
+const polaVarian = (v) => v.split(' ').map((w) => [...w].map(escRe).join(AP_RE)).join('[ \\t]+' + AP_RE);   // apostrof opsional juga di awal kata kedua (radhiyallahu 'anhu)
+const AWAL_RE = '(^|[^A-Za-z\\u00C0-\\u024F-])', LA_KATA = '(?![A-Za-z\\u00C0-\\u024F])';   // tanpa lookbehind (Safari iOS lama tidak mendukungnya; satu regex gagal = seluruh mesin mati)
+
+// [varian Latin (tanpa apostrof), ejaan Arab, catatan bersorot atau '']
+const FRASA_ARAB = [
+  [['bismillahirrahmanirrahim', 'bismillahirrohmanirrohim', 'bismillahirrahmannirrahim', 'bismillah irrahman irrahim', 'bismillahir rahmanir rahim', 'bismillahirrahmanirrohim'], 'بسم الله الرحمن الرحيم', ''],
+  [['assalamualaikum warahmatullahi wabarakatuh', 'assalamu alaikum warahmatullahi wabarakatuh', 'assalamualaikum wr wb', 'assalamu alaikum wr wb', 'assalamualaikum warahmatullah wabarakatuh', 'assalamu alaikum warahmatullah wabarakatuh', 'assalamualaikum warahmatullahi wa barakatuh', 'assalamu alaikum warahmatullahi wa barakatuh'], 'السلام عليكم ورحمة الله وبركاته', ''],
+  [['assalamualaikum', 'assalamu alaikum', 'assalaamu alaikum', 'assalamu alaykum'], 'السلام عليكم', ''],
+  [['warahmatullahi wabarakatuh', 'warahmatullah wabarakatuh', 'wa rahmatullahi wa barakatuh', 'warahmatullahi wa barakatuh', 'wr wb', 'w r w b'], 'ورحمة الله وبركاته', ''],
+  [['waalaikumsalam', 'waalaikumussalam', 'wa alaikum salam', 'wa alaikumus salam', 'wa alaikumussalam', 'walaikumsalam'], 'وعليكم السلام', ''],
+  [['wallahu alam bishshawab', 'wallahu alam bis shawab', 'wallahu alam bish shawab', 'wallahu alam bishawab', 'wallahu alam bissawab', 'wallahualam bishawab', 'wallahualam bishshawab', 'wallahu a lam bishshawab'], 'والله أعلم بالصواب', ''],
+  [['wallahu alam', 'wallahu a lam', 'wallahualam'], 'والله أعلم', ''],
+  [['amma badu', 'amma bakdu', 'amma badda', 'ammabadu'], 'أما بعد', ''],
+  [['shallallahu alaihi wa alihi wasallam', 'sallallahu alaihi wa alihi wasallam', 'shallallahu alaihi wa alihi wa sallam'], 'صلى الله عليه وآله وسلم', ''],
+  [['shallallahu alaihi wasallam', 'sallallahu alaihi wasallam', 'salallahu alaihi wasallam', 'shalallahu alaihi wasallam', 'shallallahu alaihi wa sallam', 'sallallahu alaihi wa sallam', 'shallallahu alaihi wassalam', 'sallallahu alaihi wassalam', 'shallallahu alaihi wasalam', 'sallallahu alaihi wasalam'], 'صلى الله عليه وسلم', ''],
+  [['radhiyallahu anhu', 'radhiallahu anhu', 'radiyallahu anhu', 'radhiyallahu anh', 'ridhwanullah alaih'], 'رضي الله عنه', 'bentuk anhu / anha / anhum mengikuti orangnya: pastikan'],
+  [['radhiyallahu anha', 'radhiallahu anha', 'radiyallahu anha'], 'رضي الله عنها', ''],
+  [['radhiyallahu anhum', 'radhiallahu anhum', 'radiyallahu anhum'], 'رضي الله عنهم', ''],
+  [['radhiyallahu anhuma', 'radhiallahu anhuma', 'radiyallahu anhuma'], 'رضي الله عنهما', ''],
+  [['subhanahu wa taala', 'subhanahu wataala', 'subhanahu wata ala', 'subhanahu wa ta ala', 'subhanahu wa taalaa'], 'سبحانه وتعالى', ''],
+  [['azza wa jalla', 'azza wajalla'], 'عز وجل', ''],
+  [['insya allah', 'insyaallah', 'insyaa allah', 'in sya allah', 'insya alloh', 'insyaalloh', 'insyaa alloh'], 'إن شاء الله', ''],
+  [['masya allah', 'masyaallah', 'masyaa allah', 'masya alloh', 'masyaalloh'], 'ما شاء الله', ''],
+  [['alhamdulillahi rabbil alamin', 'alhamdulillahirabbilalamin', 'alhamdulillah rabbil alamin', 'alhamdulillahi robbil alamin', 'alhamdulillahirobbilalamin'], 'الحمد لله رب العالمين', ''],
+  [['la ilaha illallah', 'laa ilaaha illallah', 'laa ilaha illallah', 'lailahaillallah', 'la ilaha illa allah', 'laa ilaha illa allah', 'la ilaha illa llah'], 'لا إله إلا الله', ''],
+  [['muhammadur rasulullah', 'muhammadurrasulullah', 'muhammad rasulullah'], 'محمد رسول الله', ''],
+  [['la haula wala quwwata illa billah', 'laa haula wala quwwata illa billah', 'la haula wa la quwwata illa billah'], 'لا حول ولا قوة إلا بالله', ''],
+  [['allahu akbar', 'allohu akbar', 'allahu akbaru'], 'الله أكبر', ''],
+  [['jazakallahu khairan', 'jazakallah khairan', 'jazakumullahu khairan', 'jazakumullah khairan'], 'جزاك الله خيرا', 'jazaka / jazaki / jazakum mengikuti lawan bicara: pastikan'],
+  [['barakallahu fikum', 'barakallahu fiikum', 'barakallah fikum', 'barakallahu laka', 'barakallahu lakum'], 'بارك الله فيكم', 'fikum / laka / lakum mengikuti lawan bicara: pastikan'],
+  [['bi idznillah', 'biidznillah', 'bi idzinillah', 'bi izinillah', 'biidzninillah', 'bi idznillahi'], 'بإذن الله', ''],
+  [['fi sabilillah', 'fisabilillah'], 'في سبيل الله', ''],
+  [['khulafaur rasyidin', 'khulafaurrasyidin', 'khulafa ar rasyidin', 'khulafaur rasyidun'], 'الخلفاء الراشدين', ''],
+  [['ahlussunnah wal jamaah', 'ahlus sunnah wal jamaah', 'ahlus sunnah waljamaah', 'ahlussunnah waljamaah', 'ahli sunnah wal jamaah', 'ahlussunnah wa al jamaah', 'ahlussunnah wal jamaah'], 'أهل السنة والجماعة', ''],
+  [['ummul mukminin', 'ummulmukminin', 'ummahatul mukminin', 'ummahatulmukminin'], 'أم المؤمنين', 'ummul (tunggal) atau ummahatul (jamak): pastikan'],
+  [['ahlul bait', 'ahlulbait', 'ahlul bayt', 'ahlil bait', 'ahli bait'], 'أهل البيت', ''],
+  [['al quran', 'al qur an'], 'القرآن', ''],
+  [['idul fitri', 'idulfitri', 'iedul fitri', 'idul fithri'], 'عيد الفطر', ''],
+  [['idul adha', 'iduladha', 'iedul adha', 'idul adh ha', 'idul adlha'], 'عيد الأضحى', ''],
+  [['raudhatul athfal', 'raudlatul athfal', 'raudhatul atfal', 'raudatul athfal', 'raudhatulathfal'], 'روضة الأطفال', ''],
+  [['nahdlatul ulama', 'nahdhatul ulama', 'nahdatul ulama', 'nahdlatulama', 'nahdlatul ulamaa'], 'نهضة العلماء', ''],
+  [['ali imran', 'ali imron'], 'آل عمران', 'nama surah atau nama orang? pastikan'],
+  [['ali bin abi thalib', 'ali bin abi talib', 'ali ibn abi thalib', 'ali bin abu thalib'], 'علي بن أبي طالب', ''],
+  [['abu bakar', 'abu bakr', 'abubakar', 'abu bakar ash shiddiq', 'abu bakar as shiddiq'], 'أبو بكر', ''],
+  [['umar bin khattab', 'umar bin khaththab', 'umar ibn khattab', 'umar ibnul khattab'], 'عمر بن الخطاب', ''],
+  [['rabiul awal', 'rabiul awwal', 'rabiul ula'], 'ربيع الأول', ''],
+  [['rabiul akhir', 'rabiul tsani', 'rabiul tsany', 'rabiuts tsani'], 'ربيع الآخر', ''],
+  [['jumadil ula', 'jumadil awal', 'jumadil awwal', 'jumadal ula', 'jumadal ulaa', 'jumadil ulaa'], 'جمادى الأولى', ''],
+  [['jumadil akhir', 'jumadil tsani', 'jumadil akhirah', 'jumadal akhirah', 'jumadal tsaniyah', 'jumadil tsaniyah'], 'جمادى الآخرة', ''],
+  [['dzul qadah', 'dzul qaidah', 'dzul kaidah', 'zulkaidah', 'dzulqadah'], 'ذو القعدة', ''],
+  [['dzul hijjah', 'dzul hijah', 'zulhijah', 'dzulhijjah'], 'ذو الحجة', ''],
+];
+
+// Singkatan yang BELUM ditangani lapisan SINGKATAN (s.a.w, r.a., a.s., r.h., H.R., Q.S. bertitik ada di sana): salam singkat Wr. Wb.,
+// serta QS/HR/KH huruf KAPITAL (dicek peka huruf di cocokFrasa: "hr"/"qs"/"kh" huruf kecil bukan singkatan ini).
+const SINGKATAN_ARAB = [
+  [String.raw`wr\.?[ \t]*,?[ \t]*wb\.?|w\.r\.?[ \t]*w\.b\.?`, 'ورحمة الله وبركاته', ''],
+  [String.raw`qs\.?`, 'سورة', 'QS = Qur\u2019an Surat (سورة). Bila yang dimaksud قدس سره, ganti manual.'],
+  [String.raw`hr\.?(?=[ \t]*[A-Za-z])`, 'رواه', ''],
+  [String.raw`kh\.?(?=[ \t]*[A-Za-z])`, 'كياهي حاج', 'singkatan gelar KH: pastikan ejaan Pegonnya'],
+];
+const FRASA_TABEL = [];   // indeks grup regex -> { arab | id, note, sing }
+const FRASA_RE = (() => {
+  const bagian = [];
+  const tambah = (src, ent) => { bagian.push('(' + src + ')'); FRASA_TABEL.push(ent); };
+  const urut = [];
+  for (const [vars, arab, note] of FRASA_ARAB) for (const v of vars) urut.push({ v, arab, note });
+  urut.sort((a, b) => b.v.length - a.v.length);   // terpanjang dahulu, supaya "wallahu alam bishshawab" menang atas "wallahu alam"
+  for (const e of urut) tambah(polaVarian(e.v) + LA_KATA, { arab: e.arab, note: e.note });
+  for (const [src, arab, note] of SINGKATAN_ARAB) tambah('(?:' + src + ')' + LA_KATA, { arab, note, sing: true });
+  return new RegExp(AWAL_RE + '(?:' + bagian.join('|') + ')', 'gi');
+})();
+const PERLU_KAPITAL = /^(QS|HR|KH)$/;
+function cocokFrasa(m, teks) {
+  let idx = -1;
+  for (let i = 2; i < m.length; i++) if (m[i] !== undefined) { idx = i - 2; break; }
+  const ent = FRASA_TABEL[idx];
+  if (!ent) return null;
+  if (ent.sing && m[1] === '.') return null;   // "x.s.a.w" bagian dari singkatan lain, bukan awal singkatan
+  const inti = teks.replace(/\.$/, '');
+  if (/^(qs|hr|kh)$/i.test(inti) && !PERLU_KAPITAL.test(inti)) return null;
+  return ent;
+}
+function convertSegmen(text) {
+  const re = FRASA_RE; re.lastIndex = 0;   // satu regex dipakai ulang (membangunnya tiap panggilan mahal); tidak ada pemanggilan bersarang
+  let last = 0, pegon = '', html = '';
+  const details = [];
+  const dasar = (seg) => { if (!seg) return; const r = convertSegmenDasar(seg); pegon += r.pegon; html += r.html; details.push(...r.details); };
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const mulai = m.index + m[1].length, teks = m[0].slice(m[1].length);
+    const hit = teks ? cocokFrasa(m, teks) : null;
+    if (!hit) { re.lastIndex = m.index + 1; continue; }
+    dasar(text.slice(last, mulai));
+    {
+      const flagged = !!hit.note;
+      pegon += hit.arab;
+      html += flagged ? `<span class="flag" title="${escapeHtml(hit.note)}">${escapeHtml(hit.arab)}</span>` : escapeHtml(hit.arab);
+      details.push({ latin: teks, pegon: hit.arab, flagged, note: hit.note });
+    }
+    last = re.lastIndex;
+  }
+  dasar(text.slice(last));
+  return { pegon, html, details };
 }
 
 // [TERPADU] Bagian yang TIDAK boleh dialihaksarakan: URL, email, nominal (Rp1.000,00), kode huruf+angka (C2, PG5),
