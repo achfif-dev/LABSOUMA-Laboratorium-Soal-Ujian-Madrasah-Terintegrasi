@@ -7,7 +7,7 @@ import { MEREK, terapkanMerek } from '../web/lib/merek.js';
 const baca = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
 test('footnote kredit: teks persis sesuai permintaan pemilik aplikasi', () => {
-  assert.equal(MEREK.kreditLatin, 'Powered By Achmad Afifuddin / achfif-dev');
+  assert.equal(MEREK.kreditLatin, 'Powered By Achmad Afifuddin');
   assert.equal(MEREK.kreditArab, 'أحمد عفيف الدين');
   assert.equal(MEREK.nama, 'LABSOUMA'); assert.equal(MEREK.logo, '/logo.png');
 });
