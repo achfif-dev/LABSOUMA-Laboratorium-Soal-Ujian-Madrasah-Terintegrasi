@@ -16,7 +16,7 @@ test('terapkanMerek mengisi semua penanda di index.html dan tidak menyisakan %ME
   const h = terapkanMerek(baca('index.html'));
   assert.equal(/%MEREK_/.test(h), false);
   assert.ok(h.includes('<title>LABSOUMA · Laboratorium Soal Ujian Madrasah Terintegrasi</title>'));
-  assert.ok(h.includes('Powered By Achmad Afifuddin / achfif-dev')); assert.ok(h.includes('أحمد عفيف الدين')); assert.ok(h.includes('src="/logo.png"'));
+  assert.ok(h.includes('Powered By Achmad Afifuddin')); assert.ok(h.includes('أحمد عفيف الدين')); assert.ok(h.includes('src="/logo.png"'));
   assert.ok(h.indexOf('id="pembuka"') > h.indexOf('<div id="root">')); // layar pembuka ada DI DALAM #root: React menggantinya saat siap
 });
 
