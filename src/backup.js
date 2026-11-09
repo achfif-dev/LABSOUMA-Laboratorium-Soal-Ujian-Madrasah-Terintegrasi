@@ -8,6 +8,7 @@ import { bersihkanRujukan } from './rujukan.js';
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { BENTUK_IDS } from './bentuk.js';
+import { MAKS_TAHAP } from './alurSoal.js';
 
 export const MAKS_PER_PEMULIHAN = 100;
 export const NAMA_FOLDER = 'LABSOUMA Backup';
@@ -103,6 +104,23 @@ export function bersihkanSoal(raw) {
     data.reviewerName = teks(raw.reviewerName, 120, 'Nama peninjau');
     const r = waktu(raw.reviewedAt, 'Tanggal ditinjau', { opsional: true });
     if (r) data.reviewedAt = r;
+  }
+  // Jejak alur peninjauan bertingkat (ditulis server saat editor memutuskan; lihat web/lib/alurSoal.js). Opsional: soal lama dan alur 1 tahap tidak punya.
+  // Dipulihkan supaya antrean tahap dan catatan keputusan editor tidak hilang. Entri rusak dibuang satu per satu, bukan menggagalkan seluruh soal.
+  const tahap = Number(raw.tahap);
+  if (raw.tahap !== undefined && raw.tahap !== null && raw.tahap !== '' && Number.isInteger(tahap) && tahap >= 1 && tahap <= MAKS_TAHAP) data.tahap = tahap;
+  if (Array.isArray(raw.tinjauan)) {
+    const jejak = [];
+    for (const x of raw.tinjauan.slice(-20)) {
+      if (!x || typeof x !== 'object' || Array.isArray(x)) continue;
+      if (!Number.isInteger(x.tahap) || x.tahap < 1 || x.tahap > MAKS_TAHAP) continue;
+      if (!['revisi', 'lolos', 'setuju'].includes(x.hasil)) continue;
+      if (typeof x.uid !== 'string' || x.uid.length > 128 || typeof x.nama !== 'string') continue;
+      const e = { tahap: x.tahap, uid: x.uid, nama: x.nama.slice(0, 120), hasil: x.hasil, at: Number.isFinite(x.at) && x.at >= 0 ? x.at : 0 };
+      if (typeof x.catatan === 'string' && x.catatan) e.catatan = x.catatan.slice(0, 300);
+      jejak.push(e);
+    }
+    if (jejak.length) data.tinjauan = jejak;
   }
   return { id, data };
 }
