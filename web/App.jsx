@@ -46,6 +46,7 @@ import * as CD from './lib/cadanganDrive.js';
 import * as DR from './lib/drive.js';
 import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
+import * as LK from './lib/lebarKolom.js';
 import * as PK from './lib/paket.js';
 import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
@@ -1139,7 +1140,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
         <div className="flex flex-wrap items-center gap-2"><TahapChip q={q} /><Meta q={q} /></div>
         <span className="text-xs text-mute">{q.authorName ? `Oleh ${q.authorName} · ` : ''}{refText(q)}<RefArab q={q} /><TautKitab q={q} /></span>
       </header>
-      <div className="grid md:grid-cols-2">
+      <div className="grid md:[grid-template-columns:var(--kolom)]" style={{ '--kolom': LK.lebarKolom((q.teks || '').length, LK.panjangSoal(q)).css }}>
         <div className="min-w-0 border-b border-line p-4 sm:p-5 md:border-b-0 md:border-r">
           <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><Quote size={14} />Teks Kitab Asli</h3>
           <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">{q.teks || '—'}</p></div>
@@ -1897,7 +1898,7 @@ function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antrean, onB
 // Pustaka berat dimuat malas dari paket npm (ikut dibundel Vite, dipisah jadi potongan sendiri); bukan lagi dari CDN.
 const muatMammoth = async () => { const m = await import('mammoth/mammoth.browser.min.js'); return m.extractRawText ? m : m.default; };
 const muatPdfjs = async () => {
-  const [m, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')]);
+  const [m, worker] = await Promise.all([import('pdfjs-dist/build/pdf.js'), import('pdfjs-dist/build/pdf.worker.min.js?url')]);
   const lib = m.getDocument ? m : m.default;
   lib.GlobalWorkerOptions.workerSrc = worker.default;
   return lib;
