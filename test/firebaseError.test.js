@@ -20,7 +20,11 @@ test('sendError memakai pesan Firebase, bukan pesan soal', () => {
 
 import { serverError } from '../src/platform.js';
 test('serverError menampilkan ringkasan galat polos, bukan galat SDK AI', () => {
-  assert.equal(serverError(new Error('boom  x')).message, 'Galat di server: boom x');
+  const aman = serverError(new Error('boom  x'), 'ab12cd', {});
+  assert.equal(aman.code, 'SERVER_ERROR');
+  assert.ok(aman.message.includes('ab12cd'), 'memuat kode rujukan');
+  assert.ok(!aman.message.includes('boom'), 'tidak membocorkan pesan asli');
+  assert.equal(serverError(new Error('boom  x'), 'ab12cd', { DEBUG_ERRORS: '1' }).message, 'Galat di server: boom x');
   assert.equal(serverError(Object.assign(new Error('x'), { status: 429 })), null);
   assert.equal(serverError(Object.assign(new Error('x'), { name: 'APIConnectionError' })), null);
 });
