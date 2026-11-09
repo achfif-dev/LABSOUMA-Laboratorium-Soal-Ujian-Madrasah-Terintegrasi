@@ -5,7 +5,7 @@ export const MEREK = {
   nama: 'LABSOUMA',
   namaPanjang: 'Laboratorium Soal Ujian Madrasah Terintegrasi',
   logo: '/logo.png',
-  kreditLatin: 'Powered By Achmad Afifuddin / achfif-dev',
+  kreditLatin: 'Powered By Achmad Afifuddin',
   kreditArab: 'أحمد عفيف الدين',
 };
 
