@@ -10,7 +10,7 @@ const MAKS_ENTRI_OUTLINE = 3000;
 let pustaka = null;
 async function muatPdfjs() {
   if (pustaka) return pustaka;
-  const [m, worker] = await Promise.all([import('pdfjs-dist/build/pdf.js'), import('pdfjs-dist/build/pdf.worker.min.js?url')]);
+  const [m, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')]);
   const lib = m.default && m.default.getDocument ? m.default : m;
   lib.GlobalWorkerOptions.workerSrc = worker.default;
   pustaka = lib; return lib;
