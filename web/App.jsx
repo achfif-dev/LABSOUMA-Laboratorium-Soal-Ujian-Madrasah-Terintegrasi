@@ -19,7 +19,7 @@ const lazyPanel = (muat) => {
   return function PanelMalas(props) {
     return (
       <GagalMuatPanel>
-        <React.Suspense fallback={<div className="p-4 text-sm text-mute" aria-busy="true">Memuat…</div>}><C {...props} /></React.Suspense>
+        <React.Suspense fallback={<LayarMuat ringkas />}><C {...props} /></React.Suspense>
       </GagalMuatPanel>
     );
   };
@@ -98,6 +98,8 @@ const emptyForm = () => ({
 
 // Komponen yang membaca window.Pegon dibungkus: baru dirender setelah mesin Pegon (dimuat malas) siap.
 import SaranTulisan from './SaranTulisan.jsx';
+import { KreditKaki, LayarMuat } from './Merek.jsx';
+import { MEREK } from './lib/merek.js';
 import { saranSorotan } from './lib/periksaTulisan.js';
 const PegonSoal = denganPegon(PegonSoalInti);
 const PegonTab = denganPegon(PegonTabInti);
@@ -292,7 +294,7 @@ function AppHeader() {
         <div className="flex min-w-0 items-center gap-3 sm:items-start sm:gap-4">
           <AppLogo size={44} className="shrink-0 sm:!h-14 sm:!w-14" />
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-extrabold leading-tight sm:text-2xl">LABSOUMA</h1>
+            <h1 className="text-lg font-extrabold leading-tight sm:text-2xl">{MEREK.nama}</h1>
             <p className="text-xs font-medium leading-snug opacity-90 sm:text-base">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
             <p dir="rtl" lang="ar" className="ar mt-1 hidden text-right text-lg opacity-80 sm:block" style={{ fontSize: '1.2rem', lineHeight: 1.9, textWrap: 'balance' }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
           </div>
@@ -3216,10 +3218,7 @@ function App({ user, profile }) {
         </KamusCtx.Provider>
         </AlurCtx.Provider></AppCfgCtx.Provider>
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pt-2 text-center text-xs text-mute" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}>
-        <p>Powered By Achmad Afifuddin / achfif-dev</p>
-        <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
-      </footer>
+      <KreditKaki className="mx-auto max-w-6xl px-4 pt-2" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }} />
       <Toast t={msg} />
     </div>
   );
@@ -3499,10 +3498,7 @@ function AppUstadz({ user, profile }) {
         </KamusCtx.Provider>
         </AppCfgCtx.Provider>
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pt-2 text-center text-xs text-mute" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}>
-        <p>Powered By Achmad Afifuddin / achfif-dev</p>
-        <p dir="rtl" lang="ar" className="ar-nama mt-1">أحمد عفيف الدين</p>
-      </footer>
+      <KreditKaki className="mx-auto max-w-6xl px-4 pt-2" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }} />
       <Toast t={msg} />
     </div>
   );
@@ -3940,7 +3936,7 @@ const Centered = ({ children }) => (
   <div className="mx-auto flex min-h-[80vh] max-w-md flex-col items-center justify-center gap-4 py-10 text-center">{children}</div>
 );
 const AppLogo = ({ size = 48, className = '' }) => (
-  <img src="/logo.png" width={size} height={size} alt="Logo LABSOUMA" decoding="async" className={className} style={{ width: size, height: size }} />
+  <img src={MEREK.logo} width={size} height={size} alt={`Logo ${MEREK.nama}`} decoding="async" className={className} style={{ width: size, height: size }} />
 );
 const Logo = () => <AppLogo size={64} />;
 
@@ -3964,7 +3960,7 @@ function Login() {
       <Centered>
         <div className="login-card flex flex-col items-center gap-3">
           <Logo />
-          <h1 className="text-2xl font-extrabold tracking-[.08em]" style={{ textWrap: 'balance' }}>LABSOUMA</h1>
+          <h1 className="text-2xl font-extrabold tracking-[.08em]" style={{ textWrap: 'balance' }}>{MEREK.nama}</h1>
           <p className="text-sm font-medium text-mute">Laboratorium Soal Ujian Madrasah Terintegrasi</p>
           <p dir="rtl" lang="ar" className="ar" style={{ fontSize: '1.4rem', lineHeight: 2 }}>مختبر أسئلة امتحان المدرسة المتكامل</p>
           <hr className="my-1 w-16 border-0 border-t-2" style={{ borderColor: 'var(--accent)' }} />
@@ -4015,7 +4011,7 @@ function Root() {
     return () => { dead = true; unsub(); };
   }, [user && user.uid]);
 
-  const Spinner = <Centered><Loader2 className="spin text-mute" size={28} /></Centered>;
+  const Spinner = <LayarMuat />;
   if (user === undefined) return Spinner;
   if (user === null) return <Login />;
   if (sessErr) return <Blocked user={user} title="Tidak bisa masuk" text={sessErr.message || 'Terjadi kesalahan saat memuat profil Anda.'} />;

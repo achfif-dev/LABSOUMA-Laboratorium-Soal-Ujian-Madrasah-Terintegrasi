@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>LABSOUMA · Laboratorium Soal Ujian Madrasah Terintegrasi</title>
+<title>%MEREK_NAMA% · %MEREK_NAMA_PANJANG%</title>
 <meta name="description" content="LABSOUMA: laboratorium penyusunan, telaah, dan ekspor soal ujian madrasah terintegrasi dengan bantuan AI.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0a4535">
@@ -14,10 +14,33 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Scheherazade+New:wght@400;600&display=swap">
+<style>
+/* Layar pembuka: tampil seketika, sebelum JavaScript termuat; React menggantinya saat aplikasi siap. Warna mengikuti tema terang/gelap perangkat. */
+body{margin:0;background:#f4f7f5;color:#0f1f18;font-family:'Plus Jakarta Sans',system-ui,sans-serif}
+#pembuka{display:flex;min-height:100vh;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;box-sizing:border-box}
+#pembuka h1{margin:0;font-size:1.5rem;font-weight:800;letter-spacing:.08em}
+#pembuka p{margin:0}
+#pembuka .p-sub{font-size:.875rem;font-weight:500;color:#53675d}
+#pembuka .p-kredit{margin-top:28px;font-size:.75rem;color:#53675d}
+#pembuka .p-arab{margin-top:4px;font-family:'Amiri','Scheherazade New','Traditional Arabic',serif;font-size:1.2em;line-height:1.7;color:#0f1f18}
+#pembuka .p-putar{width:26px;height:26px;margin-top:6px;border:3px solid #dbe5df;border-top-color:#0d6b4e;border-radius:50%;animation:p-putar 1s linear infinite}
+@keyframes p-putar{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#pembuka .p-putar{animation:none}}
+@media (prefers-color-scheme:dark){body{background:#0b130f;color:#e6efe9}#pembuka .p-sub,#pembuka .p-kredit{color:#98ada2}#pembuka .p-arab{color:#e6efe9}#pembuka .p-putar{border-color:#25382e;border-top-color:#3fbf8f}}
+</style>
 </head>
 <body>
 <a class="skip-link" href="#konten">Lewati ke konten utama</a>
-<div id="root"></div>
+<div id="root">
+<div id="pembuka" role="status" aria-live="polite">
+<img src="%MEREK_LOGO%" width="72" height="72" alt="Logo %MEREK_NAMA%">
+<h1>%MEREK_NAMA%</h1>
+<p class="p-sub">%MEREK_NAMA_PANJANG%</p>
+<div class="p-putar" aria-hidden="true"></div>
+<p class="p-kredit">%MEREK_KREDIT_LATIN%</p>
+<p class="p-arab" dir="rtl" lang="ar">%MEREK_KREDIT_ARAB%</p>
+</div>
+</div>
 <script type="module" src="/web/main.jsx"></script>
 </body>
 </html>
