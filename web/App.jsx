@@ -1898,7 +1898,7 @@ function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antrean, onB
 // Pustaka berat dimuat malas dari paket npm (ikut dibundel Vite, dipisah jadi potongan sendiri); bukan lagi dari CDN.
 const muatMammoth = async () => { const m = await import('mammoth/mammoth.browser.min.js'); return m.extractRawText ? m : m.default; };
 const muatPdfjs = async () => {
-  const [m, worker] = await Promise.all([import('pdfjs-dist/build/pdf.js'), import('pdfjs-dist/build/pdf.worker.min.js?url')]);
+  const [m, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')]);
   const lib = m.getDocument ? m : m.default;
   lib.GlobalWorkerOptions.workerSrc = worker.default;
   return lib;
