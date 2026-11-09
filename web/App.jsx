@@ -57,7 +57,7 @@ import { muatDocx } from './lib/muatDocx.js';
 import { kamusBersamaMasuk } from './lib/muatPegon.js';
 import { Bt, FALLBACK_CFG, KEYS, LEVEL, STATUS, bacaPref, cariKitab, ejaanTersimpan, levelLabel, namaArabKitab, optsOf, mapelUntuk } from './lib/dasar.js';
 
-import { denganPegon, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
+import { denganPegon, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, Uj, Draft, useDraftSync, AutoArea, Label, Btn, Select, Section, callApi, apiErr, ErrorBox, Spin, simpanBerkas } from './ui.jsx';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -997,9 +997,9 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
           )}
           <div className="space-y-4">
             <div><Label htmlFor="stimulus" hint="(opsional)">Narasi / Stimulus</Label>
-              <textarea id="stimulus" rows={3} className="field" placeholder="Kasus atau konteks yang mengantar pertanyaan" value={form.stimulus} onChange={(e) => set('stimulus', e.target.value)} /></div>
+              <AutoArea id="stimulus" maxLength={3000} rows={3} className="field" placeholder="Kasus atau konteks yang mengantar pertanyaan" value={form.stimulus} onChange={(e) => set('stimulus', e.target.value)} /></div>
             <div><Label htmlFor="pertanyaan">{{ pilgan: 'Pertanyaan', lanjutan: 'Kalimat yang dilanjutkan', benarsalah: 'Pernyataan', isian: 'Kalimat dengan titik-titik', uraian: 'Pertanyaan / Perintah' }[Bt.bentukDari(form)]}</Label>
-              <textarea id="pertanyaan" rows={2} className="field" placeholder={{ pilgan: 'Tulis pertanyaan', lanjutan: 'Mis. Seorang musafir boleh mengqashar shalat apabila .....', benarsalah: 'Tulis satu pernyataan yang dinilai Benar atau Salah', isian: 'Mis. Syarat sah shalat ada ..... perkara.', uraian: 'Mis. Jelaskan syarat-syarat seorang musafir boleh mengqashar shalat!' }[Bt.bentukDari(form)]} value={form.pertanyaan} onChange={(e) => set('pertanyaan', e.target.value)} />
+              <AutoArea id="pertanyaan" maxLength={2000} rows={2} className="field" placeholder={{ pilgan: 'Tulis pertanyaan', lanjutan: 'Mis. Seorang musafir boleh mengqashar shalat apabila .....', benarsalah: 'Tulis satu pernyataan yang dinilai Benar atau Salah', isian: 'Mis. Syarat sah shalat ada ..... perkara.', uraian: 'Mis. Jelaskan syarat-syarat seorang musafir boleh mengqashar shalat!' }[Bt.bentukDari(form)]} value={form.pertanyaan} onChange={(e) => set('pertanyaan', e.target.value)} />
               {(form.bentuk === 'lanjutan' || form.bentuk === 'isian') && form.pertanyaan.trim() && !Bt.adaPenanda(form.pertanyaan) && <p className="mt-1 text-xs text-warn">Belum ada titik-titik (.....) tempat melanjutkan.</p>}</div>
             {(form.bentuk === 'pilgan' || form.bentuk === 'lanjutan' || !Bt.BENTUK[form.bentuk]) && (
             <fieldset>
@@ -1011,7 +1011,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                       <input id={'kunci-' + k} type="radio" name="kunci" className="h-4 w-4 accent-[var(--brand)]" checked={form.kunci === k} onChange={() => set('kunci', k)} />
                       <span className="w-4 text-sm font-bold">{k}</span>
                     </label>
-                    <input id={'opsi-' + k} aria-label={`Opsi ${k}`} className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-mute focus:outline-none" placeholder={`Opsi ${k}`} maxLength={1000} value={form.opsi[k]} onChange={(e) => setOpt(k, e.target.value)} />
+                    <AutoArea satuBaris id={'opsi-' + k} aria-label={`Opsi ${k}`} className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-mute focus:outline-none" placeholder={`Opsi ${k}`} maxLength={1000} value={form.opsi[k]} onChange={(e) => setOpt(k, e.target.value)} />
                   </div>
                 ))}
               </div>
@@ -1031,17 +1031,17 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             )}
             {(form.bentuk === 'isian' || form.bentuk === 'uraian') && (
               <div><Label htmlFor="jawaban">{form.bentuk === 'uraian' ? 'Jawaban Model' : 'Jawaban Isian'}</Label>
-                <textarea id="jawaban" rows={form.bentuk === 'uraian' ? 4 : 1} className="field" maxLength={2000} placeholder={form.bentuk === 'uraian' ? 'Jawaban lengkap yang diharapkan' : 'Jawaban singkat; pisahkan dengan " / " bila ada penulisan lain yang sama benarnya'} value={form.jawaban} onChange={(e) => set('jawaban', e.target.value)} /></div>
+                <AutoArea id="jawaban" rows={form.bentuk === 'uraian' ? 4 : 1} className="field" maxLength={2000} placeholder={form.bentuk === 'uraian' ? 'Jawaban lengkap yang diharapkan' : 'Jawaban singkat; pisahkan dengan " / " bila ada penulisan lain yang sama benarnya'} value={form.jawaban} onChange={(e) => set('jawaban', e.target.value)} /></div>
             )}
             {form.bentuk === 'uraian' && (
               <div><Label htmlFor="rubrik">Pedoman Penskoran</Label>
-                <textarea id="rubrik" rows={3} className="field" maxLength={2000} placeholder="Mis. 1) menyebut syarat jarak (skor 2); 2) menyebut tujuan bukan maksiat (skor 2); Skor maksimal 4" value={form.rubrik} onChange={(e) => set('rubrik', e.target.value)} /></div>
+                <AutoArea id="rubrik" rows={3} className="field" maxLength={2000} placeholder="Mis. 1) menyebut syarat jarak (skor 2); 2) menyebut tujuan bukan maksiat (skor 2); Skor maksimal 4" value={form.rubrik} onChange={(e) => set('rubrik', e.target.value)} /></div>
             )}
             <div><Label htmlFor="pembahasan">Pembahasan / Dalil Pendukung</Label>
-              <textarea id="pembahasan" rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} />
+              <AutoArea id="pembahasan" maxLength={4000} rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} />
               <div className="mt-2"><KutipanBadge q={form} /></div></div>
             <div><Label htmlFor="indikator" hint="(opsional)">Indikator Kisi-kisi</Label>
-              <textarea id="indikator" rows={2} className="field" placeholder="Peserta didik dapat ..." value={form.indikator} onChange={(e) => set('indikator', e.target.value)} /></div>
+              <AutoArea id="indikator" maxLength={1000} rows={2} className="field" placeholder="Peserta didik dapat ..." value={form.indikator} onChange={(e) => set('indikator', e.target.value)} /></div>
           </div>
 
           <div className="mt-5 rounded-xl border border-line bg-bg p-3">
@@ -2302,7 +2302,7 @@ function EditButirPaket({ r, onSimpan, onBatal }) {
   const rujukan = [d.pertanyaan, ...(adaOpsi ? [d.A, d.B, d.C] : [d.jawaban])].some(PK.adaRujukanTeks);
   const id = 'eb-' + r.uid;
   const F = ({ k, label, rows, area }) => (<div><Label htmlFor={id + k}>{label}</Label>{area
-    ? <textarea id={id + k} rows={rows || 2} className="field" value={d[k]} onChange={(e) => set(k, e.target.value)} />
+    ? <AutoArea id={id + k} rows={rows || 2} className="field" value={d[k]} onChange={(e) => set(k, e.target.value)} />
     : <input id={id + k} className="field" value={d[k]} onChange={(e) => set(k, e.target.value)} />}</div>);
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-brand/40 bg-surface p-3">
@@ -2314,7 +2314,7 @@ function EditButirPaket({ r, onSimpan, onBatal }) {
         </>
       ) : <F k="jawaban" label={Bt.bentukDari(q) === 'uraian' ? 'Jawaban model' : 'Jawaban isian'} area />}
       <div><Label htmlFor={id + 'kutipan'} hint="(salin persis dari teks)">Kutipan kitab untuk kunci</Label>
-        <textarea id={id + 'kutipan'} dir="rtl" lang="ar" rows={2} className="field font-ar leading-loose" value={d.kutipan} onChange={(e) => set('kutipan', e.target.value)} />
+        <AutoArea id={id + 'kutipan'} dir="rtl" lang="ar" rows={2} className="field font-ar leading-loose" value={d.kutipan} onChange={(e) => set('kutipan', e.target.value)} />
         {sk.status && sk.status !== 'cocok' && <p className="mt-1 text-xs text-warn">{LABEL_KUTIPAN_STATUS[sk.status]}{sk.status === 'tidak_cocok' ? '. Kutipan ini tidak akan disimpan.' : ''}</p>}</div>
       <F k="pembahasan" label="Pembahasan" area />
       <F k="indikator" label="Indikator" />

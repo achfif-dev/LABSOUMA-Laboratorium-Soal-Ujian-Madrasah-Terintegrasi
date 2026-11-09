@@ -1,6 +1,6 @@
 // Pembantu antarmuka dan API yang dipakai bersama oleh App.jsx dan berkas tab yang dimuat malas (mis. AdminKonfigurasi.jsx).
 // Dipisah dari App.jsx agar tidak ada impor melingkar: berkas ini tidak mengimpor App.jsx.
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { AlertTriangle, ChevronDown, Filter, Loader2 } from 'lucide-react';
@@ -20,6 +20,34 @@ const Uj = new Proxy({}, { get: (_, k) => (window.Ujian || UJ_NOOP)[k] });
 function useDraftSync(nama, nilai, bersih) {
   useEffect(() => { if (bersih) Draft.remove(nama); else Draft.save(nama, nilai); }, [nama, nilai, bersih]);
 }
+
+// Textarea yang tingginya mengikuti isi: tidak ada bilah gulir dan tidak ada teks yang terpotong.
+// `rows` menjadi tinggi minimum. Tinggi dihitung ulang saat isi berubah, saat lebar kolom berubah (teks terlipat ulang), dan saat font selesai dimuat (Amiri/Plus Jakarta Sans mengubah tinggi baris).
+// `satuBaris`: untuk isian pendek seperti opsi jawaban. Teks tetap terlipat ke bawah, tetapi Enter diblokir dan baris baru hasil tempel diganti spasi.
+const AutoArea = ({ value, onChange, onKeyDown, className = '', satuBaris = false, rows = 1, ...rest }) => {
+  const el = useRef(null);
+  const fit = useCallback(() => {
+    const t = el.current;
+    if (!t || !t.offsetWidth) return; // tersembunyi (mis. seksi HP yang terlipat): dihitung ulang oleh ResizeObserver saat tampil
+    t.style.height = 'auto';
+    t.style.height = (t.scrollHeight + (t.offsetHeight - t.clientHeight)) + 'px';
+  }, []);
+  useLayoutEffect(fit, [value, fit]);
+  useEffect(() => {
+    const t = el.current; if (!t) return undefined;
+    let lebar = t.offsetWidth;
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (t.offsetWidth !== lebar) { lebar = t.offsetWidth; fit(); } }) : null;
+    if (ro) ro.observe(t);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit).catch(() => {});
+    return () => { if (ro) ro.disconnect(); };
+  }, [fit]);
+  return (
+    <textarea ref={el} rows={rows} value={value} className={`${className} resize-none overflow-hidden`}
+      onChange={satuBaris && onChange ? (e) => { const v = e.target.value; if (/[\r\n]/.test(v)) e.target.value = v.replace(/\s*[\r\n]+\s*/g, ' '); onChange(e); } : onChange}
+      onKeyDown={(e) => { if (satuBaris && e.key === 'Enter') e.preventDefault(); if (onKeyDown) onKeyDown(e); }}
+      {...rest} />
+  );
+};
 
 const Label = ({ htmlFor, children, hint }) => (
   <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-mute">
@@ -216,4 +244,4 @@ const denganPegon = (Komp) => function DenganPegon(props) {
   return <div className="p-4 text-sm text-mute" aria-busy="true">Memuat mesin Pegon…</div>;
 };
 
-export { Uj, Draft, useDraftSync, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, usePegon, denganPegon };
+export { Uj, Draft, useDraftSync, AutoArea, Label, Btn, Select, Section, callApi, apiErr, ERR_TITLES, ErrorBox, Spin, simpanBerkas, layarHp, AlurCtx, AppCfgCtx, CatatanCtx, Filters, applyFilter, labelPaket, useAlur, useCfg, usePegon, denganPegon };
