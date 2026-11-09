@@ -26,7 +26,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
   const urut = useRef(0);                     // hanya jawaban permintaan terakhir yang dipakai (ketukan cepat)
 
   const gagal = (e) => { const x = apiErr(e); if (x) setErr(x); };
-  useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
+  useEffect(() => { pem.daftar(true).then(setDaftar).catch((e) => { if (!SIMPANAN.daftar) gagal(e); }); }, []); // cocokkan ulang ke server: kitab yang dihapus admin tidak boleh tetap terpilih
   useEffect(() => {
     setIsi(null); setHalaman([]); setBabIdx(''); setKursor(1); setBagian('semua'); setKembar([]); setInfo('');
     if (!kitabId) return;

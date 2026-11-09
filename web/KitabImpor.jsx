@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check } from 'lucide-react';
+import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check, Pencil, Trash2 } from 'lucide-react';
 import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
 import { bukaSimpananOcr, kunciBerkas } from './lib/simpananOcr.js';
 import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
@@ -13,6 +13,50 @@ const STATUS = { siap: 'Siap', mengimpor: 'Belum selesai' };
 const HAK = { 'belum-dicek': 'Hak cipta: belum dicek', 'domain-publik': 'Domain publik', izin: 'Berizin' };
 
 // Jenis tulisan halaman untuk OCR AI: menentukan petunjuk yang diberikan ke AI dan pemeriksaan hasilnya.
+const FIELD = 'mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2';
+const MAZHAB_PILIHAN = [['', 'Tidak ditentukan'], ['syafii', "Syafi'i"], ['hanafi', 'Hanafi'], ['maliki', 'Maliki'], ['hanbali', 'Hanbali']];
+const HAK_PILIHAN = [['belum-dicek', 'Belum dicek'], ['domain-publik', 'Domain publik'], ['izin', 'Berizin']];
+
+// Sunting data kitab tanpa menyentuh halaman: judul, nama Latin, pengarang, wafat, fan, mazhab, edisi, hak cipta. ID, bahasa, aksara, dan isi tidak bisa diubah di sini.
+function FormUbahKitab({ k, Btn, onSimpan, onBatal, sibuk }) {
+  const [f, setF] = useState({
+    judul: k.judul || '', judulLatin: k.judulLatin || '', pengarang: k.pengarang || '', wafatH: k.wafatH == null ? '' : String(k.wafatH), fan: k.fan || '', mazhab: k.mazhab || '',
+    penerbit: (k.edisi && k.edisi.penerbit) || '', muhaqqiq: (k.edisi && k.edisi.muhaqqiq) || '', cetakan: (k.edisi && k.edisi.cetakan) || '',
+    hakCipta: k.hakCipta || 'belum-dicek', hakCiptaCatatan: k.hakCiptaCatatan || '',
+  });
+  const u = (p) => setF((x) => ({ ...x, ...p }));
+  const wafat = f.wafatH.trim() === '' ? null : Number(f.wafatH);
+  const wafatSah = wafat === null || (Number.isInteger(wafat) && wafat >= 1 && wafat <= 2000);
+  const siap = f.judul.trim() && f.judulLatin.trim() && wafatSah;
+  const kirim = () => onSimpan({
+    judul: f.judul.trim(), judulLatin: f.judulLatin.trim(), pengarang: f.pengarang.trim(), wafatH: wafat, fan: f.fan.trim(), mazhab: f.mazhab,
+    edisi: { penerbit: f.penerbit.trim(), muhaqqiq: f.muhaqqiq.trim(), cetakan: f.cetakan.trim() }, hakCipta: { status: f.hakCipta, catatan: f.hakCiptaCatatan.trim() },
+  });
+  const namaBerubah = f.judulLatin.trim() !== (k.judulLatin || '');
+  return (
+    <div className="w-full space-y-3 rounded-xl border border-line bg-soft p-3">
+      <p className="text-sm font-semibold">Sunting data kitab <span className="font-normal text-mute">· {k.id}</span></p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm"><span className="font-semibold">Judul (tulisan asli) *</span><input className={FIELD} value={f.judul} maxLength={300} onChange={(e) => u({ judul: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Nama kitab (Latin) *</span><input className={FIELD} value={f.judulLatin} maxLength={150} onChange={(e) => u({ judulLatin: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Mushannif / pengarang</span><input className={FIELD} value={f.pengarang} maxLength={400} onChange={(e) => u({ pengarang: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Tahun wafat (H)</span><input className={FIELD} inputMode="numeric" value={f.wafatH} maxLength={4} onChange={(e) => u({ wafatH: e.target.value.replace(/\D/g, '') })} placeholder="mis. 987" /></label>
+        <label className="text-sm"><span className="font-semibold">Fan</span><input className={FIELD} value={f.fan} maxLength={80} onChange={(e) => u({ fan: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Mazhab</span><select className={FIELD} value={f.mazhab} onChange={(e) => u({ mazhab: e.target.value })}>{MAZHAB_PILIHAN.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="text-sm"><span className="font-semibold">Penerbit</span><input className={FIELD} value={f.penerbit} maxLength={400} onChange={(e) => u({ penerbit: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Muhaqqiq</span><input className={FIELD} value={f.muhaqqiq} maxLength={400} onChange={(e) => u({ muhaqqiq: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Cetakan</span><input className={FIELD} value={f.cetakan} maxLength={400} onChange={(e) => u({ cetakan: e.target.value })} /></label>
+        <label className="text-sm"><span className="font-semibold">Status hak cipta</span><select className={FIELD} value={f.hakCipta} onChange={(e) => u({ hakCipta: e.target.value })}>{HAK_PILIHAN.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="text-sm sm:col-span-2"><span className="font-semibold">Catatan hak cipta</span><input className={FIELD} value={f.hakCiptaCatatan} maxLength={600} onChange={(e) => u({ hakCiptaCatatan: e.target.value })} /></label>
+      </div>
+      {namaBerubah && <p role="alert" className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">Nama Latin berubah. Soal lama tetap memakai nama lama. Bila Konfigurasi punya katalog kitab dengan nama lama, samakan juga namanya di sana supaya batas materi (cakupan) tetap berlaku.</p>}
+      <div className="flex flex-wrap gap-2">
+        <Btn kind="primary" onClick={kirim} disabled={!siap || sibuk}>{sibuk ? <Loader2 size={15} className="spin" /> : <Check size={15} />}Simpan perubahan</Btn>
+        <Btn kind="ghost" onClick={onBatal} disabled={sibuk}>Batal</Btn>
+      </div>
+    </div>);
+}
+
 function PilihAksaraOcr({ nilai, ubah }) {
   return (
     <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">Jenis tulisan halaman:
@@ -25,6 +69,9 @@ function PilihAksaraOcr({ nilai, ubah }) {
 
 export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [daftar, setDaftar] = useState(null);
+  const [sisa, setSisa] = useState(null);          // ID kitab yang induknya sudah dihapus (mis. lewat console) tetapi halamannya masih tersimpan
+  const [disunting, setDisunting] = useState('');   // id kitab yang formnya terbuka
+  const [sibukKitab, setSibukKitab] = useState('');  // id kitab yang sedang disimpan atau dihapus
   const [errDaftar, setErrDaftar] = useState(null);
   const [berkas, setBerkas] = useState('');
   const [hasil, setHasil] = useState(null);
@@ -47,8 +94,13 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
   const [urutLihat, setUrutLihat] = useState(1);   // halaman yang ditampilkan di pratinjau (urutan, bukan nomor cetak)
   const sibuk = !!progres && progres.tahap !== 'gagal';
 
-  const muatDaftar = async () => {
-    try { setDaftar((await callApi('/api/kitab', { aksi: 'impor-daftar' })).kitab); setErrDaftar(null); }
+  // `segarkanBaca`: tombol Segarkan juga membuang ringkasan daftar kitab di server, supaya pembaca ikut melihat perubahan yang dibuat di luar aplikasi (mis. hapus lewat Firebase console). `cariSisa`: cari sisa kitab yang induknya sudah terhapus.
+  const muatDaftar = async ({ segarkan = false, cariSisa = false } = {}) => {
+    try {
+      const r = await callApi('/api/kitab', { aksi: 'impor-daftar', ...(segarkan ? { segarkanBaca: true } : {}), ...(cariSisa ? { cariSisa: true } : {}) });
+      setDaftar(r.kitab); setErrDaftar(null);
+      if (cariSisa) { setSisa(r.sisa || []); if (!(r.sisa || []).length) toast('Tidak ada sisa kitab terhapus.'); }
+    }
     catch (e) { setErrDaftar(apiErr(e)); }
   };
   useEffect(() => { muatDaftar(); }, []);
@@ -101,6 +153,26 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
     catch (e) { toast((apiErr(e) || {}).message || 'Gagal mengubah status.'); }
   };
 
+  const simpanUbah = async (k, kitab) => {
+    setSibukKitab(k.id);
+    try { await callApi('/api/kitab', { aksi: 'impor-ubah', kitabId: k.id, kitab }); setDisunting(''); await muatDaftar(); toast('Data kitab disimpan.'); }
+    catch (e) { toast((apiErr(e) || {}).message || 'Gagal menyimpan data kitab.'); }
+    finally { setSibukKitab(''); }
+  };
+  // Hapus permanen: kitab beserta SELURUH halaman, indeks cari, daftar isi, dan arsip koreksinya. `id` boleh sisa kitab yang induknya sudah tidak ada. Konfirmasi dengan mengetik ID.
+  const hapusKitab = async (id, nama) => {
+    const ketik = window.prompt(`HAPUS PERMANEN "${nama || id}" beserta seluruh halaman, daftar isi, dan koreksi teksnya? Tindakan ini tidak bisa dibatalkan.\n\nKetik ID kitab ("${id}") untuk melanjutkan:`);
+    if (ketik === null) return;
+    if (ketik.trim() !== id) { toast('ID tidak cocok. Penghapusan dibatalkan.'); return; }
+    setSibukKitab(id);
+    try {
+      const r = await callApi('/api/kitab', { aksi: 'impor-hapus', kitabId: id, konfirmasi: id });
+      setDisunting(''); setSisa((x) => (x ? x.filter((v) => v !== id) : x)); await muatDaftar();
+      toast(`Kitab dihapus (${r.halamanDihapus} halaman).${r.soalTerkait ? ` ${r.soalTerkait}${r.soalTerkait >= 500 ? '+' : ''} soal masih menautkan kitab ini: teksnya tetap ada, tetapi tombol "Buka di kitab" pada soal itu tidak akan berfungsi.` : ''}`);
+    } catch (e) { toast((apiErr(e) || {}).message || 'Gagal menghapus kitab. Coba lagi: penghapusan bisa diulang.'); }
+    finally { setSibukKitab(''); }
+  };
+
   // Otoritas kitab: status ini diteruskan server ke prompt AI sebagai arahan haluan Aswaja (src/otoritas.js). Hanya admin; setiap perubahan diarsipkan server.
   const tetapkanOtoritas = async (k, ubah) => {
     const o = normalOtoritas(k.otoritas);
@@ -131,8 +203,16 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
       <div className="rounded-2xl border border-line bg-surface">
         <div className="flex items-center gap-2 border-b border-line px-4 py-2">
           <p className="mr-auto text-sm font-semibold">Kitab tersimpan{daftar ? ` (${daftar.length})` : ''}</p>
-          <Btn kind="ghost" onClick={muatDaftar}><RefreshCw size={15} />Segarkan</Btn>
+          <Btn kind="ghost" onClick={() => muatDaftar({ segarkan: true })}><RefreshCw size={15} />Segarkan</Btn>
+          <Btn kind="ghost" onClick={() => muatDaftar({ segarkan: true, cariSisa: true })}>Cari sisa terhapus</Btn>
         </div>
+        {sisa && sisa.length > 0 && (
+          <div role="alert" className="space-y-2 border-b border-line bg-warn-bg px-4 py-3 text-xs text-warn">
+            <p className="font-semibold">Ditemukan {sisa.length} sisa kitab: dokumen induknya sudah dihapus (mis. lewat Firebase console), tetapi halamannya masih memakan ruang simpan.</p>
+            <ul className="space-y-1">{sisa.map((id) => (
+              <li key={id} className="flex items-center gap-2"><span className="mr-auto font-mono">{id}</span>
+                <Btn kind="danger" onClick={() => hapusKitab(id, id)} disabled={sibukKitab === id}>{sibukKitab === id ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}Bersihkan</Btn></li>))}</ul>
+          </div>)}
         {!daftar ? <div className="flex justify-center py-6 text-mute"><Loader2 className="spin" /></div>
           : !daftar.length ? <p className="px-4 py-4 text-sm text-mute">Belum ada kitab di perpustakaan.</p>
           : <ul className="divide-y divide-line">{daftar.map((k) => (
@@ -157,6 +237,9 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
                   <button type="button" className="underline" onClick={() => catatanOtoritas(k)}>{normalOtoritas(k.otoritas).catatan ? 'Ubah catatan' : 'Tambah catatan'}</button>
                 </div>)}
               {k.status === 'siap' && <Btn kind="ghost" onClick={() => aktifkan(k)}>{k.aktif ? <><EyeOff size={15} />Sembunyikan</> : <><Eye size={15} />Aktifkan</>}</Btn>}
+              <Btn kind="ghost" onClick={() => setDisunting(disunting === k.id ? '' : k.id)} disabled={sibukKitab === k.id}><Pencil size={15} />Sunting</Btn>
+              <Btn kind="danger" onClick={() => hapusKitab(k.id, k.judulLatin)} disabled={sibukKitab === k.id}>{sibukKitab === k.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}Hapus</Btn>
+              {disunting === k.id && <FormUbahKitab k={k} Btn={Btn} sibuk={sibukKitab === k.id} onSimpan={(kitab) => simpanUbah(k, kitab)} onBatal={() => setDisunting('')} />}
             </li>))}</ul>}
       </div>
 

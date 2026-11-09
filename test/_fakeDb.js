@@ -11,10 +11,14 @@ export function fakeDb(data = {}) {
       get: async () => snapOf(path),
       set: async (v) => { data[path] = salin(v); },
       delete: async () => { delete data[path]; },
+      // Seperti Admin SDK: subkoleksi ditemukan walau dokumen induknya tidak ada (dokumen "hantu" setelah hapus lewat console).
+      listCollections: async () => [...new Set(Object.keys(data).filter((q) => q.startsWith(path + '/')).map((q) => q.slice(path.length + 1).split('/')[0]))].map((id) => ({ id, path: `${path}/${id}` })),
     };
   }
   const query = (name, st = {}) => ({
     doc: (id) => ref(`${name}/${id}`),
+    // Seperti Admin SDK: ikut memuat dokumen yang hanya punya subkoleksi (induk sudah dihapus).
+    listDocuments: async () => [...new Set(Object.keys(data).filter((q) => q.startsWith(name + '/')).map((q) => q.slice(name.length + 1).split('/')[0]))].map((id) => ref(`${name}/${id}`)),
     orderBy: (f, dir = 'asc') => query(name, { ...st, f, dir }),
     limit: (n) => query(name, { ...st, n }),
     select: (...fields) => query(name, { ...st, fields }),

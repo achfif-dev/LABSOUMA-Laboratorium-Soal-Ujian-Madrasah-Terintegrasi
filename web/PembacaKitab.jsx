@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
+import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
@@ -70,7 +70,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
     setKitabId(awal.kitabId); setKursor(awal.dari); setSorot({ dari: awal.dari, sampai: awal.sampai }); setInfo(''); setKembar([]);
   }, [awal && awal.kitabId, awal && awal.dari, awal && awal.sampai]);
 
-  useEffect(() => { if (!SIMPANAN.daftar) pem.daftar().then(setDaftar).catch(gagal); }, []);
+  // Simpanan daftar bertahan selama halaman terbuka: selalu cocokkan ulang ke server saat layar dibuka (satu pembacaan murah), agar kitab yang dihapus atau diubah admin tidak tampil basi.
+  useEffect(() => { pem.daftar(true).then(setDaftar).catch((e) => { if (!SIMPANAN.daftar) gagal(e); }); }, []);
   useEffect(() => {
     setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false; kotorIsiRef.current = false;
     urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
@@ -184,6 +185,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
         <div className="rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
           <p className="flex items-center gap-2 font-semibold"><BookOpen size={17} />Baca Kitab</p>
           <p className="mt-1 text-mute">Baca kitab dari perpustakaan dengan huruf besar dan layar lebar, tanpa membuat soal. Kitab diimpor admin di Kelola &gt; Perpustakaan.</p>
+          <Btn kind="ghost" className="mt-2 !px-3 !py-1.5 !text-xs" onClick={() => { setErr(null); pem.daftar(true).then(setDaftar).catch(gagal); }}><RefreshCw size={14} />Segarkan daftar</Btn>
         </div>
         {err && <ErrorBox e={err} />}
         {!daftar && !err && <p className="flex items-center gap-2 text-sm text-mute"><Loader2 size={15} className="spin" />Memuat daftar kitab...</p>}

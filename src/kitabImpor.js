@@ -166,18 +166,60 @@ async function bersihkanEkor(db, kid, meta, offset) {
   await hapusId(koleksiCari(kid, meta), (id) => { const m = /^c(\d{5})$/.exec(id); return m ? Number(m[1]) : NaN; });
 }
 
+// Subkoleksi yang pernah dipakai satu kitab (docs/SKEMA-KITAB.md). Cadangan bila listCollections tidak tersedia; di Firestore asli
+// listCollections juga menemukan ruang impor ulang (halaman_rN, cari_rN) dan subkoleksi yang kelak ditambahkan.
+const SUBKOLEKSI_DIKENAL = ['halaman', 'cari', 'daftar', 'impor', 'koreksi', 'isiRiwayat', 'otoritasRiwayat'];
+
+/**
+ * Hapus SEMUA isi kitab: setiap subkoleksi (halaman, indeks cari, daftar isi, arsip koreksi, dst.). Dokumen induk `kitab/{id}` TIDAK disentuh di sini.
+ * Penting: menghapus dokumen induk lewat Firebase console TIDAK menghapus subkoleksinya; isinya tertinggal dan memakan ruang simpan (Spark: 1 GiB).
+ * Aman dipanggil untuk kitab yang induknya sudah tidak ada (sisa hapus-lewat-console) dan aman diulang.
+ */
+async function hapusSemuaIsi(db, kid) {
+  const ref = db.doc(`kitab/${kid}`);
+  let nama = SUBKOLEKSI_DIKENAL;
+  if (typeof ref.listCollections === 'function') nama = [...new Set([...nama, ...(await ref.listCollections()).map((c) => c.id)])];
+  let halaman = 0;
+  for (const n of nama) { const t = await hapusKoleksi(db, `kitab/${kid}/${n}`); if (n.startsWith('halaman')) halaman += t; }
+  return halaman;
+}
+
+/** Perubahan data kitab dari admin (judul, pengarang, fan, mazhab, edisi, hak cipta) -> objek bersih. Tidak menyentuh isi, bahasa, aksara, atau penomoran. */
+export function validasiUbah(k) {
+  if (!k || typeof k !== 'object') tolak('KITAB_INVALID', 'Data kitab kosong.');
+  const edisi = k.edisi && typeof k.edisi === 'object' ? k.edisi : {};
+  const hak = k.hakCipta && typeof k.hakCipta === 'object' ? k.hakCipta : {};
+  const mazhab = str(k.mazhab, 20, 'Mazhab');
+  if (!MAZHAB.includes(mazhab)) tolak('KITAB_INVALID', 'Mazhab tidak dikenal.');
+  const status = str(hak.status || 'belum-dicek', 20, 'Status hak cipta');
+  if (!STATUS_HAK_CIPTA.includes(status)) tolak('KITAB_INVALID', 'Status hak cipta tidak dikenal.');
+  return {
+    judul: str(k.judul, 300, 'Judul', { wajib: true }),
+    judulLatin: str(k.judulLatin, 150, 'Nama kitab (Latin)', { wajib: true }),
+    pengarang: str(k.pengarang, 400, 'Pengarang'),
+    wafatH: bil(k.wafatH ?? null, 1, 2000, 'Tahun wafat', { boleh_null: true }),
+    fan: str(k.fan, 80, 'Fan'),
+    mazhab,
+    edisi: { penerbit: str(edisi.penerbit, 400, 'Penerbit'), muhaqqiq: str(edisi.muhaqqiq, 400, 'Muhaqqiq'), cetakan: str(edisi.cetakan, 400, 'Cetakan') },
+    hakCipta: { status, catatan: str(hak.catatan, 600, 'Catatan hak cipta') },
+  };
+}
+
 const ringkasMeta = (id, d) => ({
   id, jumlahJuz: d.jumlahJuz || 1, judul: d.judul, judulLatin: d.judulLatin, pengarang: d.pengarang, jumlahHalaman: d.jumlahHalaman, status: d.status, bahasa: d.bahasa || 'ar', aksara: d.aksara || 'arab',
   aktif: d.aktif === true, revisi: d.revisi || 1, koreksi: d.koreksi || 0, isiDisunting: d.isiDisunting || 0, otoritas: normalOtoritas(d.otoritas), hakCipta: d.hakCipta?.status || 'belum-dicek', bentukMatn: d.bentukMatn, diubahAt: d.diubahAt || '',
+  // Bidang untuk form "Sunting data kitab" (web/KitabImpor.jsx).
+  fan: d.fan || '', mazhab: d.mazhab || '', wafatH: d.wafatH ?? null, edisi: d.edisi || {}, hakCiptaCatatan: d.hakCipta?.catatan || '',
 });
 
 // Aksi yang mengubah metadata kitab (bukan hanya halaman): ringkasan daftar kitab (src/daftarKitab.js) dibatalkan setelahnya, berhasil atau gagal sebagian.
-const AKSI_UBAH_META = new Set(['impor-mulai', 'impor-selesai', 'impor-otoritas', 'impor-aktif']);
+const AKSI_UBAH_META = new Set(['impor-mulai', 'impor-selesai', 'impor-otoritas', 'impor-aktif', 'impor-ubah', 'impor-hapus']);
 
 /** Satu pintu untuk semua aksi impor. `uid` = admin yang memanggil. */
 export async function aksiImpor(body, uid, opsi = {}) {
   try { return await aksiImporInti(body, uid, opsi); } finally {
-    if (body && AKSI_UBAH_META.has(body.aksi)) { try { await batalkanDaftar((await firestoreAdmin()).db); } catch { /* hanya penghemat bacaan */ } }
+    // `segarkanBaca` = tombol Segarkan di layar admin: membuang ringkasan daftar kitab supaya perubahan di luar aplikasi (mis. hapus lewat Firebase console) ikut tampil di pembaca.
+    if (body && (AKSI_UBAH_META.has(body.aksi) || (body.aksi === 'impor-daftar' && body.segarkanBaca === true))) { try { await batalkanDaftar((await firestoreAdmin()).db); } catch { /* hanya penghemat bacaan */ } }
   }
 }
 
@@ -187,8 +229,15 @@ async function aksiImporInti(body, uid, { sekarang = () => new Date().toISOStrin
   const metaRef = (kid) => db.doc(`kitab/${kid}`);
 
   if (b.aksi === 'impor-daftar') {
-    const snap = await db.collection('kitab').get();
-    return { kitab: snap.docs.slice(0, 200).map((d) => ringkasMeta(d.id, d.data())) };
+    const col = db.collection('kitab');
+    const snap = await col.get();
+    const hasil = { kitab: snap.docs.slice(0, 200).map((d) => ringkasMeta(d.id, d.data())) };
+    // `cariSisa`: ID kitab yang dokumen induknya sudah dihapus (mis. lewat Firebase console) tetapi halamannya masih tersimpan. Hanya atas permintaan: daftar dokumen ikut dihitung sebagai pembacaan.
+    if (b.cariSisa === true && typeof col.listDocuments === 'function') {
+      const ada = new Set(snap.docs.map((d) => d.id));
+      try { hasil.sisa = (await col.listDocuments()).map((r) => r.id).filter((id) => !ada.has(id)).slice(0, 50); } catch { hasil.sisa = []; }
+    }
+    return hasil;
   }
 
   const kid = validasiKitabId(b.kitabId);
@@ -242,11 +291,24 @@ async function aksiImporInti(body, uid, { sekarang = () => new Date().toISOStrin
       return { ok: true, kitabId: kid, revisi, bertahap: true, halamanDihapus: 0 };
     }
     // Kitab baru, atau kitab yang impornya belum pernah selesai (tidak ada yang dibaca pemakai): tulis langsung.
-    const terhapus = ada.exists ? await hapusHalaman(db, kid, meta0) : 0;
+    // Kitab baru dengan ID yang induknya dulu dihapus lewat console: halaman lama masih ada dan membuat hitungan di impor-selesai tidak cocok. Bersihkan semuanya dulu.
+    const terhapus = ada.exists ? await hapusHalaman(db, kid, meta0) : await hapusSemuaIsi(db, kid);
     const revisi = ada.exists ? (meta0.revisi || 1) + 1 : 1;
     await ref.set({ ...kitab, ...(ada.exists && meta0.otoritas ? { otoritas: meta0.otoritas } : {}), ...(sidik ? { sidik } : {}), status: 'mengimpor', aktif: false, revisi, dibuatOleh: ada.exists ? (meta0.dibuatOleh || uid) : uid, dibuatAt: ada.exists ? (meta0.dibuatAt || t) : t, diubahAt: t, diubahOleh: uid });
     await db.doc(dokDaftarIsi(kid, {})).set({ entri: daftar, jumlah: daftar.length, revisi });
     return { ok: true, kitabId: kid, revisi, halamanDihapus: terhapus };
+  }
+
+  // Hapus kitab beserta SELURUH isinya. Berlaku untuk kitab apa pun statusnya (siap, belum selesai, atau rusak) dan untuk sisa kitab yang induknya sudah tidak ada.
+  // Urutan: sembunyikan dulu, hapus isi, hapus induk terakhir. Bila terputus di tengah, kitab tetap terdaftar (tersembunyi) sehingga tombol Hapus bisa diulang.
+  if (b.aksi === 'impor-hapus') {
+    if (b.konfirmasi !== kid) tolak('KONFIRMASI_SALAH', 'Konfirmasi tidak cocok: ketik ID kitab persis untuk menghapus.', 422);
+    if (ada.exists) await ref.set({ ...ada.data(), aktif: false, diubahAt: sekarang(), diubahOleh: uid });
+    let soalTerkait = 0; // soal menyalin teks kitab (tidak ikut hilang), tetapi tautan balik "Buka di kitab" pada soal itu akan tidak berfungsi
+    try { soalTerkait = (await db.collection('soal').where('kitabId', '==', kid).limit(500).get()).docs.length; } catch { /* hanya informasi */ }
+    const halamanDihapus = await hapusSemuaIsi(db, kid);
+    if (ada.exists) await ref.delete();
+    return { ok: true, kitabId: kid, halamanDihapus, adaDokumen: ada.exists, soalTerkait };
   }
 
   if (!ada.exists) tolak('KITAB_TIDAK_ADA', 'Kitab belum dimulai. Jalankan impor-mulai dulu.', 404);
@@ -321,6 +383,20 @@ async function aksiImporInti(body, uid, { sekarang = () => new Date().toISOStrin
       tx.set(db.doc(`kitab/${kid}/otoritasRiwayat/${t.replace(/[^0-9A-Za-z]/g, '')}_${uid}`), { dari: { status: lama.status, akidah: lama.akidah, catatan: lama.catatan }, ke: o, oleh: uid, at: t });
     });
     return { ok: true, otoritas: o };
+  }
+
+  // Sunting data kitab (judul, pengarang, fan, mazhab, edisi, hak cipta) tanpa menyentuh halaman. Transaksi: tidak menimpa perubahan lain yang bersamaan.
+  if (b.aksi === 'impor-ubah') {
+    const baru = validasiUbah(b.kitab);
+    const t = sekarang();
+    await db.runTransaction(async (tx) => {
+      const segar = await tx.get(ref);
+      if (!segar.exists) tolak('KITAB_TIDAK_ADA', 'Kitab tidak ditemukan.', 404);
+      tx.set(ref, { ...segar.data(), ...baru, diubahAt: t, diubahOleh: uid });
+    });
+    // Impor ulang bertahap yang sedang berjalan menimpa metadata saat peralihan: ikutkan perubahan ini agar tidak hilang.
+    if (berjalan && !berjalan.tambah && berjalan.kitab) await berjalanRef.set({ ...berjalan, kitab: { ...berjalan.kitab, ...baru } });
+    return { ok: true, kitabId: kid };
   }
 
   if (b.aksi === 'impor-aktif') {
