@@ -33,8 +33,9 @@ export function serialisasiSoal(id, data) {
   return o;
 }
 
-export function buatBackup({ soal, config, kustom, oleh, now = new Date(), jenis = 'penuh', dasar = '', penuhSejak = '' }) {
+export function buatBackup({ soal, config, kustom, oleh, now = new Date(), jenis = 'penuh', dasar = '', penuhSejak = '', diarsipkan = [] }) {
   const cfg = config && typeof config === 'object' ? config : null;
+  const arsip = [...new Set((diarsipkan || []).filter((x) => typeof x === 'string'))].sort();
   return {
     format: FORMAT, versi: VERSI, dibuat: now.toISOString(), oleh: String(oleh || ''),
     // Berkas selalu LENGKAP (semua soal) supaya bisa dipulihkan sendiri. `jenis` hanya mencatat cara membuatnya:
@@ -43,6 +44,8 @@ export function buatBackup({ soal, config, kustom, oleh, now = new Date(), jenis
     jumlah: { soal: soal.length, kitab: cfg && Array.isArray(cfg.kitab) ? cfg.kitab.length : 0 },
     konfigurasiKustom: !!kustom,
     konfigurasi: cfg,
+    // ID soal yang sudah DIARSIPKAN (dihapus dari Firestore, lihat kandidatArsip). Isinya tetap ada di `soal` supaya berkas ini lengkap. Hanya ditulis bila ada.
+    ...(arsip.length ? { diarsipkan: arsip } : {}),
     soal,
   };
 }
@@ -69,16 +72,51 @@ export function periksaBackup(obj) {
   return {
     dibuat: typeof obj.dibuat === 'string' ? obj.dibuat : '', oleh: typeof obj.oleh === 'string' ? obj.oleh : '',
     jenis: obj.jenis === 'inkremental' ? 'inkremental' : 'penuh', penuhSejak: typeof obj.penuhSejak === 'string' ? obj.penuhSejak : '',
-    soal: obj.soal, konfigurasi: cfg, jumlahKitab: cfg && Array.isArray(cfg.kitab) ? cfg.kitab.length : 0,
+    soal: obj.soal, diarsipkan: Array.isArray(obj.diarsipkan) ? obj.diarsipkan.filter((x) => typeof x === 'string') : [], konfigurasi: cfg, jumlahKitab: cfg && Array.isArray(cfg.kitab) ? cfg.kitab.length : 0,
   };
 }
 
 const ms = (v) => { const t = Date.parse(v); return Number.isNaN(t) ? null : t; };
 
 /** Soal yang boleh diarsipkan (dihapus dari Firestore setelah cadangan terverifikasi): hanya yang Disetujui dan lama tidak diubah. */
-export function kandidatArsip(soal, { hari, now = Date.now() }) {
+export function kandidatArsip(soal, { hari, now = Date.now(), kecuali = [] }) {
   const batas = now - Number(hari) * 86_400_000;
-  return soal.filter((q) => q && q.status === 'approved' && ms(q.updatedAt) !== null && ms(q.updatedAt) < batas);
+  const sudah = new Set(kecuali || []); // sudah diarsipkan: isinya masih di berkas cadangan tetapi tidak ada lagi di Firestore
+  return soal.filter((q) => q && !sudah.has(q.id) && q.status === 'approved' && ms(q.updatedAt) !== null && ms(q.updatedAt) < batas);
+}
+
+/* ------------------------------------------------------------ Soal terarsip tetap ikut cadangan
+ Arsip menghapus soal dari Firestore, tetapi cadangan penuh berikutnya membaca Firestore dan akan kehilangan soal itu (hanya cadangan lama yang masih memuatnya).
+ Agar cadangan TERBARU selalu lengkap, berkas mencatat `diarsipkan` (id) dan cadangan berikutnya membawa isinya dari cadangan dasar. */
+
+const urutId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** Salinan berkas cadangan dengan daftar `diarsipkan` diganti `ids` (hanya id yang isinya ada di `soal`; kosong = kunci dihapus). */
+export function denganArsip(obj, ids) {
+  const ada = new Set((obj.soal || []).map((q) => q && q.id));
+  const daftar = [...new Set(ids || [])].filter((id) => ada.has(id)).sort();
+  const { diarsipkan: _lama, ...sisa } = obj;
+  return daftar.length ? { ...sisa, diarsipkan: daftar } : sisa;
+}
+
+/**
+ * Cadangan inkremental: gabungan soal + daftar arsip yang diteruskan. Soal terarsip yang muncul lagi di server (dipulihkan lalu diubah) tidak lagi dianggap arsip.
+ * Jumlah yang seharusnya ada di Firestore = soal.length - diarsipkan.length.
+ */
+export function gabungInkrementalArsip(dasar, soalUbah) {
+  const diubah = new Set((soalUbah || []).map((q) => q && q.id));
+  const soal = gabungInkremental(dasar.soal, soalUbah);
+  const ada = new Set(soal.map((q) => q.id));
+  const diarsipkan = [...new Set(dasar.diarsipkan || [])].filter((id) => ada.has(id) && !diubah.has(id)).sort();
+  return { soal, diarsipkan };
+}
+
+/** Cadangan penuh: semua soal dari Firestore + soal terarsip dari cadangan dasar yang memang tidak ada di server. Soal yang sudah kembali ke server dilepas dari daftar arsip. */
+export function bawaArsip(soalServer, dasar) {
+  const idServer = new Set(soalServer.map((q) => q.id));
+  const badan = new Map(((dasar && dasar.soal) || []).filter((q) => q && typeof q.id === 'string').map((q) => [q.id, q]));
+  const diarsipkan = [...new Set((dasar && dasar.diarsipkan) || [])].filter((id) => !idServer.has(id) && badan.has(id)).sort();
+  return { soal: [...soalServer, ...diarsipkan.map((id) => badan.get(id))].sort(urutId), diarsipkan };
 }
 
 /* ------------------------------------------------------------ Cadangan inkremental */
