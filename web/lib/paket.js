@@ -320,3 +320,42 @@ export function alihkanButir(butir, segmenAda) {
   });
   return { per, tanpaTempat };
 }
+
+/**
+ * Kekurangan paket: rencana dikurangi hasil yang sudah ada, sehingga proses yang berhenti di tengah (jaringan, kuota, hasil AI terpotong,
+ * dibatalkan) bisa DILANJUTKAN, bukan diulang dari awal. Butir dicocokkan menurut (bagian, bentuk, level), tidak menurut segmen:
+ * butir yang dulu dialihkan ke segmen lain, disunting, atau dipulihkan dari draf tetap dihitung terisi.
+ * @returns {{sisa: {segmen:number, spek:object}[], terisi:number, total:number}} `sisa` menyimpan segmen asal menurut rencana.
+ */
+export function sisaPaket(rencana, hasil) {
+  const kunci = (bagian, bentuk, level) => `${bagian}|${bentuk}|${level}`;
+  const ada = new Map();
+  for (const x of hasil || []) {
+    const q = (x && x.soal) || {};
+    const k = kunci(x && x.bagian, q.bentuk, q.level);
+    ada.set(k, (ada.get(k) || 0) + 1);
+  }
+  const sisa = []; let terisi = 0; let total = 0;
+  for (const t of (rencana && rencana.tugas) || []) {
+    for (const spek of t.spek) {
+      total++;
+      const k = kunci(spek.bagian, spek.bentuk, spek.level);
+      if ((ada.get(k) || 0) > 0) { ada.set(k, ada.get(k) - 1); terisi++; } else sisa.push({ segmen: t.segmen, spek });
+    }
+  }
+  return { sisa, terisi, total };
+}
+
+/** Kelompokkan kekurangan menjadi tugas panggilan (satu segmen per panggilan, maksimal MAKS_BUTIR_PANGGILAN, dibagi rata). */
+export function tugasDariSisa(sisa, { maks = MAKS_BUTIR_PANGGILAN } = {}) {
+  const per = new Map();
+  for (const s of sisa || []) { if (!per.has(s.segmen)) per.set(s.segmen, []); per.get(s.segmen).push(s.spek); }
+  const tugas = [];
+  for (const [segmen, spek] of per) {
+    const k = Math.ceil(spek.length / maks);
+    const ukuran = bagiProporsional(spek.length, Array(k).fill(1));
+    let off = 0;
+    ukuran.forEach((u, j) => { tugas.push({ id: `l${segmen}-${j}`, segmen, spek: spek.slice(off, off + u) }); off += u; });
+  }
+  return tugas.sort((a, b) => a.segmen - b.segmen);
+}
