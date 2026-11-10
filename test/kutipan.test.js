@@ -95,3 +95,28 @@ test('performa: teks 6000 karakter dan 5 kutipan selesai < 300 ms', () => {
   periksaKutipan({ pembahasan: 'كلام ليس في الكتاب أبدا ولا مثله', A: 'ماء السماء وماء البحر وماء الدم', B: 'ماء الورد وماء الزهر وماء الريحان', C: 'قال المصنف سبع مياه', D: 'x' }, besar);
   assert.ok(Date.now() - t0 < 300);
 });
+
+/* ---- negasi terpotong: kutipan cocok persis tetapi dipotong tepat setelah kata negasi ---- */
+const TEKS_NEGASI = 'لا يجوز للمحدث أن يمس المصحف إلا بعد الوضوء وهو شرط لصحة الصلاة عند الشافعية';
+
+test('negasi terpotong: kutipan yang membuang "لا" di depannya ditandai mirip, bukan cocok', () => {
+  const r = periksaKutipan({ pembahasan: 'يجوز للمحدث أن يمس المصحف إلا بعد الوضوء' }, TEKS_NEGASI);
+  assert.equal(r.status, 'periksa');
+  assert.equal(r.ringkas.mirip, 1);
+  assert.equal(r.detail[0].negasiTerpotong, 'لا');
+});
+
+test('negasi terpotong: kutipan yang memuat negasinya, atau diawali kata biasa, tetap lolos', () => {
+  assert.equal(periksaKutipan({ pembahasan: 'لا يجوز للمحدث أن يمس المصحف إلا بعد الوضوء' }, TEKS_NEGASI).status, 'lolos');
+  assert.equal(periksaKutipan({ pembahasan: 'للمحدث أن يمس المصحف إلا بعد الوضوء وهو شرط' }, TEKS_NEGASI).status, 'lolos');
+});
+
+test('negasi terpotong: bila kutipan juga muncul di tempat lain tanpa negasi, tidak ditandai', () => {
+  const t = 'لا يجوز للمحدث أن يمس المصحف. ثم قال: يجوز للمحدث أن يمس المصحف عند الضرورة';
+  assert.equal(periksaKutipan({ pembahasan: 'يجوز للمحدث أن يمس المصحف' }, t).status, 'lolos');
+});
+
+test('negasi terpotong: tidak berlaku pada teks sumber Latin', () => {
+  const t = 'Tidak boleh menyentuh mushaf dalam keadaan berhadats menurut mazhab Syafii.';
+  assert.equal(periksaKutipan({ pembahasan: 'Teks: "boleh menyentuh mushaf dalam keadaan"' }, t).detail.every((d) => !d.negasiTerpotong), true);
+});

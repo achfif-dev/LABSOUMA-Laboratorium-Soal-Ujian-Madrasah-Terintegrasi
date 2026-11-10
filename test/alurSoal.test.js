@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalisasiAlur, jumlahTahap, tahapSoal, tahapDitugaskan, bolehTinjau, masukAntrean, langkahSetelah, catatTinjauan, labelTahap, ALUR_BAWAAN } from '../web/lib/alurSoal.js';
-import { setujui, mintaRevisi } from '../src/review.js';
+import { setujui, mintaRevisi, sidikButaSoal, KOLEKSI_BUTA } from '../src/review.js';
 import { fakeDb } from './_fakeDb.js';
 
 const TS = { serverTimestamp: () => 'TS' };
@@ -12,6 +12,7 @@ const soal = (o = {}) => ({
   pertanyaan: 'Siapa yang wajib shalat?', opsi: { A: 'Muslim baligh berakal', B: 'Anak kecil', C: 'Orang gila', D: 'Orang pingsan', E: '' }, kunci: 'A',
   pembahasan: 'الصلاة واجبة على كل مسلم بالغ عاقل', ai: { dibuat: true, model: 'm', verifikasi: 'lolos', buta: 'sepakat' }, ...o,
 });
+const BUTA_OK = { [`${KOLEKSI_BUTA}/${sidikButaSoal(soal())}`]: { status: 'sepakat', uid: 'u_penyusun' } }; // persetujuan akhir mewajibkan catatan uji buta dari server
 const ALUR3 = normalisasiAlur({ aktif: true, standar: 1, perMapel: { Fiqih: 3, Nahwu: 2 } });
 const e = (uid, tahapEditor) => ({ uid, role: 'editor', tahapEditor });
 const ed = { e1: e('e1', [1]), e2: e('e2', [2]), e3: e('e3', [3]), semua: e('semua', [1, 2, 3]), baru: e('baru', []) };
@@ -87,7 +88,7 @@ test('catatTinjauan dan labelTahap', () => {
 });
 
 test('server: alur penuh 3 tahap dengan revisi di setiap tahap, hingga Approved oleh editor 3', async () => {
-  const db = fakeDb({ 'soal/s1': soal() });
+  const db = fakeDb({ 'soal/s1': soal(), ...BUTA_OK });
   const ambil = () => db.data['soal/s1'];
   // editor 1 minta revisi -> penyusun -> menunggu editor 2
   await mintaRevisi(db, TS, arg('s1', ed.e1, { catatan: 'perbaiki kunci' }));
@@ -106,13 +107,13 @@ test('server: alur penuh 3 tahap dengan revisi di setiap tahap, hingga Approved 
 });
 
 test('server: "setujui" sebelum tahap terakhir hanya meloloskan ke tahap berikut (tetap Pending), tanpa gerbang sumber', async () => {
-  const db = fakeDb({ 'soal/s1': soal() });
+  const db = fakeDb({ 'soal/s1': soal(), ...BUTA_OK });
   const r = await setujui(db, TS, arg('s1', ed.e1, { ambilSumber: () => { throw new Error('tidak boleh dipanggil'); } }));
   assert.deepEqual([r.lanjut, r.tahap, r.total], [true, 2, 3]);
   assert.equal(db.data['soal/s1'].status, 'pending'); assert.equal(db.data['soal/s1'].tahap, 2);
   const r2 = await setujui(db, TS, arg('s1', ed.e2)); assert.equal(r2.tahap, 3);
   // editor yang sudah meninjau tahap 1 tidak boleh ikut meninjau tahap 3, walau ditugaskan di semua tahap
-  const db2 = fakeDb({ 'soal/s1': soal() });
+  const db2 = fakeDb({ 'soal/s1': soal(), ...BUTA_OK });
   await setujui(db2, TS, arg('s1', ed.semua));
   await assert.rejects(() => setujui(db2, TS, arg('s1', ed.semua)), (x) => x.code === 'TAHAP_GANDA');
   const sisa = await setujui(db2, TS, arg('s1', ed.e2)); assert.equal(sisa.tahap, 3);
@@ -187,4 +188,11 @@ test('riwayat yatim: aturan Firestore hanya mengizinkan hapus riwayat bila soal 
   assert.doesNotMatch(rules, /allow update, delete: if false;\n\s*\}\n\n\s*allow read: if isStaff\(\);/);
   assert.match(app, /collection\('riwayat'\)\.get\(\)/);
   assert.match(app, /aksi: 'bersihriwayat'/);
+});
+
+test('server: persetujuan AKHIR tanpa catatan uji buta dari server ditolak (ALASAN_WAJIB); tahap antara tidak digerbangi', async () => {
+  const db = fakeDb({ 'soal/s1': soal({ tahap: 3 }) }); // tanpa BUTA_OK
+  await assert.rejects(() => setujui(db, TS, arg('s1', ed.e3)), (x) => x.code === 'ALASAN_WAJIB' && /uji jawab buta belum dijalankan/.test(x.message));
+  const db2 = fakeDb({ 'soal/s1': soal() }); // tahap 1 dari 3: hanya meloloskan
+  assert.equal((await setujui(db2, TS, arg('s1', ed.e1))).lanjut, true);
 });

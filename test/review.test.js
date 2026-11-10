@@ -11,11 +11,18 @@ import { fakeDb } from './_fakeDb.js';
 
 const TEKS = 'الصلاة واجبة على كل مسلم بالغ عاقل ذكر أو أنثى';
 const KUTIPAN_PALSU = 'قال النبي إن الصلاة تسقط عن المسافر دائما';
+const SEPAKAT = { status: 'sepakat' };
 const soalAsli = (o = {}) => ({
   status: 'pending', authorUid: 'u_penyusun', teks: TEKS, nama: 'Safinatun Naja', bentuk: 'pilgan',
   stimulus: '', pertanyaan: 'Siapa yang wajib shalat?', opsi: { A: 'Muslim baligh berakal', B: 'Anak kecil', C: 'Orang gila', D: 'Orang pingsan', E: '' }, kunci: 'A',
   pembahasan: 'الصلاة واجبة على كل مسلم بالغ عاقل', ai: { dibuat: true, model: 'm', verifikasi: 'lolos', buta: 'sepakat' }, ...o,
 });
+
+// fakeDb dengan catatan uji buta \"sepakat\" untuk tiap soal berpilihan di data (agar tes sumber tidak tersangkut gerbang uji buta).
+const fakeDbButa = (data) => {
+  for (const [k, v] of Object.entries({ ...data })) if (/^soal\/[^/]+$/.test(k) && v && v.bentuk === 'pilgan') data[`${KOLEKSI_BUTA}/${sidikButaSoal(v)}`] = { status: 'sepakat', uid: 'u_penyusun' };
+  return fakeDb(data);
+};
 
 test('sanity: kutipan palsu memang dinilai gagal, kutipan asli lolos', () => {
   assert.equal(periksaKutipan(bidangDariSoal(soalAsli()), TEKS).status, 'lolos');
@@ -35,7 +42,7 @@ test('sidikButa: tahan spasi dan urutan kunci, berubah bila kunci/opsi/teks beru
 
 test('gerbang: klaim palsu "lolos" tidak menutupi kutipan yang sebenarnya gagal', () => {
   const q = soalAsli({ pembahasan: KUTIPAN_PALSU, ai: { dibuat: true, model: 'm', verifikasi: 'lolos', buta: 'sepakat' } });
-  assert.deepEqual(alasanPerluCatatan(q, null), ['ada kutipan Arab yang tidak ada di teks kitab']);
+  assert.deepEqual(alasanPerluCatatan(q, SEPAKAT), ['ada kutipan Arab yang tidak ada di teks kitab']);
 });
 
 test('gerbang: catatan server "beda" menang atas klaim "sepakat" atau kosong; "sepakat" server menang atas klaim "beda"', () => {
@@ -46,8 +53,38 @@ test('gerbang: catatan server "beda" menang atas klaim "sepakat" atau kosong; "s
 
 test('gerbang: tanpa catatan server, klaim "beda" tetap dihormati (hanya memperketat); tanpa teks, klaim "gagal" dipakai', () => {
   assert.equal(alasanPerluCatatan(soalAsli({ ai: { dibuat: true, model: '', verifikasi: 'lolos', buta: 'beda' } }), null).length, 1);
-  assert.equal(alasanPerluCatatan(soalAsli({ teks: '', ai: { dibuat: true, model: '', verifikasi: 'gagal', buta: '' } }), null).length, 1);
-  assert.deepEqual(alasanPerluCatatan(soalAsli(), null), []);
+  assert.equal(alasanPerluCatatan(soalAsli({ teks: '', ai: { dibuat: true, model: '', verifikasi: 'gagal', buta: '' } }), SEPAKAT).length, 1);
+  assert.deepEqual(alasanPerluCatatan(soalAsli(), SEPAKAT), []);
+});
+
+test('gerbang: soal berpilihan TANPA catatan server uji buta wajib alasan; klaim \"sepakat\" di dokumen tidak cukup', () => {
+  const r = alasanPerluCatatan(soalAsli(), null); // dokumen mengaku buta: 'sepakat', server tidak punya catatan
+  assert.equal(r.length, 1); assert.match(r[0], /belum dijalankan/);
+  assert.equal(alasanPerluCatatan(soalAsli({ kunci: 'B' }), null).length, 1); // kunci terbalik, tanpa uji = tidak lagi lolos diam-diam
+});
+
+test('gerbang: bentuk tanpa opsi (isian, uraian) tidak diminta uji buta (tidak ada uji buta untuknya)', () => {
+  assert.deepEqual(alasanPerluCatatan(soalAsli({ bentuk: 'isian', opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', jawaban: 'wajib' }), null), []);
+});
+
+test('gerbang: kutipan \"mirip\" (negasi terpotong) mewajibkan alasan, kutipan utuh tidak', () => {
+  const T = 'لا يجوز للمحدث أن يمس المصحف إلا بعد الوضوء وهو شرط لصحة الصلاة عند الشافعية';
+  const potong = soalAsli({ teks: T, pembahasan: 'يجوز للمحدث أن يمس المصحف إلا بعد الوضوء' });
+  assert.equal(periksaKutipan(bidangDariSoal(potong), T).status, 'periksa');
+  const r = alasanPerluCatatan(potong, SEPAKAT);
+  assert.equal(r.length, 1); assert.match(r[0], /mirip/);
+  assert.deepEqual(alasanPerluCatatan(soalAsli({ teks: T, pembahasan: 'لا يجوز للمحدث أن يمس المصحف إلا بعد الوضوء' }), SEPAKAT), []);
+});
+
+test('catatButa: \"beda\" bersifat lengket, uji ulang tidak bisa menimpanya dengan \"sepakat\"; soal yang diubah punya catatan baru', async () => {
+  const db = fakeDb(); const FV = { serverTimestamp: () => 'TS' };
+  const arg = { teks: TEKS, bentuk: 'pilgan', soal: { pertanyaan: 'Siapa yang wajib shalat?', opsi: soalAsli().opsi, kunci: 'A' }, uid: 'u1', model: 'm' };
+  assert.equal(await catatButa(db, FV, { ...arg, status: 'beda' }), true);
+  assert.equal(await catatButa(db, FV, { ...arg, status: 'sepakat' }), false);
+  assert.equal(db.data[`${KOLEKSI_BUTA}/${sidikButaSoal(soalAsli())}`].status, 'beda');
+  const ubah = { ...arg, soal: { ...arg.soal, kunci: 'B' } };
+  assert.equal(await catatButa(db, FV, { ...ubah, status: 'sepakat' }), true); // isi lain = sidik lain
+  assert.equal(db.data[`${KOLEKSI_BUTA}/${sidikButaSoal(soalAsli({ kunci: 'B' }))}`].status, 'sepakat');
 });
 
 test('catatButa: hanya sepakat/beda yang dicatat, kunci dokumen = sidik isi', async () => {
@@ -69,8 +106,13 @@ function pasang(extra = {}) {
   invalidateAlur(); // pengaturan alur di-cache 30 dtk per proses; tiap tes memulai dari keadaan bersih
   const data = {
     'users/u_editor': { role: 'editor' }, 'users/u_admin': { role: 'admin' }, 'users/u_penyusun': { role: 'penyusun' }, 'users/u_penyusun2': { role: 'penyusun' },
-    'soal/s1': soalAsli(), ...extra,
+    'soal/s1': soalAsli(), [`${KOLEKSI_BUTA}/${sidikButaSoal(soalAsli())}`]: { status: 'sepakat', uid: 'u_penyusun' }, ...extra,
   };
+  // Soal berpilihan yang belum punya catatan uji buta dianggap sudah lulus uji buta di server (kecuali tes menyediakan catatannya sendiri),
+  // supaya tes lama tetap menguji hal yang ia maksudkan. Tes khusus gerbang uji buta menghapus/mengganti catatan ini.
+  for (const [k, v] of Object.entries({ ...data })) {
+    if (/^soal\/[^/]+$/.test(k) && v && v.bentuk === 'pilgan') { const kk = `${KOLEKSI_BUTA}/${sidikButaSoal(v)}`; if (!(kk in data)) data[kk] = { status: 'sepakat', uid: 'u_penyusun' }; }
+  }
   const db = fakeDb(data);
   __setFirebaseForTest({ db, FieldValue: { serverTimestamp: () => 'TS' }, auth: { verifyIdToken: async (t) => { if (!t.startsWith('tok_')) throw new Error('bad'); return { uid: t.replace('tok_', 'u_'), name: 'Nama ' + t } } } });
   return db;
@@ -185,8 +227,8 @@ test('sumber: tanpa tautan, gagal diambil, halaman terpotong, atau tanpa teks ti
 
 test('setujui: teks karangan dengan tautan sumber ditolak tanpa catatan; kutipan "lolos" karena kutipan memang ada di teks karangan itu', async () => {
   const q = soalAsli({ teks: KARANGAN, pembahasan: 'الزكاة تجب على كل غني في كل شهر مرتين', sumberUrl: 'https://shamela.ws/book/1/2' });
-  const db = fakeDb({ 'soal/s1': q });
-  assert.equal(alasanPerluCatatan(q, null).length, 0); // gerbang kutipan saja tidak menangkapnya
+  const db = fakeDbButa({ 'soal/s1': q });
+  assert.equal(alasanPerluCatatan(q, SEPAKAT).length, 0); // gerbang kutipan saja tidak menangkapnya
   const arg = { id: 's1', uid: 'u_editor', nama: 'E', role: 'editor', ambilSumber: ambilHalaman(HALAMAN) };
   await assert.rejects(() => setujui(db, { serverTimestamp: () => 'TS' }, arg), (e) => e.code === 'ALASAN_WAJIB' && /halaman sumber/.test(e.message));
   assert.equal(db.data['soal/s1'].status, 'pending');
@@ -195,7 +237,7 @@ test('setujui: teks karangan dengan tautan sumber ditolak tanpa catatan; kutipan
 });
 
 test('setujui: teks asli dengan sumber cocok disetujui tanpa catatan dan hasilnya melapor sumber "cocok"', async () => {
-  const db = fakeDb({ 'soal/s1': soalAsli({ sumberUrl: 'https://shamela.ws/book/1/2' }) });
+  const db = fakeDbButa({ 'soal/s1': soalAsli({ sumberUrl: 'https://shamela.ws/book/1/2' }) });
   const r = await setujui(db, { serverTimestamp: () => 'TS' }, { id: 's1', uid: 'u_editor', nama: 'E', role: 'editor', ambilSumber: ambilHalaman(HALAMAN) });
   assert.equal(r.sumber, 'cocok'); assert.equal(r.dengan_catatan, false);
 });
@@ -203,8 +245,8 @@ test('setujui: teks asli dengan sumber cocok disetujui tanpa catatan dan hasilny
 test('setujui: SUMBER_WAJIB mewajibkan alasan untuk soal tanpa tautan sumber; bawaan tidak', async () => {
   const arg = { id: 's1', uid: 'u_editor', nama: 'E', role: 'editor' };
   const FV = { serverTimestamp: () => 'TS' };
-  await setujui(fakeDb({ 'soal/s1': soalAsli() }), FV, arg); // bawaan: lolos
-  const db = fakeDb({ 'soal/s1': soalAsli() });
+  await setujui(fakeDbButa({ 'soal/s1': soalAsli() }), FV, arg); // bawaan: lolos
+  const db = fakeDbButa({ 'soal/s1': soalAsli() });
   await assert.rejects(() => setujui(db, FV, { ...arg, sumberWajib: true }), (e) => e.code === 'ALASAN_WAJIB');
   assert.equal((await setujui(db, FV, { ...arg, sumberWajib: true, catatan: 'dari foto kitab' })).sumber, 'tanpa_sumber');
 });
