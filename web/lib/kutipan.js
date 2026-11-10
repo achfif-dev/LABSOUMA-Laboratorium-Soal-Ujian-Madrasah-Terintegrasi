@@ -77,6 +77,31 @@ export function bedaHarakat(kutipanH, q, tokenKitab, tokenKitabH) {
   return terbaik || [];
 }
 
+// Kata negasi/pengecualian yang, bila berada TEPAT sebelum kutipan di teks sumber, berarti kutipan itu terpotong di tengah klausa
+// (mis. kutipan "يجوز للمحدث ..." dari "لا يجوز للمحدث ..."). Kutipan yang cocok persis tetapi terpotong begitu bisa membalik hukum.
+// "ما" dan "إلا" sengaja tidak dimasukkan: terlalu umum, akan memicu peringatan palsu.
+const NEGASI = new Set(['لا', 'ولا', 'فلا', 'ليس', 'وليس', 'ليست', 'لم', 'ولم', 'لن', 'ولن', 'غير', 'بلا', 'دون', 'بدون']);
+
+/** Semua posisi awal rangkaian token q di dalam token teks. */
+function posisiCocok(q, tokenKitab) {
+  const hasil = [];
+  for (let i = 0; i + q.length <= tokenKitab.length; i++) {
+    let ok = true;
+    for (let w = 0; w < q.length; w++) if (tokenKitab[i + w] !== q[w]) { ok = false; break; }
+    if (ok) hasil.push(i);
+  }
+  return hasil;
+}
+
+/** Kata negasi yang terpotong: SEMUA kemunculan kutipan di teks didahului negasi, sedangkan kutipan sendiri tidak diawali negasi. '' bila tidak ada. */
+export function negasiTerpotong(q, tokenKitab) {
+  if (!q.length || NEGASI.has(q[0])) return '';
+  const pos = posisiCocok(q, tokenKitab);
+  if (!pos.length) return '';
+  const sebelum = pos.map((i) => (i > 0 ? tokenKitab[i - 1] : ''));
+  return sebelum.every((t) => NEGASI.has(t)) ? sebelum[0] : '';
+}
+
 /** Ambil kutipan Arab (>= minKata kata) dari satu teks campuran Arab-Indonesia. */
 export function ekstrakKutipan(teks, minKata = MIN_KATA) {
   const hasil = [];
@@ -157,12 +182,14 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
     for (const k of ambil(isi, minKata)) {
       ringkas.total++;
       let status; let skor;
-      let terdekat; let harakatBeda;
+      let terdekat; let harakatBeda; let negasiHilang;
       if (gudang.includes(` ${k.norm} `)) {
         status = 'cocok'; skor = 1;
         // Kata sama tetapi harakat berbeda bisa mengubah hukum (nahwu/sharaf): tandai "mirip", bukan lolos.
         const hb = bedaHarakat(normalisasiH(k.mentah).split(' '), k.norm.split(' '), tokenKitab, tokenKitabH);
         if (hb.length) { status = 'mirip'; skor = 0.9; harakatBeda = hb; }
+        // Cocok persis tetapi terpotong tepat setelah kata negasi: tandai "mirip" agar tidak lolos diam-diam.
+        if (status === 'cocok' && !latin) { const ng = negasiTerpotong(k.norm.split(' '), tokenKitab); if (ng) { status = 'mirip'; skor = 0.9; negasiHilang = ng; } }
       } else {
         const q = k.norm.split(' ');
         const r = cocokkan(q, tokenKitab);
@@ -172,7 +199,7 @@ export function periksaKutipan(bidang, teks, { minKata = MIN_KATA, toleransi = T
         terdekat = tokenKitab.slice(r.awal, r.akhir).join(' ');
       }
       ringkas[status]++;
-      detail.push({ bidang: nama, label: LABEL_BIDANG[nama] || nama, kutipan: k.mentah, status, skor: Math.round(skor * 100) / 100, ...(terdekat ? { terdekat } : {}), ...(harakatBeda ? { bedaHarakat: harakatBeda } : {}) });
+      detail.push({ bidang: nama, label: LABEL_BIDANG[nama] || nama, kutipan: k.mentah, status, skor: Math.round(skor * 100) / 100, ...(terdekat ? { terdekat } : {}), ...(harakatBeda ? { bedaHarakat: harakatBeda } : {}), ...(negasiHilang ? { negasiTerpotong: negasiHilang } : {}) });
     }
   }
 
