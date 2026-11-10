@@ -2438,15 +2438,35 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
 
   const batal = () => { if (ctlRef.current) ctlRef.current.abort(); };
 
+  const kekurangan = useMemo(() => PK.sisaPaket(rencana, hasil), [rencana, hasil]);
   const buat = async () => {
     if (rencana.masalah || !rencana.panggilan) { setErr({ code: 'BAD_REQUEST', message: rencana.masalah || 'Belum ada materi.' }); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
-    if (hasil.length && !window.confirm('Hasil paket sebelumnya akan diganti. Lanjutkan?')) return;
+    if (hasil.length && !window.confirm(`Hasil paket sebelumnya (${hasil.length} butir) akan DIHAPUS dan paket dibuat ulang dari awal.${kekurangan.sisa.length ? ' Bila hanya ingin melengkapi yang kurang, batalkan lalu pakai "Lanjutkan sisa".' : ''} Lanjutkan?`)) return;
     if (!window.confirm(`Membuat paket ${NK.PRESET_DAURI[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
-    setErr(null); setHasil([]); setKurang([]); setJalan(true);
+    setErr(null); setHasil([]); setKurang([]);
+    await proses(rencana.tugas, [], rencana.panggilan);
+  };
+
+  // Lanjutkan: hitung kekurangan dari hasil yang sudah ada, buat hanya itu. Butir yang sudah jadi tidak dihapus dan tidak diulang.
+  const lanjutkan = async () => {
+    const tugas = PK.tugasDariSisa(kekurangan.sisa);
+    if (!tugas.length) { toast('Paket sudah lengkap.'); return; }
+    const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
+    if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
+    if (!window.confirm(`Melanjutkan ${kekurangan.sisa.length} butir yang belum ada (${kekurangan.terisi} butir yang sudah jadi tidak diulang) memakai ±${tugas.length} panggilan AI. Lanjutkan?`)) return;
+    setErr(null); setKurang([]);
+    await proses(tugas, hasil, tugas.length);
+  };
+
+  // Mesin bersama untuk "Buat paket" (awal kosong) dan "Lanjutkan sisa" (awal = hasil yang ada).
+  const proses = async (daftarTugas, awal, jumlahPanggilan) => {
+    setJalan(true);
     const ctl = new AbortController(); ctlRef.current = ctl;
-    const kumpul = []; const sisa = []; const segmenAda = new Set();
+    const kumpul = [...awal]; const sisa = []; const segmenAda = new Set(awal.map((x) => x.segmen).filter((n) => Number.isInteger(n)));
+    const FATAL = new Set(['RATE_LIMIT_DAILY', 'AUTH_REQUIRED', 'FORBIDDEN_ROLE', 'BAD_REQUEST', 'INVALID_ARABIC', 'UNAUTHORIZED', 'FORBIDDEN']);
+    let beruntun = 0; // panggilan gagal berturut-turut: berhenti bila 3 (mis. offline) supaya kuota tidak terbuang
     const jalankan = async (tugas, label) => {
       const seg = rencana.segmen[tugas.segmen];
       setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
@@ -2469,12 +2489,26 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     try {
       let k = 0;
       const luar = [];
-      for (const t of rencana.tugas) {
-        if (ctl.signal.aborted) break; k++;
-        try { await jalankan(t, `Panggilan ${k} dari ${rencana.panggilan}`); } catch (e) {
-          // Segmen seluruhnya di luar cakupan (atau tak memuat materi): lewati, butirnya dihitung kurang. Kuota harian habis dan galat lain tetap menghentikan.
-          if (e && e.code === 'TEKS_TIDAK_MEMADAI') { luar.push(t.segmen + 1); t.spek.forEach((s) => sisa.push({ segmen: -1, spek: s })); } else throw e;
+      // Satu panggilan gagal TIDAK menghentikan paket: segmen di luar cakupan dilewati; galat sementara (hasil AI terpotong, rusak, jaringan)
+      // dibagi dua dan dicoba lagi; butir tunggal yang tetap gagal masuk daftar ulang. Hanya kuota habis, sesi berakhir, batal, dan 3 gagal
+      // berturut-turut yang menghentikan, dan semuanya bisa dilanjutkan lewat "Lanjutkan sisa" tanpa mengulang butir yang sudah jadi.
+      const aman = async (t, label) => {
+        if (ctl.signal.aborted) return;
+        try { await jalankan(t, label); beruntun = 0; } catch (e) {
+          if (ctl.signal.aborted || (e && e.name === 'AbortError')) throw e;
+          if (e && e.code === 'TEKS_TIDAK_MEMADAI') { luar.push(t.segmen + 1); t.spek.forEach((s) => sisa.push({ segmen: -1, spek: s })); return; }
+          if (e && (FATAL.has(e.code) || e.status === 401 || e.status === 403)) throw e;
+          if (++beruntun >= 3) throw e;
+          if (t.spek.length > 1) {
+            const m = Math.ceil(t.spek.length / 2);
+            await aman({ id: `${t.id}a`, segmen: t.segmen, spek: t.spek.slice(0, m) }, 'Mencoba lagi (dibagi dua)');
+            await aman({ id: `${t.id}b`, segmen: t.segmen, spek: t.spek.slice(m) }, 'Mencoba lagi (dibagi dua)');
+          } else t.spek.forEach((s) => sisa.push({ segmen: t.segmen, spek: s }));
         }
+      };
+      for (const t of daftarTugas) {
+        if (ctl.signal.aborted) break; k++;
+        await aman(t, `Panggilan ${k} dari ${jumlahPanggilan}`);
       }
       if (luar.length && !segmenAda.size) setErr({ code: 'TEKS_TIDAK_MEMADAI', message: `Tidak ada bagian teks yang masuk cakupan${cakupan ? ` "${cakupan}"` : ''}. Periksa apakah materi yang diberikan sesuai dengan cakupan di Konfigurasi.` });
       else if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati (di luar cakupan); butirnya dialihkan ke segmen lain yang masuk cakupan.`);
@@ -2502,7 +2536,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
             if (ctl.signal.aborted) break;
             const potong = spek.slice(off, off + PK.MAKS_BUTIR_PANGGILAN);
             const n0 = kumpul.length;
-            try { await jalankan({ id: `u${segmen}-${off}`, segmen, spek: potong }, 'Mengulang butir yang gagal'); } catch (e) { if (e && e.code === 'RATE_LIMIT_DAILY') throw e; }
+            try { await jalankan({ id: `u${segmen}-${off}`, segmen, spek: potong }, 'Mengulang butir yang gagal'); } catch (e) { if (ctl.signal.aborted || (e && (e.name === 'AbortError' || FATAL.has(e.code)))) throw e; }
             if (kumpul.length - n0 < potong.length) gagalAkhir.push(...potong.slice(kumpul.length - n0));
           }
         }
@@ -2511,9 +2545,9 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
       const kembarAkhir = buangKembar(); // pengganti yang ternyata kembar lagi: tidak diulang lagi (hemat kuota), dihitung kurang
       if (kembarAkhir.length) setKurang((k) => [...k, ...kembarAkhir.map((d) => d.spek).filter(Boolean)]);
       if (nKembar) toast(`${nKembar} butir kembar dibuang otomatis${kembarAkhir.length ? `; ${kembarAkhir.length} belum ada penggantinya` : '; pengganti dibuat bila memungkinkan'}.`);
-      if (ctl.signal.aborted) toast('Dibatalkan. Butir yang sudah jadi tetap ditampilkan.');
+      if (ctl.signal.aborted) toast('Dibatalkan. Butir yang sudah jadi tetap ditampilkan; pakai "Lanjutkan sisa" untuk melengkapi.');
     } catch (e) {
-      const x = apiErr(e); if (x) setErr(x.code === 'RATE_LIMIT_DAILY' ? { ...x, message: x.message + ' Butir yang sudah jadi tetap ada di bawah; simpan dulu, lanjutkan besok.' } : x);
+      const x = apiErr(e); if (x) setErr({ ...x, message: `${x.message} Proses berhenti di tengah jalan. Butir yang sudah jadi tetap ada di bawah; klik "Lanjutkan sisa" untuk membuat yang belum ada (tidak mengulang dari awal)${x.code === 'RATE_LIMIT_DAILY' ? ', atau simpan dulu dan lanjutkan besok' : ''}.` });
     } finally { setJalan(false); setStatus(''); ctlRef.current = null; }
   };
 
@@ -2681,6 +2715,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
 
       <div className="flex flex-wrap items-center gap-3">
         <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAURI[dawr].label}</Btn>
+        {!jalan && hasil.length > 0 && kekurangan.sisa.length > 0 && !rencana.masalah && <Btn kind="soft" onClick={lanjutkan}><RefreshCw size={15} />Lanjutkan sisa ({kekurangan.sisa.length} butir)</Btn>}
         {jalan && !fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}
         <span className="text-xs text-mute">{rencana.panggilan ? `${rencana.total} butir · ±${rencana.panggilan} panggilan AI (kuota harian dipakai)` : ''}</span>
       </div>
