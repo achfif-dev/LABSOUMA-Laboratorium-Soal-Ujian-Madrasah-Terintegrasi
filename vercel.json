@@ -6,9 +6,14 @@
   "regions": [
     "sin1"
   ],
+  "ignoreCommand": "sh scripts/vercel-ignore.sh",
+  "rewrites": [
+    { "source": "/api/:route", "destination": "/api/gateway?route=:route" }
+  ],
   "functions": {
     "api/*.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "excludeFiles": "{**/*.map,**/*.d.ts,**/*.d.mts,**/*.d.cts,**/README.md,**/CHANGELOG.md}"
     }
   },
   "headers": [

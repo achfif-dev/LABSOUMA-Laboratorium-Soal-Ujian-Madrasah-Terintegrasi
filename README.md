@@ -9,7 +9,7 @@ Susunan tanpa kartu kredit:
 | Bank soal bersama dan peran pengguna | Cloud Firestore (paket Spark) | gratis dalam kuota harian |
 | AI (soal, terjemah, analisis, telaah) | Gemini API tier gratis (bisa diganti Claude) | gratis, dengan batas |
 
-Cloud Functions tidak dipakai karena butuh paket Blaze. Fungsi server ada di folder `api/`.
+Cloud Functions tidak dipakai karena butuh paket Blaze. Server hanya **satu fungsi Vercel** (`api/gateway.js`) yang meneruskan `/api/<nama>` ke handler di `src/rute/`.
 
 Peran: **pending** (baru daftar), **penyusun**, **editor** (menyetujui atau meminta revisi, tidak untuk soal buatannya sendiri), **admin** (mengelola pengguna dan semua soal), **ustadz** (alat bantu pribadi, lihat bagian Peran Ustadz), **nonaktif**.
 
@@ -40,7 +40,7 @@ Ustadz hanya mendapat lima sub-tab: Penyusunan, Soal Saya, Export, Fokus & Kisi-
 **Angka terukur** (clone `main`, 7 Nov 2026)
 - `npm test`: 770 tes, 769 lulus, 1 dilewati (uji berkas nyata Dasuqi; jalankan dengan `KITAB_DASUQI_DOCX=...`). `npm run lint`: 0 error, 72 peringatan (kebanyakan `react-hooks/exhaustive-deps`, belum ditriase). `npm run build` lolos.
 - Bundel awal 994 KB (gzip 305 KB), turun dari 1.984 KB (gzip 622 KB) pada 6 Nov. Dimuat saat dipakai: mesin Pegon 259 KB, `docx` 466 KB, tab Export 30 KB, tab Konfigurasi/Pengaturan AI 50 KB, dan tujuh panel lain. Lihat *Arsitektur frontend*.
-- Fungsi Vercel: 11 dari 12 yang diizinkan paket Hobby. Fitur API baru harus digabung ke berkas `api/` yang ada.
+- Fungsi Vercel: **1** (`api/gateway.js`), bukan 11. Rute API baru: buat berkas di `src/rute/`, lalu daftarkan di tabel `RUTE` pada `api/gateway.js`. Jangan menambah berkas lain di `api/` (lihat *Function Storage Vercel*).
 
 **Yang belum teruji atau belum dikerjakan (jujur)**
 - Aturan Firestore hanya diuji sebagai teks (`firestore.rules` belum diuji di emulator). Pemuatan malas dan tampilan di HP belum dicoba di perangkat sungguhan; setelah memperbarui, uji tab Pegon, Export, dan Konfigurasi.
@@ -126,6 +126,7 @@ Tab **Pegonizer** menyatukan aplikasi Pegon ke dalam sistem ini (standar ortogra
 - **Firestore Spark:** kuota gratis: 1 GiB simpanan, 20.000 tulis, 20.000 hapus, dan 50.000 baca per hari. Kuota harian direset tiap hari (tengah malam waktu Pasifik); bila habis, operasi ditolak sampai reset, bukan sampai bulan berikutnya. Aplikasi menyimpan salinan data di browser dan membatasi daftar soal ke 300 terbaru untuk menghemat bacaan. Untuk perpustakaan besar (puluhan sampai 100 kitab) dan ribuan soal ada penghemat tambahan: (1) **Pengecualian indeks** di `firestore.indexes.json` (teks kitab, indeks pencarian, isi soal, riwayat tidak diindeks otomatis; memangkas ukuran tersimpan kira-kira separuh). Terbitkan dengan `firebase deploy --only firestore:indexes` setelah memperbarui berkas ini; (2) daftar kitab dibaca dari satu dokumen ringkasan (`kitab_ringkas/daftar`, `src/daftarKitab.js`), bukan satu bacaan per kitab; (3) cadangan Drive **inkremental** (hanya soal yang berubah dibaca; penuh tiap 30 hari atau bila ada soal dihapus); (4) menu Pemeliharaan Data (admin) punya **Pangkas riwayat** (sisakan 3-50 versi terbaru per soal); (5) `perpus-isi-usul` dicache 30 menit dan dibatasi `LIMIT_ISI_USUL_PER_DAY` (bawaan 20 per admin per hari). Pantau di Firebase Console > Usage.
 - **Gemini gratis:** jika muncul "Batas permintaan AI tercapai", itu kuota proyek habis. Tunggu atau ganti `AI_MODEL` ke `gemini-3.5-flash-lite`.
 - **Vercel Hobby:** ketentuan wajarnya membatasi pemakaian ke personal non-komersial. Pastikan penggunaan Anda sesuai.
+- **Function Storage Vercel (10 GB di Hobby):** metrik ini menjumlahkan ukuran bundle fungsi dari deployment yang tersimpan, terpisah dari Deployment Storage. Setiap berkas di `api/` dibangun menjadi bundle sendiri yang menyalin seluruh dependency-nya (`firebase-admin` membawa puluhan paket), jadi 11 fungsi = 11 salinan per deployment. Penghematan yang dipakai: (1) **satu fungsi** `api/gateway.js` (rute dimuat malas dari `src/rute/`); (2) `excludeFiles` di `vercel.json` membuang `.map`, `.d.ts`, README dan CHANGELOG dari bundle; (3) `ignoreCommand` (`scripts/vercel-ignore.sh`) melewati deployment bila commit hanya mengubah docs, tes, eval, atau CI. `test/gateway.test.js` menjaga ketiganya. Bila metrik masih tinggi: hapus deployment lama di dashboard (angka bisa turun lambat), dan periksa grafik Usage > Function Storage per proyek, karena metrik dihitung untuk seluruh tim.
 - Batas per pengguna di aplikasi (5 per menit, 60 per hari untuk AI) disimpan di Firestore dan bisa diubah lewat `LIMIT_*`.
 - **Ustadz** punya batas dan plafon harian sendiri (`LIMIT_USTADZ_PER_MINUTE` 3, `LIMIT_USTADZ_PER_DAY` 15, `LIMIT_USTADZ_GLOBAL_PER_DAY` 300; ambil halaman kitab `LIMIT_USTADZ_KITAB_PER_MINUTE` 5 dan `LIMIT_USTADZ_KITAB_PER_DAY` 50), terpisah dari kolam tim agar tidak saling menghabiskan.
 - **Plafon global:** selain batas per pengguna, ada plafon harian untuk seluruh madrasah (`LIMIT_GLOBAL_PER_DAY`, bawaan 1000 panggilan AI). Bila penuh, semua pengguna ditolak sampai besok (WIB). Sesuaikan dengan kuota penyedia Anda. Uji jawab buta dan telaah juga dihitung.
@@ -411,7 +412,7 @@ Diisi di Vercel > Settings > Environment Variables (lihat juga `.env.example`, y
 | `CONFIG_ENCRYPTION_KEY` | kunci enkripsi 32 byte base64 untuk kunci AI tersimpan (opsional) |
 | `GOOGLE_DRIVE_CLIENT_ID` | OAuth Client ID untuk Backup Drive dan cadangan Soal Saya |
 | `KITAB_ALLOWED_HOSTS` | daftar host yang boleh diambil teks kitabnya |
-| `SUMBER_WAJIB` | `1` = menyetujui soal yang halaman sumbernya kosong atau tidak terjangkau wajib memakai catatan alasan (dibaca `api/assist.js`, dipakai `src/review.js`) |
+| `SUMBER_WAJIB` | `1` = menyetujui soal yang halaman sumbernya kosong atau tidak terjangkau wajib memakai catatan alasan (dibaca `src/rute/assist.js`, dipakai `src/review.js`) |
 | `LIMIT_PER_MINUTE`, `LIMIT_PER_DAY`, `LIMIT_GLOBAL_PER_DAY` | batas AI per pengguna dan plafon harian madrasah |
 | `LIMIT_KITAB_PER_MINUTE`, `LIMIT_KITAB_PER_DAY` | batas ambil teks kitab dari situs |
 | `LIMIT_USTADZ_PER_MINUTE`, `LIMIT_USTADZ_PER_DAY`, `LIMIT_USTADZ_GLOBAL_PER_DAY`, `LIMIT_USTADZ_KITAB_PER_MINUTE`, `LIMIT_USTADZ_KITAB_PER_DAY` | batas dan plafon peran Ustadz |
@@ -464,7 +465,8 @@ web/lib/syamilah.js, dokumenKitab.js, penandaSisip.js, docx.js, sumberLain.js, b
 web/lib/perpus.js, pembaca.js, rujukan.js, cariKitab.js, koreksi.js, otoritas.js, telaahKitab.js, periksaRujukan.js   baca, cari, koreksi, otoritas, tanya kitab
 web/lib/alurSoal.js, bentuk.js, ujian.js, kisi.js, paket.js, kutipan.js, sikap.js, duplikat.js, riwayat.js, analisisButir.js, excelConfig.js, navigasi.js, dasbor.js   logika murni lain (dipakai klien; sebagian punya salinan di src/ untuk server dan tes)
 web/lib/drive.js, cadanganDrive.js, ustadz.js, draft.js          cadangan Drive, cadangan Soal Saya, peran Ustadz, draf otomatis
-api/                     11 fungsi Vercel: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
+api/gateway.js           satu-satunya fungsi Vercel; meneruskan /api/<nama> ke src/rute/
+src/rute/                11 handler: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
 src/platform.js, access.js, secrets.js   Firebase Admin, autentikasi, peran, batas pemakaian; enkripsi AES-256-GCM
 src/soalService.js, assistService.js, paketService.js, babService.js, cekButa.js, pegonService.js, pegonCek.js, pegonRules.js, gemini.js, aswaja.js   layanan AI: soal, terjemah, telaah, paket, bab, uji buta, Pegon, adapter Gemini, haluan Aswaja
 src/kitabImpor.js, kitabBaca.js, kitabCari.js, kitabKoreksi.js, kitabOcr.js, kitabFetch.js, fotoKitab.js, syamilah.js, otoritas.js, telaahKitab.js, periksaRujukan.js   perpustakaan kitab di server (impor, baca, cari, koreksi, OCR, otoritas, tanya)
