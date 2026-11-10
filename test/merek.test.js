@@ -7,7 +7,7 @@ import { MEREK, terapkanMerek } from '../web/lib/merek.js';
 const baca = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
 test('footnote kredit: teks persis sesuai permintaan pemilik aplikasi', () => {
-  assert.equal(MEREK.kreditLatin, 'Powered By Achmad Afifuddin');
+  assert.equal(MEREK.kreditLatin, 'Powered By');
   assert.equal(MEREK.kreditArab, 'أحمد عفيف الدين');
   assert.equal(MEREK.nama, 'LABSOUMA'); assert.equal(MEREK.logo, '/logo.png');
 });
@@ -16,7 +16,7 @@ test('terapkanMerek mengisi semua penanda di index.html dan tidak menyisakan %ME
   const h = terapkanMerek(baca('index.html'));
   assert.equal(/%MEREK_/.test(h), false);
   assert.ok(h.includes('<title>LABSOUMA · Laboratorium Soal Ujian Madrasah Terintegrasi</title>'));
-  assert.ok(h.includes('Powered By Achmad Afifuddin')); assert.ok(h.includes('أحمد عفيف الدين')); assert.ok(h.includes('src="/logo.png"'));
+  assert.ok(h.includes('Powered By')); assert.ok(h.includes('أحمد عفيف الدين')); assert.ok(h.includes('src="/logo.png"'));
   assert.ok(h.indexOf('id="pembuka"') > h.indexOf('<div id="root">')); // layar pembuka ada DI DALAM #root: React menggantinya saat siap
 });
 
