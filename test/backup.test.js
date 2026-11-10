@@ -6,7 +6,7 @@ import {
 } from '../src/drive.js';
 import { bersihkanSoal, pulihkanSoal, infoBackup, MAKS_PER_PEMULIHAN } from '../src/backup.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import backupHandler from '../api/backup.js';
+import backupHandler from '../src/rute/backup.js';
 
 const salin = (o) => JSON.parse(JSON.stringify(o));
 const SOAL = () => ({

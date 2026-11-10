@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __setFirebaseForTest } from '../src/platform.js';
-import sessionHandler from '../api/session.js';
+import sessionHandler from '../src/rute/session.js';
 
 function fakeFirebase() {
   const store = {};

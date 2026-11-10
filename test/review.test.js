@@ -6,7 +6,7 @@ import { sidikButa, sidikButaSoal, alasanPerluCatatan, catatButa, setujui, KOLEK
 import { periksaKutipan, bidangDariSoal } from '../src/kutipan.js';
 import { BIDANG_RIWAYAT } from '../web/lib/riwayat.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/assist.js';
+import handler from '../src/rute/assist.js';
 import { fakeDb } from './_fakeDb.js';
 
 const TEKS = 'الصلاة واجبة على كل مسلم بالغ عاقل ذكر أو أنثى';
@@ -100,7 +100,7 @@ test('catatButa: hanya sepakat/beda yang dicatat, kunci dokumen = sidik isi', as
 /* ---------------- handler /api/assist aksi "setujui" ---------------- */
 const mkRes = () => { const r = { h: {}, setHeader(k, v) { r.h[k] = v; }, status(c) { r.code = c; return r; }, json(b) { r.body = b; return r; } }; return r; };
 const req = (tok, body) => ({ method: 'POST', headers: { authorization: 'Bearer ' + tok }, body });
-import appConfigHandler from '../api/app-config.js';
+import appConfigHandler from '../src/rute/app-config.js';
 import { invalidateAlur } from '../src/alurEditor.js';
 function pasang(extra = {}) {
   invalidateAlur(); // pengaturan alur di-cache 30 dtk per proses; tiap tes memulai dari keadaan bersih
@@ -329,7 +329,7 @@ test('klien: revisi dan persetujuan lewat server; tidak ada lagi tulis status re
 });
 
 test('api/backup bersihriwayat: hanya admin; pindai tidak menghapus; hapus=true menghapus riwayat yatim saja', async () => {
-  const { default: backupHandler } = await import('../api/backup.js');
+  const { default: backupHandler } = await import('../src/rute/backup.js');
   const db = pasang({ ...EDITOR_DOK, 'soal/ada': soalAsli(), 'soal/ada/riwayat/r1': { snapshot: {}, oleh: 'u', namaOleh: 'n', at: 1 }, 'soal/hilang/riwayat/r1': { snapshot: {}, oleh: 'u', namaOleh: 'n', at: 1 } });
   const panggil = async (tok, body) => { const r = mkRes(); await backupHandler(req(tok, body), r); return r; };
   try {

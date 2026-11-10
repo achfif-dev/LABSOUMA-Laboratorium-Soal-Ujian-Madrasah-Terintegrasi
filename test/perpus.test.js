@@ -5,7 +5,7 @@ import { parseSyamilah } from '../src/syamilah.js';
 import { jalankanImpor, isianAwal } from '../web/lib/imporKitab.js';
 import { namaUntukForm, labelEntri, bagianTeks, gabungTeks, rentangHal, isianRujukan, rentangBab, buatPemuat, MAKS_TEKS_SOAL } from '../web/lib/perpus.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const J = 'فتح المعين'; const ZW = '\u200c\u200c';

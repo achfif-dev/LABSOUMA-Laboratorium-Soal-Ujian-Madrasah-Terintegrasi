@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authenticate, authenticateStaff, ensureProfile, enforceRate, route, __setFirebaseForTest } from '../src/platform.js';
-import configHandler from '../api/config.js';
-import generateHandler from '../api/generate.js';
+import configHandler from '../src/rute/config.js';
+import generateHandler from '../src/rute/generate.js';
 
 /* Firestore palsu minimal: doc(path).get(), runTransaction(tx.get/set/update) */
 function fakeFirebase({ users = {}, tokens = {} } = {}) {

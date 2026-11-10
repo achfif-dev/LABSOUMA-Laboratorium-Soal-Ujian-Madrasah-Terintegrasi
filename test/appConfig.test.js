@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_APP_CONFIG, sanitizeAppConfig, resolveAppConfig, bacaAplikasi, simpanApp, resetApp, invalidateAppConfig, TINGKAT_NAMA } from '../src/appConfig.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import appConfigHandler from '../api/app-config.js';
+import appConfigHandler from '../src/rute/app-config.js';
 import { fakeDb } from './_fakeDb.js';
 
 function fakeFirebase({ users = {}, tokens = {} } = {}) {

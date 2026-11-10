@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { bangunDasbor, statusKuota, pemakaianHariIni, ambilDasbor } from '../src/adminStats.js';
 import { dayKeyWib, detikSampaiResetWib } from '../src/access.js';
 import { __setFirebaseForTest, GLOBAL_AI_ID, GLOBAL_USTADZ_ID } from '../src/platform.js';
-import handler from '../api/admin-stats.js';
+import handler from '../src/rute/admin-stats.js';
 import { fakeDb } from './_fakeDb.js';
 
 const NOW = Date.UTC(2026, 9, 25, 5, 0, 0); // 12.00 WIB, 25 Okt 2026

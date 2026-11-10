@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { DOK_RINGKAS } from '../src/daftarKitab.js';
 import { fakeDb } from './_fakeDb.js';
 

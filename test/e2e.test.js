@@ -3,8 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __setFirebaseForTest } from '../src/platform.js';
 import { invalidateAiConfig } from '../src/aiConfig.js';
-import generateHandler from '../api/generate.js';
-import assistHandler from '../api/assist.js';
+import generateHandler from '../src/rute/generate.js';
+import assistHandler from '../src/rute/assist.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';
 const SOAL = { stimulus: '', pertanyaan: 'Berapa macam air yang boleh dipakai bersuci?', pilihan_a: 'Tiga macam', pilihan_b: 'Lima macam', pilihan_c: 'Tujuh macam', pilihan_d: 'Sembilan macam', pilihan_e: 'Sebelas macam',

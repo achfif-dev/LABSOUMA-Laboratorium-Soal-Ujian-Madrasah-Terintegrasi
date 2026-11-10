@@ -15,7 +15,7 @@ import { bidangDariAI, bidangDariSoal } from '../src/kutipan.js';
 import { buatKisi } from '../src/kisi.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import { invalidateAiConfig } from '../src/aiConfig.js';
-import generateHandler from '../api/generate.js';
+import generateHandler from '../src/rute/generate.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';
 const base = { teks: TEKS, nama: 'Fathul Qarib', tingkat: 'MA', level: 'L1', mapel: 'Fiqih' };

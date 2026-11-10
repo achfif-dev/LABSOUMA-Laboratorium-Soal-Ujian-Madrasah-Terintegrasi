@@ -9,7 +9,7 @@ import { aksiCari, kosongkanSimpananCari } from '../src/kitabCari.js';
 import { jalankanImpor, isianAwal } from '../web/lib/imporKitab.js';
 import { parseSyamilah } from '../src/syamilah.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 /* ---------- Normalisasi dan pencocokan ---------- */

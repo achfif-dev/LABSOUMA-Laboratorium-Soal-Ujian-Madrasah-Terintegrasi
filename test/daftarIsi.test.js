@@ -9,7 +9,7 @@ import { aksiIsiSimpan, aksiIsiAi, validasiIsiAi, JUMLAH_AI_MAKS, TOOL_DAFTAR_IS
 import { toGeminiSchema } from '../src/gemini.js';
 import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, MAKS_ENTRI_ISI, levelUsul, bersihkanJudul, kandidatJudul, entriDariPilihanAi, normalJudul, ukuranBarisKhas } from '../web/lib/daftarIsi.js';
 import { buatPemuat } from '../web/lib/perpus.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const J = 'فتح المعين'; const ZW = '‌‌';

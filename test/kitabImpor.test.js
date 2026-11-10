@@ -6,7 +6,7 @@ import { parseSyamilah } from '../src/syamilah.js';
 import { slugKitab, bagiBatch, tebakMazhab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor } from '../web/lib/imporKitab.js';
 import { validasiKitabId, validasiKitab, validasiHalaman, idHalaman } from '../src/kitabImpor.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const J = 'فتح المعين';

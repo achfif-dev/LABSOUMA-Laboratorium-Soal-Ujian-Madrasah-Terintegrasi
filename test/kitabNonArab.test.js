@@ -13,7 +13,7 @@ import { validasiKitab } from '../src/kitabImpor.js';
 import { teksProblem, validateInput, systemPromptFor, SYSTEM_PROMPT, resolveBahasa, buildUserPrompt } from '../src/soalService.js';
 import { validatePaket, sistemPaketFor, SISTEM_PAKET } from '../src/paketService.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 import { batalkanDaftar } from '../src/daftarKitab.js';
 

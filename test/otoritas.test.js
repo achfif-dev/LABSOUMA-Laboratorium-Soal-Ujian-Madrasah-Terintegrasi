@@ -12,9 +12,9 @@ import {
 } from '../src/otoritas.js';
 import { parseSyamilah } from '../src/syamilah.js';
 import { jalankanImpor, isianAwal } from '../web/lib/imporKitab.js';
-import generateHandler from '../api/generate.js';
-import assistHandler from '../api/assist.js';
-import kitabHandler from '../api/kitab.js';
+import generateHandler from '../src/rute/generate.js';
+import assistHandler from '../src/rute/assist.js';
+import kitabHandler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';

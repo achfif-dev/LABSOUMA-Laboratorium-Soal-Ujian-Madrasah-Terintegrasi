@@ -6,7 +6,7 @@ import { DEFAULT_APP_CONFIG, simpanApp, resetApp, pulihkanApp, lihatApp, bacaApl
 import { simpanAi, pulihkanAi, lihatAi, statusAi, invalidateAiConfig } from '../src/aiConfig.js';
 import { dataDariDoc, ringkas, bandingkan, kanon, buatTitik, hapusTitik, daftarRiwayat, BATAS_RIWAYAT } from '../src/configBackup.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/config-backup.js';
+import handler from '../src/rute/config-backup.js';
 
 const salin = (o) => JSON.parse(JSON.stringify(o));
 const ADM = { uid: 'a', email: 'admin@x.id' };

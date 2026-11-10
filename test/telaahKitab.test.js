@@ -9,7 +9,7 @@ import { periksaSoalDenganTeks } from '../web/lib/periksaRujukan.js';
 import { tanyaKitab, validasiTanya } from '../src/telaahKitab.js';
 import { periksaRujukan } from '../src/periksaRujukan.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const J = 'فتح المعين'; const ZW = '\u200c\u200c';
@@ -193,7 +193,7 @@ test('periksaRujukan: membaca halaman rujukan dari perpustakaan; tanpa rujukan 4
 /* ---------- /api/assist ---------- */
 test('/api/assist: periksarujukan gratis (tanpa kuota AI) dan tanyakitab menolak masukan cacat sebelum kuota', () => dengan(dasar(), async (db) => {
   await impor();
-  const { default: assist } = await import('../api/assist.js');
+  const { default: assist } = await import('../src/rute/assist.js');
   const lewat = async (body, token = 'tok_editor') => { const r = mkRes(); await assist({ method: 'POST', headers: { authorization: 'Bearer ' + token }, body }, r); return r; };
   const a = await lewat({ aksi: 'periksarujukan', soal: SOAL() });
   assert.equal(a.code, 200, JSON.stringify(a.body)); assert.equal(a.body.hasil.status, 'selaras');

@@ -8,7 +8,7 @@ import { kosongkanSimpananCari } from '../src/kitabCari.js';
 import { aksiKoreksi } from '../src/kitabKoreksi.js';
 import { bersihkanTeksKoreksi, gabungMatnSyarah, bagianSunting, hasilSunting, bedaTeks, ringkasBeda, MAKS_TEKS_KOREKSI } from '../web/lib/koreksi.js';
 import { buatPemuat } from '../web/lib/perpus.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const J = 'فتح المعين'; const ZW = '‌‌';

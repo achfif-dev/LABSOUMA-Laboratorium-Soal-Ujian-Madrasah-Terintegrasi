@@ -5,13 +5,13 @@ import { readFileSync } from 'node:fs';
 import { STAFF, AUTHORS } from '../src/access.js';
 import { __setFirebaseForTest, authenticateAuthor, authenticateStaff, enforceAi, aiPool, kitabLimitsFor, GLOBAL_AI_ID, GLOBAL_USTADZ_ID } from '../src/platform.js';
 import { invalidateAiConfig } from '../src/aiConfig.js';
-import generateHandler from '../api/generate.js';
-import backupHandler from '../api/backup.js';
-import appConfigHandler from '../api/app-config.js';
-import configBackupHandler from '../api/config-backup.js';
-import aiConfigHandler from '../api/ai-config.js';
-import kitabHandler from '../api/kitab.js';
-import assistHandler from '../api/assist.js';
+import generateHandler from '../src/rute/generate.js';
+import backupHandler from '../src/rute/backup.js';
+import appConfigHandler from '../src/rute/app-config.js';
+import configBackupHandler from '../src/rute/config-backup.js';
+import aiConfigHandler from '../src/rute/ai-config.js';
+import kitabHandler from '../src/rute/kitab.js';
+import assistHandler from '../src/rute/assist.js';
 
 const TEKS = 'الْمِيَاهُ الَّتِي يَجُوزُ بِهَا التَّطْهِيرُ سَبْعُ مِيَاهٍ: مَاءُ السَّمَاءِ، وَمَاءُ الْبَحْرِ، وَمَاءُ النَّهْرِ';
 const SOAL = { stimulus: '', pertanyaan: 'Berapa macam air yang boleh dipakai bersuci?', pilihan_a: 'Tiga macam', pilihan_b: 'Lima macam', pilihan_c: 'Tujuh macam', pilihan_d: 'Sembilan macam', pilihan_e: 'Sebelas macam',

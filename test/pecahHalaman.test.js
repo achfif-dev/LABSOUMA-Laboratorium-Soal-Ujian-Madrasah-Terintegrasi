@@ -7,7 +7,7 @@ import { jalankanImpor, isianAwal, peringatanPratinjau } from '../web/lib/imporK
 import { buatPemuat, isianRujukan } from '../web/lib/perpus.js';
 import { validasiHalaman } from '../src/kitabImpor.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import handler from '../api/kitab.js';
+import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
 
 const rapat = (s) => s.replace(/\s+/g, ' ').trim();

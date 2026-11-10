@@ -7,7 +7,7 @@ import {
 } from '../src/aiConfig.js';
 import { __setFirebaseForTest, authenticateAdmin } from '../src/platform.js';
 import { setRuntimeAi, getModel, provider, getClient, MODEL_PRESETS } from '../src/soalService.js';
-import aiConfigHandler from '../api/ai-config.js';
+import aiConfigHandler from '../src/rute/ai-config.js';
 
 import { fakeDb } from './_fakeDb.js';
 const KEY32 = randomBytes(32);

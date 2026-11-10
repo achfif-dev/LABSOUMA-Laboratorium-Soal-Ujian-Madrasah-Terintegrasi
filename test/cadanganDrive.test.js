@@ -7,7 +7,7 @@ import { sidikDaftar, createPrefDrive, perluCadangan, cadangkanSoalSaya, daftarS
 import { createSoalSaya, KUNCI } from '../src/ustadz.js';
 import { createDraftStore } from '../src/draft.js';
 import { __setFirebaseForTest } from '../src/platform.js';
-import driveClientHandler from '../api/drive-client.js';
+import driveClientHandler from '../src/rute/drive-client.js';
 
 class Mem {
   constructor() { this.m = new Map(); }
@@ -228,5 +228,5 @@ test('penjaga: Ustadz memakai /api/drive-client (bukan /api/backup); Dasbor hany
   assert.doesNotMatch(blok, /\/api\/backup|\/api\/admin-stats/);
   assert.match(html, /\{tab === 'dasbor' && isAdmin && <Dasbor /);
   assert.match(html, /\(isAdmin && \['dasbor', 'users', 'cfg', 'perpus', 'ai'\]\.includes\(h\)\)/);
-  assert.match(readFileSync(new URL('../api/backup.js', import.meta.url), 'utf8'), /aksi === 'info'\) \{ await authenticateReviewer/);
+  assert.match(readFileSync(new URL('../src/rute/backup.js', import.meta.url), 'utf8'), /aksi === 'info'\) \{ await authenticateReviewer/);
 });
