@@ -1700,3 +1700,16 @@ Keluhan: di soal bebas dan Paket Dauri, AI masih menyusun soal dari luar cakupan
 **Tanpa cakupan tidak ada yang berubah** (skema alat, prompt, dan hasil sama). Tes: `test/cakupan.test.js`.
 
 **Batas yang jujur.** Penegakan bergantung pada pengakuan AI atas bab asal materi; kode belum bisa membuktikannya sendiri karena cakupan masih teks bebas. `tidak_jelas` tetap perlu dicek manusia. Perbaikan lanjutan yang lebih kuat: cakupan terstruktur (rentang halaman atau bab dari daftar isi) sehingga segmen disaring oleh kode sebelum memanggil AI. Belum diuji dengan model sungguhan (tidak ada kunci API di lingkungan ini).
+
+## Paket Dauri bisa dilanjutkan, bukan diulang (10 November 2026)
+
+Keluhan: AI berhenti sebelum paket lengkap, dan satu-satunya jalan adalah membuat ulang dari awal.
+
+**Temuan audit.** (1) "Buat paket" selalu menghapus hasil lalu mengulang semuanya. (2) Satu panggilan yang gagal (jaringan, hasil AI rusak atau terpotong) menghentikan seluruh paket, dan butir yang belum dikerjakan tidak tercatat di mana pun. (3) Keluaran terpotong (`max_tokens`) membuang SEMUA butir, termasuk yang sudah utuh, dengan pesan "aplikasi akan memecah permintaan" yang tidak pernah dijalankan. (4) Butir yang tidak dikembalikan AI tanpa galat tidak dihitung gagal.
+
+**Perbaikan.**
+- `web/lib/paket.js`: `sisaPaket(rencana, hasil)` menghitung kekurangan (rencana dikurangi hasil, dicocokkan menurut bagian, bentuk, level, jadi tetap benar setelah butir dihapus, disunting, dialihkan, atau dipulihkan dari draf) dan `tugasDariSisa` menyusunnya menjadi panggilan.
+- Tombol **Lanjutkan sisa (N butir)**: hanya membuat yang belum ada; butir yang sudah jadi tidak dihapus atau diulang dan ikut daftar "hindari" serta pemeriksaan kembar. Konfirmasi "Buat paket" kini mengingatkan bahwa hasil lama dihapus.
+- Mesin bersama `proses` untuk Buat dan Lanjutkan. Galat sementara tidak lagi menghentikan paket: tugas dibagi dua dan dicoba lagi, butir tunggal yang tetap gagal masuk daftar ulang. Berhenti hanya untuk kuota habis, sesi berakhir, dibatalkan, atau 3 gagal berturut-turut (mis. offline). Pesan galat mengarahkan ke "Lanjutkan sisa".
+- Server: keluaran terpotong dengan butir utuh dikembalikan (`terpotong: true`), sisanya masuk `gagal`; butir yang tidak dikembalikan AI dicatat gagal.
+- Tes: `test/lanjutkanPaket.test.js`; `test/paket.test.js` disesuaikan (terpotong dengan butir utuh kini dipakai).
