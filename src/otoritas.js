@@ -1,7 +1,7 @@
 // Otoritas kitab di sisi server: kode murni ada di web/lib/otoritas.js (satu sumber dengan klien); di sini pencarian metadata kitab.
 // Nilai otoritas SELALU dibaca dari Firestore lewat kitabId, tidak pernah dari isian klien: klien bisa saja berbohong soal status kitab.
 import { firestoreAdmin } from './platform.js';
-import { validasiKitabId } from './kitabImpor.js';
+import { validasiKitabId, dokDaftarIsi } from './kitabImpor.js';
 
 export * from '../web/lib/otoritas.js';
 
@@ -22,8 +22,25 @@ export async function muatKitabOtoritas(kitabId) {
   } catch { return null; }
 }
 
-/** Salinan badan permintaan dengan `_kitab` dari server. Selalu menimpa: `_kitab` kiriman klien tidak pernah dipercaya. */
+/**
+ * Daftar isi kitab (judul, level, juz, hal) untuk peta bab di prompt cakupan, atau []. Seperti muatKitabOtoritas: tidak melempar.
+ * Hanya dipanggil bila permintaan membawa cakupan, jadi permintaan tanpa cakupan tidak menambah pembacaan Firestore.
+ */
+export async function muatPetaIsi(kitabId) {
+  if (typeof kitabId !== 'string' || !kitabId) return [];
+  try {
+    const kid = validasiKitabId(kitabId);
+    const { db } = await firestoreAdmin();
+    const meta = await db.doc(`kitab/${kid}`).get();
+    if (!meta.exists) return [];
+    const isi = await db.doc(dokDaftarIsi(kid, meta.data())).get();
+    const entri = isi.exists && Array.isArray(isi.data().entri) ? isi.data().entri : [];
+    return entri.filter((e) => e && typeof e.judul === 'string').slice(0, 400).map((e) => ({ judul: e.judul, level: e.level, juz: e.juz, hal: e.hal }));
+  } catch { return []; }
+}
+
+/** Salinan badan permintaan dengan `_kitab` (dan `_isi` bila ada cakupan) dari server. Selalu menimpa: kiriman klien tidak pernah dipercaya. */
 export async function denganKitab(body) {
   const b = body && typeof body === 'object' ? body : {};
-  return { ...b, _kitab: await muatKitabOtoritas(b.kitabId) };
+  return { ...b, _kitab: await muatKitabOtoritas(b.kitabId), _isi: b.cakupan ? await muatPetaIsi(b.kitabId) : [] };
 }

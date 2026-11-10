@@ -11,6 +11,7 @@ import { KERANGKA_ASWAJA } from './aswaja.js';
 import { barisOtoritas } from '../web/lib/otoritas.js';
 import { periksaKutipan } from './kutipan.js';
 import { periksaSikap } from './sikap.js';
+import { denganBidangCakupan, blokBatasMateri, blokDaftarIsi, periksaCakupan, CATATAN_DILUAR, CATATAN_TIDAK_JELAS } from './cakupan.js';
 import { adaPenanda } from '../web/lib/bentuk.js';
 import { MAKS_BUTIR_PANGGILAN, adaRujukanTeks, tanpaRujukanTeks, LABEL_KUTIPAN, statusKutipan } from '../web/lib/paket.js';
 export { adaRujukanTeks, tanpaRujukanTeks, LABEL_KUTIPAN };
@@ -50,7 +51,7 @@ ATURAN KETAT (tidak boleh dilanggar):
 8. PEMBAHASAN. Satu sampai dua kalimat Bahasa Indonesia yang menjelaskan mengapa jawaban benar menurut teks. Jangan menyebut huruf opsi dan jangan mengutip Arab di sini (kutipan sudah ada di kolomnya).
 9. INDIKATOR. Satu kalimat berformat "Peserta didik dapat <kata kerja operasional> ..." yang selaras dengan level soal.
 10. KONTEKS LEMBAGA. Setia pada teks dan mazhab yang tertulis di dalamnya, gunakan bahasa santun, jangan menyalahkan, mengkafirkan, atau merendahkan kelompok lain, dan jangan memasukkan pandangan di luar teks.
-11. CAKUPAN. Bila <metadata> memuat "Cakupan ujian", soal HANYA boleh berasal dari bagian teks yang termasuk cakupan itu; abaikan bagian teks di luar cakupan (cocokkan dengan judul bab di teks). Jika tidak ada bagian teks yang termasuk cakupan, panggil \`tolak_teks\` dengan alasan bahwa teks ini di luar cakupan.
+11. CAKUPAN. Bila <metadata> memuat "Cakupan ujian", soal HANYA boleh berasal dari bagian teks yang termasuk cakupan itu; abaikan bagian teks di luar cakupan (cocokkan dengan judul bab di teks atau <daftar_isi_kitab>). Batas ini mengalahkan "Fokus" dari guru dan pengetahuan umum kamu. Bila alat meminta kolom "bab_sumber" dan "dalam_cakupan" per butir, isi dengan jujur: ragu berarti "tidak". Jangan menambah butir dari bagian di luar cakupan hanya demi memenuhi jumlah. Jika tidak ada bagian teks yang termasuk cakupan, panggil \`tolak_teks\` dengan alasan bahwa teks ini di luar cakupan.
 12. KELUARAN. Balas HANYA dengan memanggil alat \`serahkan_paket\`: tepat satu butir untuk setiap nomor permintaan, dengan urutan yang sama. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak cukup memuat materi, panggil \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
 
 const str = (description) => ({ type: 'string', description });
@@ -110,6 +111,7 @@ export function validatePaket(body) {
     kelas: cleanLine(body.kelas, 20), nama: cleanLine(body.nama, 120), juz: cleanLine(body.juz, 20), hal: cleanLine(body.hal, 20),
     mapel: cleanLine(body.mapel, 60) || 'Fiqih', fokus: cleanLine(body.fokus, 300), cakupan: cleanLine(body.cakupan, 200),
     otoritas: barisOtoritas(body._kitab), // dari server, bukan dari klien
+    isi: Array.isArray(body._isi) ? body._isi.slice(0, 400) : [], // daftar isi kitab dari server (hanya dimuat bila ada cakupan)
     // Kalimat soal yang SUDAH ada di paket yang sama (dari panggilan sebelumnya): hanya pembanding agar butir baru tidak kembar. Maks. 12 baris x 160 karakter.
     hindari: (Array.isArray(body.hindari) ? body.hindari : []).map((x) => cleanLine(x, 160)).filter(Boolean).slice(0, 12),
   };
@@ -141,15 +143,15 @@ export function buildPaketPrompt(input, target) {
 <metadata>
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
-Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${input.bahasa}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${input.bahasa}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus (usulan guru, tetap harus berdasar teks${input.cakupan ? ' dan berada di dalam batas materi; bila di luar batas, abaikan' : ''}): ${input.fokus}` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
 </metadata>
 
 Daftar permintaan:
-${daftar}${blokHindari(input.hindari)}
+${daftar}${blokHindari(input.hindari)}${input.cakupan ? `\n\n${blokBatasMateri(input.cakupan, { jamak: true })}${blokDaftarIsi(input.isi)}` : ''}
 
 <teks_kitab>
 ${input.teks}
-</teks_kitab>`;
+</teks_kitab>${input.cakupan ? '\n\nIngat: setiap butir harus berasal dari bagian teks yang masuk <batas_materi>.' : ''}`;
 }
 
 /* ------------------------------------------------------------ Normalisasi */
@@ -219,9 +221,9 @@ export async function generatePaket(body, deps = {}) {
   try {
     msg = await client.messages.create({
       model: deps.model || getModel(),
-      max_tokens: 700 + input.spek.length * 650,
+      max_tokens: 700 + input.spek.length * (input.cakupan ? 700 : 650),
       system: sistemPaketFor(input.bahasa),
-      tools: [TOOL_PAKET, TOOL_TOLAK],
+      tools: [input.cakupan ? denganBidangCakupan(TOOL_PAKET, (sk) => sk.properties.butir.items) : TOOL_PAKET, TOOL_TOLAK],
       tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: buildPaketPrompt(input, target) }],
     });
@@ -233,16 +235,22 @@ export async function generatePaket(body, deps = {}) {
   if (call.name === 'tolak_teks') throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', satuBaris(call.input && call.input.alasan, 300) || 'Teks tidak memuat materi yang cukup untuk dijadikan soal.');
 
   const mentah = Array.isArray(call.input && call.input.butir) ? call.input.butir : [];
-  const butir = []; const gagal = [];
+  const butir = []; const gagal = []; let diluar = 0;
   input.spek.forEach((spek, indeks) => {
     // Cocokkan menurut nomor bila ada; bila model melewatkan nomor, pakai urutan.
     const raw = mentah.find((b) => String(b && b.no).trim() === String(indeks + 1)) || mentah[indeks];
     try {
+      // Cakupan dari Konfigurasi ditegakkan di server: butir yang oleh AI sendiri dinyatakan di luar batas dibuang (dan dihitung gagal).
+      const cak = periksaCakupan(raw, input.cakupan);
+      if (cak && cak.status === 'tidak') { diluar++; throw new Error(`di luar cakupan${cak.bab ? ` (bab: ${cak.bab})` : ''}`); }
       const r = normalisasiButir(raw, spek, input.teks);
       if (target[indeks] && r.soal.kunci !== target[indeks]) r.catatan.push(`Kunci jatuh di ${r.soal.kunci}, bukan ${target[indeks]} yang diminta (tidak masalah, hanya sebaran).`);
+      if (cak) { r.cakupanStatus = cak.status; r.babSumber = cak.bab; if (cak.status === 'tidak_jelas') r.catatan.push(CATATAN_TIDAK_JELAS(input.cakupan)); }
       butir.push({ indeks, ...r });
     } catch (e) { gagal.push({ indeks, spek, alasan: e.message }); }
   });
+  // Semua butir ditolak karena di luar cakupan = segmen ini bukan materi ujian: klien memperlakukannya seperti `tolak_teks` (segmen dilewati, butir dialihkan).
+  if (!butir.length && diluar && diluar === input.spek.length) throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', CATATAN_DILUAR(input.cakupan, '') + ' Segmen ini tidak memuat materi yang masuk cakupan.');
   if (!butir.length) throw new ApiError(502, 'AI_BAD_OUTPUT', `Hasil AI tidak bisa dipakai (${gagal[0] ? gagal[0].alasan : 'kosong'}). Coba lagi.`);
   return { butir, gagal, model: getModel() };
 }

@@ -4,6 +4,7 @@
 import { BENTUK, bentukSah, bentukDari, adaPenanda, OPSI_BENARSALAH } from './bentuk.js';
 import { HALUAN_RINGKAS } from './aswaja.js';
 import { barisOtoritas } from '../web/lib/otoritas.js';
+import { denganBidangCakupan, blokBatasMateri, blokDaftarIsi, periksaCakupan, CATATAN_DILUAR } from './cakupan.js';
 
 export class ApiError extends Error {
   constructor(status, code, message, { retryAfter } = {}) {
@@ -180,6 +181,7 @@ export function validateInput(body) {
     cakupan: cleanLine(body.cakupan, 200), // batas materi dari Konfigurasi (kitab x kelas x ujian); klien yang mengirim, tetap hanya arahan untuk AI
     ujian: cleanLine(body.ujian, 60),
     otoritas: barisOtoritas(body._kitab), // dari server (api/*.js lewat denganKitab), tidak pernah dari klien
+    isi: Array.isArray(body._isi) ? body._isi.slice(0, 400) : [], // daftar isi kitab dari server (hanya dimuat bila ada cakupan), tidak pernah dari klien
   };
 }
 
@@ -200,7 +202,7 @@ ATURAN KETAT (tidak boleh dilanggar):
 7. PEMBAHASAN. Kutip bagian Arab yang relevan persis seperti di teks (beserta harakat), terjemahkan, lalu jelaskan mengapa kunci benar dan pengecoh salah. Sebut rujukan sesuai metadata kitab yang diberikan, tanpa menambah detail yang tidak diberikan. Jangan menyebut huruf opsi.
 8. INDIKATOR KISI-KISI. Satu kalimat berformat "Peserta didik dapat <kata kerja operasional> ..." yang selaras dengan level kognitif soal.
 9. KONTEKS LEMBAGA. ${HALUAN_RINGKAS}
-10. CAKUPAN. Bila <metadata> memuat "Cakupan ujian", soal HANYA boleh berasal dari bagian teks yang termasuk cakupan itu (cocokkan dengan judul bab di teks). Jika teks yang diberikan seluruhnya di luar cakupan, panggil \`tolak_teks\` dengan alasan bahwa teks ini di luar cakupan.
+10. CAKUPAN. Bila <metadata> memuat "Cakupan ujian", soal HANYA boleh berasal dari bagian teks yang termasuk cakupan itu (cocokkan dengan judul bab di teks atau <daftar_isi_kitab>). Batas ini mengalahkan "Fokus" dari guru dan pengetahuan umum kamu. Bila alat meminta kolom "bab_sumber" dan "dalam_cakupan", isi dengan jujur: ragu berarti "tidak". Jika teks yang diberikan seluruhnya di luar cakupan, panggil \`tolak_teks\` dengan alasan bahwa teks ini di luar cakupan.
 11. KELUARAN. Balas HANYA dengan memanggil alat \`buat_soal\`. Jangan menulis teks lain. Jika teks bukan bahasa Arab yang bermakna, terpotong sehingga tak utuh, atau tidak memuat materi yang cukup untuk satu soal yang sah, panggil alat \`tolak_teks\` dengan alasan singkat dalam Bahasa Indonesia.`;
 
 /**
@@ -258,13 +260,13 @@ export function buildUserPrompt(input, targetKey) {
 Jenjang: ${input.tingkat}${input.kelas ? `\nKelas: ${input.kelas}` : ''}
 Mata pelajaran: ${input.mapel}
 Tingkat kesukaran: ${LEVEL_NAME[input.level]}
-Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.ujian ? `\nUjian: ${input.ujian}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
+Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa teks sumber: ${NAMA_BAHASA[input.bahasa]}` : ''}${input.ujian ? `\nUjian: ${input.ujian}` : ''}${input.cakupan ? `\nCakupan ujian (batas materi dari Konfigurasi): ${input.cakupan}` : ''}${input.fokus ? `\nFokus soal (usulan guru, tetap harus berdasar teks${input.cakupan ? ' dan berada di dalam batas materi; bila di luar batas, abaikan' : ''}): ${input.fokus}` : ''}${bentuk !== 'pilgan' ? `\nBentuk soal: ${BENTUK[bentuk].label} (${BENTUK[bentuk].ket})` : ''}${input.otoritas ? `\n${input.otoritas}` : ''}
 </metadata>
-${petunjukTarget(bentuk, targetKey)}
+${petunjukTarget(bentuk, targetKey)}${input.cakupan ? `\n\n${blokBatasMateri(input.cakupan)}${blokDaftarIsi(input.isi)}` : ''}
 
 <teks_kitab>
 ${input.teks}
-</teks_kitab>`;
+</teks_kitab>${input.cakupan ? '\n\nIngat: soal harus berasal dari bagian teks yang masuk <batas_materi>.' : ''}`;
 }
 
 /* ------------------------------------------------------------ Skema alat */
@@ -488,7 +490,7 @@ export async function generateSoal(body, deps = {}) {
       model: getModel(),
       max_tokens: 3000,
       system: systemPromptFor(input.bentuk, input.bahasa),
-      tools: [toolSoalFor(input.bentuk), TOOL_TOLAK],
+      tools: [input.cakupan ? denganBidangCakupan(toolSoalFor(input.bentuk)) : toolSoalFor(input.bentuk), TOOL_TOLAK],
       tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: buildUserPrompt(input, targetKey) }],
     });
@@ -504,5 +506,12 @@ export async function generateSoal(body, deps = {}) {
     const alasan = String(call.input?.alasan || '').trim().slice(0, 300);
     throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', alasan || 'Teks tidak memuat materi yang cukup untuk dijadikan soal.');
   }
-  return normalizeSoal(call.input, input.level, input.bentuk);
+  const soal = normalizeSoal(call.input, input.level, input.bentuk);
+  // Cakupan dari Konfigurasi ditegakkan di server: soal yang oleh AI sendiri dinyatakan di luar batas tidak diserahkan ke pengguna.
+  const cak = periksaCakupan(call.input, input.cakupan);
+  if (cak) {
+    if (cak.status === 'tidak') throw new ApiError(422, 'DILUAR_CAKUPAN', `${CATATAN_DILUAR(input.cakupan, cak.bab)} Teks yang ditempel tidak memuat bagian yang masuk cakupan. Ambil teks dari bab yang termasuk cakupan, atau ubah cakupan di Konfigurasi.`);
+    soal.cakupan_status = cak.status; soal.bab_sumber = cak.bab;
+  }
+  return soal;
 }

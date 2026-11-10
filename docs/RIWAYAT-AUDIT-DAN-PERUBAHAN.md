@@ -1681,3 +1681,22 @@ Thaharah dan shalat, zakat, puasa, haji, muamalah, munakahat, jinayat, waris, si
 
 #### Tes
 `test/frasaDanGerbang.test.js` (10 tes): gerbang tidak menyentuh kata Indonesia dan tidak terlalu ketat pada serapan berimbuhan, daftar kata fungsi Indonesia tidak boleh jadi kunci kamus, frasa dan varian, apostrof, tidak menelan "sawah", kutip dan tanda baca, ejaan klasik, singkatan kapital, kinerja (3000 kalimat < 2 detik). Seluruh suite: 738 tes, 724 lulus; 13 berkas UI yang gagal identik dengan sebelum perubahan (paket `react` tidak terpasang).
+
+---
+
+## Cakupan materi ditegakkan server (10 November 2026)
+
+Keluhan: di soal bebas dan Paket Dauri, AI masih menyusun soal dari luar cakupan materi yang diatur di Konfigurasi.
+
+**Akar masalah.** Cakupan hanya satu baris isyarat di metadata prompt. AI tidak diminta membuktikan apa pun, server tidak memeriksa apa pun, kolom "Fokus" (usulan guru) tidak dibatasi cakupan, dan teks tempelan sering tidak memuat judul bab sehingga AI tidak punya dasar menilai.
+
+**Perbaikan (`src/cakupan.js`, dipakai `src/soalService.js` dan `src/paketService.js`).**
+1. Blok `<batas_materi>` yang tegas di prompt, ditaruh sebelum teks dan diulang sebagai pengingat sesudahnya. Batas ini mengalahkan Fokus dan pengetahuan umum model.
+2. Bila soal berasal dari perpustakaan (`kitabId`), server memuat daftar isi kitab (`_isi`, hanya bila ada cakupan; tidak pernah dari klien) sebagai peta bab: `<daftar_isi_kitab>`.
+3. Dua kolom keluaran WAJIB per soal/butir: `bab_sumber` dan `dalam_cakupan` (ya/tidak).
+4. Server menegakkan: `tidak` ditolak (soal bebas: 422 `DILUAR_CAKUPAN`; paket: butir masuk `gagal`, dan bila semua butir segmen ditolak menjadi `TEKS_TIDAK_MEMADAI` sehingga segmen dilewati dan butirnya dialihkan). Kolom hilang atau "ya" tanpa bab = `tidak_jelas`: soal tetap diserahkan tetapi ditandai (toast di soal bebas, catatan di Paket).
+5. Klien: peringatan "Batas materi TIDAK berlaku" beserta alasannya (kelas/ujian belum dipilih, kitab tak ada di katalog, cakupan belum diisi admin). Butir yang ditandai di luar cakupan tidak diulang di segmen yang sama.
+
+**Tanpa cakupan tidak ada yang berubah** (skema alat, prompt, dan hasil sama). Tes: `test/cakupan.test.js`.
+
+**Batas yang jujur.** Penegakan bergantung pada pengakuan AI atas bab asal materi; kode belum bisa membuktikannya sendiri karena cakupan masih teks bebas. `tidak_jelas` tetap perlu dicek manusia. Perbaikan lanjutan yang lebih kuat: cakupan terstruktur (rentang halaman atau bab dari daftar isi) sehingga segmen disaring oleh kode sebelum memanggil AI. Belum diuji dengan model sungguhan (tidak ada kunci API di lingkungan ini).

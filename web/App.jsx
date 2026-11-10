@@ -602,7 +602,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     return null;
   };
   const ERR_TITLE = {
-    INVALID_ARABIC: 'Teks Arab tidak valid', TEKS_TIDAK_MEMADAI: 'Teks belum cukup untuk dijadikan soal', TEKS_TOO_LONG: 'Teks terlalu panjang',
+    INVALID_ARABIC: 'Teks Arab tidak valid', DILUAR_CAKUPAN: 'Materi di luar cakupan ujian', TEKS_TIDAK_MEMADAI: 'Teks belum cukup untuk dijadikan soal', TEKS_TOO_LONG: 'Teks terlalu panjang',
     RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai',
     AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
     SOAL_KOSONG: 'Naskah soal belum lengkap', AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', RATE_LIMIT_DAILY: 'Kuota harian habis',
@@ -640,6 +640,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
         ai: { dibuat: true, model: String(data.model || '').slice(0, 60), verifikasi: (data.verifikasi && data.verifikasi.status) || '', buta: '' },
       }));
       setGenerated(true);
+      if (s.cakupan_status === 'tidak_jelas') toast(`Cakupan "${cakupanTerpilih}" tidak bisa dipastikan dari teks ini (judul bab tidak ada). Periksa sendiri apakah soal masuk cakupan.`);
       if (Bt.punyaOpsi(bt)) ujiButa({ stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '', opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e }, kunci: s.kunci_jawaban }, bt); else setButaState(null); // tanpa await: tidak menahan tampilan soal
     } catch (e) {
       if (e && e.name === 'AbortError') { /* dibatalkan pengguna */ }
@@ -912,7 +913,8 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
               </Select>
               {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
               {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab, atau memetakannya ke {labelTingkat(cfg, form.tingkat)}{form.kelas ? ` kelas ${form.kelas}` : ''} · {form.mapel}, di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
-              {cakupanTerpilih && <p className="mt-1 text-xs text-soft-ink">Cakupan materi kitab ini pada kelas {form.kelas} · {Uj.labelPeriode(cfg, form.tingkat, form.periode)}: {cakupanTerpilih}</p>}
+              {cakupanTerpilih && <p className="mt-1 text-xs text-soft-ink">Cakupan materi kitab ini pada kelas {form.kelas} · {Uj.labelPeriode(cfg, form.tingkat, form.periode)}: {cakupanTerpilih}. AI wajib membatasi soal pada cakupan ini; soal di luar cakupan ditolak.</p>}
+              {!cakupanTerpilih && form.nama && <p role="status" className="mt-1 text-xs text-warn">Batas materi TIDAK berlaku: {!form.kelas || !form.periode ? 'pilih Kelas dan Ujian' : !kitabCocok ? 'nama kitab tidak ditemukan di katalog Konfigurasi (pilih dari daftar, bukan ketik manual)' : 'admin belum mengisi cakupan materi kitab ini untuk kelas dan ujian tersebut'}. Tanpa batas, AI boleh memakai bagian mana pun dari teks yang ditempel.</p>}
               {kitabCocok && (kitabCocok.namaArab || kitabCocok.pengarangArab) && (
                 <div className="mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">
                   {kitabCocok.namaArab && <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal">{kitabCocok.namaArab}</p>}
@@ -2460,7 +2462,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model, segmen: tugas.segmen, spek: tugas.spek[b.indeks] });
       }
       if (h.butir.length) segmenAda.add(tugas.segmen);
-      for (const g of h.gagal) sisa.push({ segmen: tugas.segmen, spek: tugas.spek[g.indeks] });
+      // Butir yang AI sendiri tandai di luar cakupan tidak diulang di segmen yang sama (hasilnya sama, kuota terbuang): dialihkan ke segmen yang terbukti masuk cakupan.
+      for (const g of h.gagal) sisa.push({ segmen: /^di luar cakupan/i.test(String(g.alasan || '')) ? -1 : tugas.segmen, spek: tugas.spek[g.indeks] });
       setHasil([...kumpul]);
     };
     try {
