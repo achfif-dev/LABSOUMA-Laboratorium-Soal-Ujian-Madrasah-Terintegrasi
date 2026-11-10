@@ -1713,3 +1713,18 @@ Keluhan: AI berhenti sebelum paket lengkap, dan satu-satunya jalan adalah membua
 - Mesin bersama `proses` untuk Buat dan Lanjutkan. Galat sementara tidak lagi menghentikan paket: tugas dibagi dua dan dicoba lagi, butir tunggal yang tetap gagal masuk daftar ulang. Berhenti hanya untuk kuota habis, sesi berakhir, dibatalkan, atau 3 gagal berturut-turut (mis. offline). Pesan galat mengarahkan ke "Lanjutkan sisa".
 - Server: keluaran terpotong dengan butir utuh dikembalikan (`terpotong: true`), sisanya masuk `gagal`; butir yang tidak dikembalikan AI dicatat gagal.
 - Tes: `test/lanjutkanPaket.test.js`; `test/paket.test.js` disesuaikan (terpotong dengan butir utuh kini dipakai).
+
+## Penghematan Function Storage Vercel (10 Nov 2026)
+
+**Masalah:** metrik Function Storage tim di Vercel Hobby mencapai 10,05 GB dari 10 GB. Penyebab struktural: 11 berkas di `api/` = 11 bundle fungsi, masing-masing menyalin dependency produksi (139 paket, hampir semuanya turunan `firebase-admin`, termasuk `@google-cloud/storage` dan `@firebase/database` yang tidak dipakai). Kode first-party seluruh fungsi hanya ±805 KB; yang membengkak adalah `node_modules` yang digandakan 11 kali per deployment, lalu dikalikan jumlah deployment yang tersimpan.
+
+| # | Perubahan | Dampak |
+|---|---|---|
+| 1 | 11 handler dipindah ke `src/rute/`; `api/gateway.js` jadi satu-satunya fungsi, rewrite `/api/:route` di `vercel.json`, handler dimuat malas. URL `/api/*` tidak berubah. | Salinan dependency per deployment turun dari 11 ke 1. |
+| 2 | `excludeFiles` di `vercel.json`: `.map`, `.d.ts/.d.mts/.d.cts`, `README.md`, `CHANGELOG.md`. | Bundle lebih kecil; tidak dibaca saat runtime. |
+| 3 | `ignoreCommand` + `scripts/vercel-ignore.sh`: lewati build bila commit tidak menyentuh `api src web public` dkk. | Commit docs/test/eval tidak lagi membuat deployment. |
+| 4 | `test/gateway.test.js` (9 tes): `api/` hanya berisi gateway, tabel RUTE = berkas `src/rute/`, semua `/api/*` yang dipanggil klien terdaftar, rewrite ada, skrip ignore diuji di repo git sementara. | Mencegah regresi ke banyak fungsi. |
+
+**Tidak dikerjakan (sengaja):** mengganti `firebase-admin` dengan klien REST. Permukaan Firestore yang dipakai server luas (11 transaksi, batch, query `where/orderBy/select`, `count()`, `collectionGroup`), dan tidak bisa diuji tanpa Firestore sungguhan. Opsi lanjutan bila masih perlu: `excludeFiles` untuk `node_modules/@google-cloud/storage/**` dan `node_modules/@firebase/database*/**` (uji dulu di Preview).
+
+**Belum terverifikasi:** ukuran bundle sebenarnya dan perilaku rewrite di Vercel (lingkungan pengembangan tanpa jaringan). Daftar periksa pascadeploy ada di balasan penyerahan. `npm test`: 826 lulus (817 sebelumnya + 9 baru); 13 berkas gagal sama persis dengan sebelum perubahan karena devDependencies (`lucide-react`, `docx`, dll.) tidak terpasang di lingkungan tersebut.
