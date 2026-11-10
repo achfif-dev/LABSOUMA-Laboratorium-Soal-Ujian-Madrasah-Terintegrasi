@@ -186,7 +186,8 @@ test('generatePaket: semua butir rusak, tolak_teks, tanpa alat, dan terpotong me
   await assert.rejects(generatePaket(body(spek), { client: fake(tool('serahkan_paket', { butir: [] })) }), { code: 'AI_BAD_OUTPUT' });
   await assert.rejects(generatePaket(body(spek), { client: fake(tool('tolak_teks', { alasan: 'Teks terpotong.' })) }), { code: 'TEKS_TIDAK_MEMADAI', message: 'Teks terpotong.' });
   await assert.rejects(generatePaket(body(spek), { client: fake([{ type: 'text', text: 'halo' }]) }), { code: 'AI_BAD_OUTPUT' });
-  await assert.rejects(generatePaket(body(spek), { client: fake(tool('serahkan_paket', { butir: [pil(1)] }), 'max_tokens') }), { code: 'AI_BAD_OUTPUT' });
+  await assert.rejects(generatePaket(body(spek), { client: fake(tool('serahkan_paket', { butir: [] }), 'max_tokens') }), { code: 'AI_BAD_OUTPUT' }); // terpotong dan tak ada butir utuh
+  await assert.rejects(generatePaket(body(spek), { client: fake(tool('tolak_teks', {}), 'max_tokens') }), { code: 'AI_BAD_OUTPUT' });
 });
 
 test('generatePaket: butir dicocokkan menurut nomor walau model mengubah urutan', async () => {
