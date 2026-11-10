@@ -3,6 +3,7 @@
 // Sesi WAJIB ditutup (tutup()): dokumen dan halaman yang tak dilepas menahan memori, terutama di ponsel.
 import { ErrorSyamilah } from './syamilah.js';
 import { rincianHalamanPdf, normalArab } from './sumberLain.js';
+import { olahPiksel } from './olahGambar.js';
 
 export const MAKS_HALAMAN_PDF = 3000;
 export const MAKS_B64_GAMBAR = 2_900_000; // di bawah batas server (MAX_GAMBAR_B64 = 3.000.000)
@@ -78,8 +79,10 @@ export async function bukaPdf(buffer, { pustaka: lib = null } = {}) {
     },
     outline: () => bacaOutline(doc),
     async meta() { try { return bersihkanMeta((await doc.getMetadata()).info); } catch { return { judul: '', pengarang: '' }; } },
-    /** Gambar halaman (0-based) sebagai JPEG base64 untuk OCR. Resolusi dan mutu diturunkan bertahap sampai muat di batas server. */
-    async gambarHalaman(indeks, { lebar = 1600, mutu = 0.82 } = {}) {
+    /** Gambar halaman (0-based) sebagai JPEG base64 untuk OCR. Resolusi dan mutu diturunkan bertahap sampai muat di batas server.
+     *  Gambar diolah dulu (abu-abu + perataan kontras: lebih kecil dan lebih tegas). Halaman tanpa tinta dikembalikan { kosong: true } tanpa data (OCR dilewati);
+     *  `lewatiKosong: false` mematikan pelewatan itu. Bila pengolahan piksel gagal, gambar asli dipakai. */
+    async gambarHalaman(indeks, { lebar = 1600, mutu = 0.82, lewatiKosong = true } = {}) {
       const hal = await doc.getPage(indeks + 1);
       const kanvas = document.createElement('canvas');
       try {
@@ -90,6 +93,11 @@ export async function bukaPdf(buffer, { pustaka: lib = null } = {}) {
           kanvas.width = Math.ceil(vp.width); kanvas.height = Math.ceil(vp.height);
           const ctx = kanvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, kanvas.width, kanvas.height);
           await hal.render({ canvasContext: ctx, viewport: vp }).promise;
+          try {
+            const gbr = ctx.getImageData(0, 0, kanvas.width, kanvas.height); const o = olahPiksel(gbr.data);
+            if (o.kosong && lewatiKosong) return { mime: 'image/jpeg', data: '', kosong: true };
+            ctx.putImageData(gbr, 0, 0);
+          } catch { /* ruang memori atau kanvas tidak mendukung: lanjut dengan gambar asli */ }
           const data = kanvas.toDataURL('image/jpeg', q).split(',')[1] || '';
           if (data.length <= MAKS_B64_GAMBAR) return { mime: 'image/jpeg', data };
           skala *= 0.8; q = Math.max(0.55, q - 0.08);

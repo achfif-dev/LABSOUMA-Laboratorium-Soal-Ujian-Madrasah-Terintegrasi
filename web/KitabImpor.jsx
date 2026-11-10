@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Check, Pencil, Trash2 } from 'lucide-react';
 import { bacaDokumenKitab, bolehVirtual, FORMAT_LABEL } from './lib/dokumenKitab.js';
 import { bukaSimpananOcr, kunciBerkas } from './lib/simpananOcr.js';
+import { KONKUREN_OCR_TERATUR, MAKS_PER_MENIT_OCR } from './lib/ocrPdf.js';
 import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
 import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
 import { STATUS_OTORITAS, LABEL_STATUS, AKIDAH, LABEL_AKIDAH, MAKS_CATATAN, normalOtoritas } from './lib/otoritas.js';
@@ -116,7 +117,7 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
       const h = await bacaDokumenKitab({
         nama: f.name, buffer: await f.arrayBuffer(), virtual, halamanWord, halAwal: Number.isInteger(n) ? n : 1,
         onProgres: setProgresBaca, batal: () => batalBacaRef.current, kolom,
-        ocr: ocr ? { mode: 'perlu', simpanan, panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
+        ocr: ocr ? { mode: 'perlu', simpanan, konkuren: KONKUREN_OCR_TERATUR, maksPerMenit: MAKS_PER_MENIT_OCR, panggil: (gambar) => callApi('/api/kitab', { aksi: 'impor-ocr', gambar, aksara: aksaraOcr }) } : null, // OCR AI hanya atas permintaan admin: satu panggilan AI per halaman
       });
       setBerkas(f.name); setHasil(h); setIsian(isianAwal(h)); setUrutLihat(1);
     } catch (er) {

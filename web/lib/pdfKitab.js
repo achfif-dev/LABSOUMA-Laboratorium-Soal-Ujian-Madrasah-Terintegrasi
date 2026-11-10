@@ -12,7 +12,7 @@ import { jalankanOcr, MAKS_HALAMAN_OCR } from './ocrPdf.js';
  * @param {Function} [o.bukaPdf]  pembuka sesi PDF (bawaan: web/lib/bacaPdf.js, dimuat malas)
  * @param {(p:{tahap:'teks'|'ocr', n:number, total:number})=>void} [o.onProgres] @param {()=>boolean} [o.batal]
  * @param {'auto'|'tutup'} [o.kolom]  'auto' (bawaan) membaca halaman dua kolom prosa per kolom; 'tutup' = tetap per baris (mis. nazham). @param {boolean} [o.paragraf]  gabungkan baris visual menjadi paragraf (bawaan ya)
- * @param {{mode?:'perlu'|'semua', panggil:Function, simpanan?:object, konkuren?:number, tidur?:Function}|null} [o.ocr]  bila diisi, halaman bernilai kosong/rusak (atau semua, mode 'semua') dibaca dengan OCR AI
+ * @param {{mode?:'perlu'|'semua', panggil:Function, simpanan?:object, konkuren?:number, maksPerMenit?:number, tidur?:Function}|null} [o.ocr]  bila diisi, halaman bernilai kosong/rusak (atau semua, mode 'semua') dibaca dengan OCR AI
  */
 export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksplisit = false, bacaPdf = null, bukaPdf = null, onProgres = () => {}, batal = () => false, ocr = null, kolom = 'auto', paragraf = true }) {
   const dasar = { halAwal, halAwalEksplisit, namaBerkas: nama };
@@ -31,10 +31,10 @@ export async function bacaPdfKitab({ nama = '', buffer, halAwal = 1, halAwalEksp
       const sasaran = teks.map((t, i) => (mode === 'semua' || nilaiHalamanPdf(t) !== 'teks' ? i : -1)).filter((i) => i >= 0);
       if (sasaran.length > MAKS_HALAMAN_OCR) throw new ErrorSyamilah('OCR_TERLALU_BANYAK', `${sasaran.length} halaman perlu OCR, melebihi batas ${MAKS_HALAMAN_OCR} per impor. Pecah PDF per jilid lalu impor satu per satu.`);
       if (sasaran.length) {
-        const r = await jalankanOcr({ indeks: sasaran, ambilGambar: (i) => sesi.gambarHalaman(i), panggil: ocr.panggil, konkuren: ocr.konkuren, tidur: ocr.tidur, simpanan: ocr.simpanan || null, batal, onProgres: (n, total) => onProgres({ tahap: 'ocr', n, total }) });
+        const r = await jalankanOcr({ indeks: sasaran, ambilGambar: (i) => sesi.gambarHalaman(i), panggil: ocr.panggil, konkuren: ocr.konkuren, maksPerMenit: ocr.maksPerMenit, tidur: ocr.tidur, simpanan: ocr.simpanan || null, batal, onProgres: (n, total) => onProgres({ tahap: 'ocr', n, total }) });
         if (r.dibatalkan) throw new ErrorSyamilah('DIBATALKAN', 'Pembacaan dibatalkan.');
         for (const [i, t] of r.teks) { teks[i] = t; dioCr.push(i); }
-        laporanOcr = { dicoba: sasaran.length, dariSimpanan: r.dariSimpanan, berhasil: r.teks.size, kosong: r.kosong.length, gagal: r.gagal, kuotaHabis: r.kuotaHabis, buruk: [...r.kualitas.values()].filter((k) => k === 'buruk').length, sedang: [...r.kualitas.values()].filter((k) => k === 'sedang').length };
+        laporanOcr = { dicoba: sasaran.length, dariSimpanan: r.dariSimpanan, dilewati: r.dilewati || 0, berhasil: r.teks.size, kosong: r.kosong.length, gagal: r.gagal, kuotaHabis: r.kuotaHabis, buruk: [...r.kualitas.values()].filter((k) => k === 'buruk').length, sedang: [...r.kualitas.values()].filter((k) => k === 'sedang').length };
       }
     }
     let hasil;
