@@ -180,7 +180,7 @@ export function validateInput(body) {
     fokus: cleanLine(body.fokus, 300),
     cakupan: cleanLine(body.cakupan, 200), // batas materi dari Konfigurasi (kitab x kelas x ujian); klien yang mengirim, tetap hanya arahan untuk AI
     ujian: cleanLine(body.ujian, 60),
-    otoritas: barisOtoritas(body._kitab), // dari server (api/*.js lewat denganKitab), tidak pernah dari klien
+    otoritas: barisOtoritas(body._kitab), // dari server (src/rute/*.js lewat denganKitab), tidak pernah dari klien
     isi: Array.isArray(body._isi) ? body._isi.slice(0, 400) : [], // daftar isi kitab dari server (hanya dimuat bila ada cakupan), tidak pernah dari klien
   };
 }

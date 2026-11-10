@@ -371,7 +371,7 @@ async function aksiImporInti(body, uid, { sekarang = () => new Date().toISOStrin
     return { ok: true, jumlah: n };
   }
 
-  // Otoritas kitab: hanya admin (api/kitab.js memeriksa peran). Status ini yang menentukan arahan Aswaja di prompt AI, jadi setiap perubahan diarsipkan.
+  // Otoritas kitab: hanya admin (src/rute/kitab.js memeriksa peran). Status ini yang menentukan arahan Aswaja di prompt AI, jadi setiap perubahan diarsipkan.
   if (b.aksi === 'impor-otoritas') {
     const o = validasiOtoritas(b.otoritas, (pesan) => tolak('OTORITAS_INVALID', pesan));
     const t = sekarang();

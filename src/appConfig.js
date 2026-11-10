@@ -289,7 +289,7 @@ export function sanitizeAppConfig(input) {
   const kdilihat = new Set();
   const kitabIn = arr(input.kitab);
   if (kitabIn.length > BATAS.kitab) throw bad(`Katalog kitab maksimal ${BATAS.kitab}.`);
-  // Daftar host sama dengan api/kitab.js: KITAB_ALLOWED_HOSTS (bila diisi) menggantikan bawaan.
+  // Daftar host sama dengan src/rute/kitab.js: KITAB_ALLOWED_HOSTS (bila diisi) menggantikan bawaan.
   const hostKitab = () => { const h = String(process.env.KITAB_ALLOWED_HOSTS || '').split(/[,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean); return h.length ? h : DEFAULT_HOSTS; };
   /** Tautan kitab opsional: hanya https di situs kitab yang diizinkan; selain itu dikosongkan. */
   const tautanAman = (raw) => {
