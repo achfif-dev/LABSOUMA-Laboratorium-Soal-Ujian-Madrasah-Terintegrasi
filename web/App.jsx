@@ -48,6 +48,7 @@ import * as DB from './lib/dasbor.js';
 import * as NK from './lib/naskah.js';
 import * as LK from './lib/lebarKolom.js';
 import * as PK from './lib/paket.js';
+import * as PKK from './lib/paketKembar.js';
 import * as RW from './lib/riwayat.js';
 import * as CS from './lib/cariSoal.js';
 import * as SH from './lib/serahTerima.js';
@@ -2344,7 +2345,7 @@ function pulihPaket() {
   return o;
 }
 
-function PaketDauri({ toast, onSimpan, onBukaBank }) {
+function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
   const cfg = useCfg();
   const awal = useRef(null); if (awal.current === null) awal.current = pulihPaket();
   const A0 = awal.current;
@@ -2451,11 +2452,12 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
         aksi: 'paket', teks: seg.teks, bahasa: bahasaOtomatis(seg.teks), hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
         kitabId: (() => { const ids = new Set(perpus.map((x) => String(x.id).split(':')[0])); return ids.size === 1 ? [...ids][0] : ''; })(), // hanya bila seluruh materi dari satu kitab perpustakaan
         spek: tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level })),
+        hindari: PKK.daftarHindari(kumpul.map((x) => x.soal)), // soal yang sudah jadi di paket ini: AI diminta tidak mengulanginya
       }, ctl.signal, { onTunggu: (s) => setStatus(`Menunggu batas permintaan AI (${s} detik)...`) });
       const h = d.hasil;
       for (const b of h.butir) {
         const kode = tugas.spek[b.indeks].bagian;
-        kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model });
+        kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model, segmen: tugas.segmen, spek: tugas.spek[b.indeks] });
       }
       if (h.butir.length) segmenAda.add(tugas.segmen);
       for (const g of h.gagal) sisa.push({ segmen: tugas.segmen, spek: tugas.spek[g.indeks] });
@@ -2473,6 +2475,16 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
       }
       if (luar.length && !segmenAda.size) setErr({ code: 'TEKS_TIDAK_MEMADAI', message: `Tidak ada bagian teks yang masuk cakupan${cakupan ? ` "${cakupan}"` : ''}. Periksa apakah materi yang diberikan sesuai dengan cakupan di Konfigurasi.` });
       else if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati (di luar cakupan); butirnya dialihkan ke segmen lain yang masuk cakupan.`);
+      // Butir KEMBAR di dalam paket (tiap segmen disusun lewat panggilan AI terpisah yang tidak saling tahu) dibuang. Penggantinya ikut alur
+      // pengulangan di bawah, kini dengan daftar "hindari". Butir yang sudah Anda sunting dan pasangan berkunci beda tidak pernah dibuang otomatis.
+      let nKembar = 0;
+      const buangKembar = () => {
+        if (ctl.signal.aborted) return [];
+        const dibuang = PKK.buangDariKumpulan(kumpul);
+        if (dibuang.length) { nKembar += dibuang.length; setHasil([...kumpul]); }
+        return dibuang;
+      };
+      for (const d of buangKembar()) if (d.spek) sisa.push({ segmen: d.segmen, spek: d.spek });
       // Butir yang gagal diulang sekali, dikelompokkan per segmen.
       if (!ctl.signal.aborted && sisa.length) {
         const per = new Map();
@@ -2493,6 +2505,9 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
         }
         setKurang(gagalAkhir);
       }
+      const kembarAkhir = buangKembar(); // pengganti yang ternyata kembar lagi: tidak diulang lagi (hemat kuota), dihitung kurang
+      if (kembarAkhir.length) setKurang((k) => [...k, ...kembarAkhir.map((d) => d.spek).filter(Boolean)]);
+      if (nKembar) toast(`${nKembar} butir kembar dibuang otomatis${kembarAkhir.length ? `; ${kembarAkhir.length} belum ada penggantinya` : '; pengganti dibuat bila memungkinkan'}.`);
       if (ctl.signal.aborted) toast('Dibatalkan. Butir yang sudah jadi tetap ditampilkan.');
     } catch (e) {
       const x = apiErr(e); if (x) setErr(x.code === 'RATE_LIMIT_DAILY' ? { ...x, message: x.message + ' Butir yang sudah jadi tetap ada di bawah; simpan dulu, lanjutkan besok.' } : x);
@@ -2510,6 +2525,14 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
   const urut = useMemo(() => PK.urutkanSoal(hasil.map((x) => ({ ...x.soal, _uid: x.uid }))), [hasil]);
   const naskah = useMemo(() => NK.susunNaskah(urut, dawr), [urut, dawr]);
   const lookup = useMemo(() => new Map(hasil.map((x) => [x.uid, x])), [hasil]);
+  const kemiripan = useMemo(() => PKK.petaKemiripan(hasil), [hasil]);   // uid -> butir lain yang kembar/mirip
+  const buangan = useMemo(() => PKK.pilihBuang(hasil).buang, [hasil]);  // butir kembar yang aman dibuang
+  const nomorUid = useMemo(() => { const m = new Map(); for (const bg of naskah.bagian) for (const { no, q } of bg.butir) if (q) m.set(q._uid, no); return m; }, [naskah]);
+  const hapusKembar = () => {
+    if (!buangan.length) return;
+    const set = new Set(buangan); setHasil((h) => h.filter((x) => !set.has(x.uid)));
+    toast(`${buangan.length} butir kembar dibuang. Jalankan paket lagi, atau tulis manual, untuk melengkapi nomornya.`);
+  };
 
   const simpan = async (kirim) => {
     if (!hasil.length || simpanBusy) return;
@@ -2523,7 +2546,15 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
     const pesan = kirim
       ? `Kirim ${hasil.length} butir paket ke editor? Butir tidak bisa disunting lagi sampai editor menyetujui atau mengembalikannya untuk direvisi.`
       : `Simpan ${hasil.length} butir sebagai satu paket Draft? Anda masih bisa menyunting lalu mengirimnya ke editor dari tab Bank Soal.`;
-    if (!window.confirm(pesan)) return;
+    let pesanBank = '';
+    if (onCekBank) { // pemeriksaan terhadap soal yang sudah ada di bank; gagal = tidak menghalangi penyimpanan
+      try {
+        const daftarSoal = urut.map((q) => ({ q, no: nomorUid.get(q._uid) || '?' }));
+        const r = await onCekBank(daftarSoal.map((x) => x.q), nama);
+        pesanBank = PKK.pesanKembarBank(r.hasil.map((h) => ({ ...h, no: daftarSoal[h.i].no })), { total: r.total });
+      } catch (e) { pesanBank = ''; }
+    }
+    if (!window.confirm(pesanBank ? `${pesanBank}\n\n${pesan}` : pesan)) return;
     setSimpanBusy(true); setErr(null);
     try {
       // Nomor urut = urutan di naskah (bagian أ, ب, ج); butir yang tak muat di template dilanjutkan di belakang.
@@ -2659,7 +2690,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
             <Btn kind="ghost" onClick={() => simpan(false)} disabled={jalan || simpanBusy || !hasil.length}>{simpanBusy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}Simpan sebagai Draft</Btn>
             <Btn kind="primary" onClick={() => simpan(true)} disabled={jalan || simpanBusy || !hasil.length}><Send size={15} />Simpan dan kirim ke editor</Btn></div>}>
           {naskah.peringatan.length > 0 && <ul className="mb-3 space-y-1">{naskah.peringatan.filter((p) => !/halaman kitab/.test(p)).map((p, i) => <li key={i} className="rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{p}</li>)}</ul>}
-          {kurang.length > 0 && <p className="mb-3 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{kurang.length} butir tidak jadi (sudah diulang, atau segmennya di luar cakupan). Jalankan paket lagi untuk menambah, atau tulis manual di tab Penyusunan Soal.</p>}
+          {buangan.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn"><span>{buangan.length} butir kembar dengan butir lain di paket ini.</span><Btn kind="soft" className="!text-xs" onClick={hapusKembar} disabled={jalan}>Buang yang kembar</Btn></div>}
+          {kurang.length > 0 && <p className="mb-3 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">{kurang.length} butir tidak jadi (sudah diulang, kembar dengan butir lain, atau segmennya di luar cakupan). Jalankan paket lagi untuk menambah, atau tulis manual di tab Penyusunan Soal.</p>}
           {naskah.bagian.map((bg) => (
             <div key={bg.kode} className="mb-4">
               <h3 className="mb-2 text-xs font-bold text-ink">{LABEL_BAGIAN[bg.kode]} · {bg.terisi} dari {bg.n} nomor</h3>
@@ -2683,6 +2715,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank }) {
                       {NK.kutipanKunci(q) && <p dir="rtl" lang="ar" className="mt-1 font-ar text-base leading-loose text-soft-ink">{NK.kutipanKunci(q)}</p>}
                       {r && r.kutipanStatus !== 'cocok' && <p className="mt-1 text-xs text-warn">{LABEL_KUTIPAN_STATUS[r.kutipanStatus]}</p>}
                       {r && r.sikap && r.sikap.status !== 'aman' && <p className="mt-1 text-xs text-warn">Periksa nada soal: {r.sikap.temuan.map((t) => t.kata).join(', ')}</p>}
+                      {(kemiripan.get(q._uid) || []).map((m) => <p key={m.dengan} className="mt-1 text-xs text-warn">{m.jenis === 'kembar' ? 'Kembar' : 'Mirip'} {Math.round(m.skor * 100)}% dengan nomor {nomorUid.get(m.dengan) || '?'}{m.kunciBeda ? ', tetapi kunci jawabannya berbeda: periksa mana yang benar' : ''}. Hapus salah satu bila memang sama.</p>)}
                       {r && r.catatan.filter((c) => !/Kutipan|Kunci jatuh/.test(c)).map((c, i) => <p key={i} className="mt-1 text-xs text-warn">{c}</p>)}
                     </li>
                   );
@@ -2908,6 +2941,22 @@ function App({ user, profile }) {
       for (const q of c.daftar) if (!gabung.has(q.id)) gabung.set(q.id, q);
     }
     return [...gabung.values()];
+  };
+  // Butir paket vs soal yang sudah ada di bank (cache sekitab yang sama dengan kandidatDuplikat: tidak menambah jatah baca Firestore bila sudah termuat).
+  const cekKembarBank = async (soalList, namaKitab) => {
+    const gabung = new Map(qs.map((q) => [q.id, q]));
+    const nama = String(namaKitab || '').trim();
+    if (nama) {
+      let c = cacheKitab.current.get(nama);
+      if (!c || Date.now() - c.waktu > 600000) {
+        c = { waktu: Date.now(), daftar: (await col.where('nama', '==', nama).limit(200).get()).docs.map(dariDoc) };
+        cacheKitab.current.set(nama, c);
+      }
+      for (const q of c.daftar) if (!gabung.has(q.id)) gabung.set(q.id, q);
+    }
+    const daftar = [...gabung.values()]; const hasil = [];
+    soalList.forEach((soal, i) => { const m = DUP.cari(soal, daftar, { maks: 1 }); if (m.length) hasil.push({ i, ...m[0] }); });
+    return { hasil, total: daftar.length };
   };
   const amanDariDuplikat = async () => {
     let daftar; let hasil;
@@ -3186,7 +3235,7 @@ function App({ user, profile }) {
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
         {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
-        {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} onBukaBank={bukaPaketDiBank} />}
+        {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} onBukaBank={bukaPaketDiBank} onCekBank={cekKembarBank} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
         {loaded && (tab === 'bank' || tab === 'export' || tab === 'fokus') && (
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm" role="status">
