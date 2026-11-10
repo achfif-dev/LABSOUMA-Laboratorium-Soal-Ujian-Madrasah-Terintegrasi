@@ -229,8 +229,10 @@ export async function generatePaket(body, deps = {}) {
     });
   } catch (e) { throw toApiError(e); }
   periksaPenolakan(msg);
-  if (msg.stop_reason === 'max_tokens') throw new ApiError(502, 'AI_BAD_OUTPUT', 'Hasil AI terpotong. Coba lagi; aplikasi akan memecah permintaan.');
+  const terpotong = msg.stop_reason === 'max_tokens';
   const call = (msg.content || []).find((b) => b.type === 'tool_use');
+  // Keluaran terpotong: butir yang sudah utuh tetap dipakai (sisanya masuk `gagal` dan dilanjutkan klien), bukan dibuang semua.
+  if (terpotong && !(call && call.name === 'serahkan_paket' && Array.isArray(call.input && call.input.butir) && call.input.butir.length)) throw new ApiError(502, 'AI_BAD_OUTPUT', 'Hasil AI terpotong. Coba lagi; aplikasi akan memecah permintaan.');
   if (!call) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI tidak mengembalikan soal. Coba lagi.');
   if (call.name === 'tolak_teks') throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', satuBaris(call.input && call.input.alasan, 300) || 'Teks tidak memuat materi yang cukup untuk dijadikan soal.');
 
@@ -240,6 +242,7 @@ export async function generatePaket(body, deps = {}) {
     // Cocokkan menurut nomor bila ada; bila model melewatkan nomor, pakai urutan.
     const raw = mentah.find((b) => String(b && b.no).trim() === String(indeks + 1)) || mentah[indeks];
     try {
+      if (!raw) throw new Error(terpotong ? 'terpotong, belum dibuat' : 'tidak dibuat oleh AI');
       // Cakupan dari Konfigurasi ditegakkan di server: butir yang oleh AI sendiri dinyatakan di luar batas dibuang (dan dihitung gagal).
       const cak = periksaCakupan(raw, input.cakupan);
       if (cak && cak.status === 'tidak') { diluar++; throw new Error(`di luar cakupan${cak.bab ? ` (bab: ${cak.bab})` : ''}`); }
@@ -252,5 +255,5 @@ export async function generatePaket(body, deps = {}) {
   // Semua butir ditolak karena di luar cakupan = segmen ini bukan materi ujian: klien memperlakukannya seperti `tolak_teks` (segmen dilewati, butir dialihkan).
   if (!butir.length && diluar && diluar === input.spek.length) throw new ApiError(422, 'TEKS_TIDAK_MEMADAI', CATATAN_DILUAR(input.cakupan, '') + ' Segmen ini tidak memuat materi yang masuk cakupan.');
   if (!butir.length) throw new ApiError(502, 'AI_BAD_OUTPUT', `Hasil AI tidak bisa dipakai (${gagal[0] ? gagal[0].alasan : 'kosong'}). Coba lagi.`);
-  return { butir, gagal, model: getModel() };
+  return { butir, gagal, model: getModel(), ...(terpotong ? { terpotong: true } : {}) };
 }
