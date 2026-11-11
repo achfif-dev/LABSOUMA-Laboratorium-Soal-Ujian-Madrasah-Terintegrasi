@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { sidikButa, sidikButaSoal, alasanPerluCatatan, catatButa, setujui, KOLEKSI_BUTA } from '../src/review.js';
+import { sidikButa, sidikButaSoal, alasanPerluCatatan, catatButa, setujui, KOLEKSI_BUTA, KOLEKSI_TELAAH, catatTelaah, sidikTelaahSoal } from '../src/review.js';
 import { periksaKutipan, bidangDariSoal } from '../src/kutipan.js';
 import { BIDANG_RIWAYAT } from '../web/lib/riwayat.js';
 import { __setFirebaseForTest } from '../src/platform.js';
@@ -63,8 +63,42 @@ test('gerbang: soal berpilihan TANPA catatan server uji buta wajib alasan; klaim
   assert.equal(alasanPerluCatatan(soalAsli({ kunci: 'B' }), null).length, 1); // kunci terbalik, tanpa uji = tidak lagi lolos diam-diam
 });
 
-test('gerbang: bentuk tanpa opsi (isian, uraian) tidak diminta uji buta (tidak ada uji buta untuknya)', () => {
-  assert.deepEqual(alasanPerluCatatan(soalAsli({ bentuk: 'isian', opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', jawaban: 'wajib' }), null), []);
+const ISIAN = () => soalAsli({ bentuk: 'isian', opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', jawaban: 'wudhu', pertanyaan: 'Syarat sah shalat ..... ' });
+
+test('gerbang: soal tanpa opsi (isian, uraian) tidak diuji buta; gantinya WAJIB catatan telaah "layak" dari server', () => {
+  const r = alasanPerluCatatan(ISIAN(), null);
+  assert.equal(r.length, 1); assert.match(r[0], /belum ditelaah/);
+  assert.deepEqual(alasanPerluCatatan(ISIAN(), null, { rekamTelaah: { verdict: 'layak' } }), []);
+  assert.match(alasanPerluCatatan(ISIAN(), null, { rekamTelaah: { verdict: 'perlu_perbaikan' } })[0], /perlu perbaikan/);
+  assert.match(alasanPerluCatatan(ISIAN(), null, { rekamTelaah: { verdict: 'tidak_layak' } })[0], /tidak layak/);
+  assert.equal(r.some((x) => /uji jawab buta/.test(x)), false);
+});
+
+test('catatTelaah: hanya soal tanpa opsi; verdict lebih buruk bersifat lengket; isi berubah = catatan baru', async () => {
+  const db = fakeDb(); const FV = { serverTimestamp: () => 'TS' };
+  const arg = (o = {}) => ({ teks: TEKS, bentuk: 'isian', soal: { pertanyaan: 'Syarat sah shalat ..... ', jawaban: 'wudhu', rubrik: '' }, verdict: 'perlu_perbaikan', uid: 'u1', model: 'm', ...o });
+  assert.equal(await catatTelaah(db, FV, arg({ bentuk: 'pilgan' })), false); // soal berpilihan memakai uji buta
+  assert.equal(await catatTelaah(db, FV, arg({ verdict: 'ngawur' })), false);
+  assert.equal(await catatTelaah(db, FV, arg()), true);
+  assert.equal(await catatTelaah(db, FV, arg({ verdict: 'layak' })), false); // telaah ulang tidak bisa memperbaiki verdict lama
+  assert.equal(db.data[`${KOLEKSI_TELAAH}/${sidikTelaahSoal(ISIAN())}`].verdict, 'perlu_perbaikan');
+  assert.equal(await catatTelaah(db, FV, arg({ soal: { pertanyaan: 'Syarat sah shalat ..... ', jawaban: 'suci dari hadats', rubrik: '' }, verdict: 'layak' })), true); // isi lain
+  assert.equal(await catatTelaah(db, FV, arg({ verdict: 'tidak_layak' })), true); // lebih buruk boleh menimpa
+});
+
+test('setujui: soal isian tanpa catatan telaah ditolak tanpa alasan; dengan telaah "layak" disetujui tanpa catatan', async () => {
+  const db = pasang({ 'soal/s1': ISIAN() });
+  try {
+    let r = await jalan('tok_editor', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 422); assert.equal(r.body.error.code, 'ALASAN_WAJIB'); assert.match(r.body.error.message, /belum ditelaah/);
+    db.data[`${KOLEKSI_TELAAH}/${sidikTelaahSoal(ISIAN())}`] = { verdict: 'layak', uid: 'u_penyusun' };
+    r = await jalan('tok_editor', { aksi: 'setujui', id: 's1' });
+    assert.equal(r.code, 200); assert.equal(db.data['soal/s1'].status, 'approved');
+  } finally { __setFirebaseForTest(null); }
+});
+
+test('rules: telaahHasil tertutup untuk klien, seperti cekbutaHasil', () => {
+  assert.match(RULES, /match \/telaahHasil\/\{doc\}\s*\{\s*allow read, write: if false;/);
 });
 
 test('gerbang: kutipan \"mirip\" (negasi terpotong) mewajibkan alasan, kutipan utuh tidak', () => {
