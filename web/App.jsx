@@ -36,8 +36,10 @@ const PemeliharaanAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then(
 const Export = denganPegon(lazyPanel(() => import('./ExportTab.jsx')));
 const TanyaKitab = lazyPanel(() => import('./TanyaKitab.jsx'));
 const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
+const FaktaTeks = lazyPanel(() => import('./FaktaTeks.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
+import { faktaTerikatDari, pilihFaktaBerikut, faktaBasi } from './lib/fakta.js';
 import { samaKitab } from './lib/kitabNama.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
@@ -606,10 +608,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai',
     AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
     SOAL_KOSONG: 'Naskah soal belum lengkap', AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', RATE_LIMIT_DAILY: 'Kuota harian habis',
-    NETWORK: 'Tidak terhubung ke server', SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', SERVER_AUTH: 'Kunci API server bermasalah',
+    FAKTA_TIDAK_VALID: 'Fakta tidak cocok dengan teks', NETWORK: 'Tidak terhubung ke server', SERVER_NOT_CONFIGURED: 'Server belum dikonfigurasi', SERVER_AUTH: 'Kunci API server bermasalah',
   };
 
-  const generate = async () => {
+  const generate = async (fakta = null) => { // fakta: satu butir hasil ekstrak (pipeline); tanpa itu alur lama utuh
     setErrors([]); setApiError(null);
     const bad = arabicProblem(form.teks.trim());
     if (bad) { setApiError({ code: 'INVALID_ARABIC', message: bad }); return; }
@@ -618,7 +620,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     try {
       const res = await fetch('/api/generate', {
         method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await firebase.auth().currentUser.getIdToken()) },
-        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus, kitabId: form.kitabId, cakupan: cakupanTerpilih, ujian: form.periode ? Uj.labelPeriode(cfg, form.tingkat, form.periode) : '' }),
+        body: JSON.stringify({ teks: form.teks, bahasa: bahasaOtomatis(form.teks), nama: form.nama, juz: form.juz, hal: form.hal, tingkat: form.tingkat, kelas: form.kelas, mapel: form.mapel, level: form.level, bentuk: form.bentuk, fokus, kitabId: form.kitabId, cakupan: cakupanTerpilih, ujian: form.periode ? Uj.labelPeriode(cfg, form.tingkat, form.periode) : '', ...(fakta ? { faktaTerikat: faktaTerikatDari(fakta) } : {}) }),
       });
       let data = null;
       try { data = await res.json(); } catch (e) {}
@@ -640,6 +642,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
         ai: { dibuat: true, model: String(data.model || '').slice(0, 60), verifikasi: (data.verifikasi && data.verifikasi.status) || '', buta: '' },
       }));
       setGenerated(true);
+      if (fakta) { setTerpakai((t) => (t.includes(fakta.id) ? t : [...t, fakta.id])); setJejak({ fakta: s.fakta_dasar || fakta.fakta, kutipan: fakta.kutipan, alasan: s.alasan_pengecoh || '' }); } else setJejak(null);
       if (s.cakupan_status === 'tidak_jelas') toast(`Cakupan "${cakupanTerpilih}" tidak bisa dipastikan dari teks ini (judul bab tidak ada). Periksa sendiri apakah soal masuk cakupan.`);
       if (Bt.punyaOpsi(bt)) ujiButa({ stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '', opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e }, kunci: s.kunci_jawaban }, bt); else setButaState(null); // tanpa await: tidak menahan tampilan soal
     } catch (e) {
@@ -722,6 +725,28 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
     setKUrl(''); setKErr(null); setKInfo(null); setKGagal(''); setKAppend(false); setKHal('1'); setKManual(false);
     setAi(null); setFokus(''); setApiError(null);
     toast('Rujukan kitab dikosongkan.');
+  };
+
+  // Pipeline soal: fakta atomik dari teks (kutipan diperiksa kode) -> satu fakta dipilih -> soal terikat fakta itu.
+  const [fk, setFk] = useState(null);           // {loading, data:{fakta,dibuang}, teks, error}
+  const [terpakai, setTerpakai] = useState([]); // id fakta yang sudah dijadikan soal pada teks ini
+  const [jejak, setJejak] = useState(null);     // {fakta, kutipan, alasan}: dasar soal terakhir (tidak disimpan ke soal)
+  const runFakta = async () => {
+    const bad = arabicProblem(form.teks.trim());
+    if (bad || bahasaOtomatis(form.teks) !== 'ar') { setFk({ error: { code: 'INVALID_ARABIC', message: bad || 'Ekstrak fakta hanya tersedia untuk teks Arab.' } }); return; }
+    const teks = form.teks; setFk({ loading: true }); setTerpakai([]);
+    try {
+      const d = await callApi('/api/assist', { aksi: 'fakta', teks, nama: form.nama, tingkat: form.tingkat, mapel: form.mapel, kitabId: form.kitabId });
+      if (d.peringatanOtoritas) toast(d.peringatanOtoritas);
+      setFk({ data: d.hasil, teks });
+    } catch (e) { const er = apiErr(e); setFk(er ? { error: er } : null); }
+  };
+  const buatDariFakta = (f) => { if (!busy && cooldown <= 0) generate(f); };
+  const faktaOtomatis = () => {
+    const { fakta, habis } = pilihFaktaBerikut(fk.data.fakta, terpakai, { bentuk: form.bentuk, level: form.level });
+    if (!fakta) return;
+    if (habis) toast('Semua fakta sudah dipakai; dipilih yang paling cocok dan akan mirip soal sebelumnya.');
+    buatDariFakta(fakta);
   };
 
   const runAssist = async (kind) => {
@@ -949,6 +974,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             <div className="flex flex-wrap gap-2">
               <Btn kind="soft" onClick={() => runAssist('terjemah')} disabled={ai && ai.loading}>Terjemahkan</Btn>
               <Btn kind="soft" onClick={() => runAssist('analisis')} disabled={ai && ai.loading}>Analisis teks</Btn>
+              <Btn kind="soft" onClick={runFakta} disabled={(fk && fk.loading) || busy}>Ekstrak fakta</Btn>
             </div>
             {fokus && (
               <div className="flex items-start gap-2 rounded-lg bg-soft px-3 py-2 text-sm text-soft-ink">
@@ -956,7 +982,7 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
                 <button type="button" aria-label="Hapus fokus soal" onClick={() => setFokus('')}><X size={14} /></button>
               </div>
             )}
-            <Btn kind="primary" className="w-full" onClick={generate} disabled={busy || cooldown > 0}>
+            <Btn kind="primary" className="w-full" onClick={() => generate()} disabled={busy || cooldown > 0}>
               {busy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
               {busy ? 'Menyusun soal...' : cooldown > 0 ? `Coba lagi dalam ${cooldown} detik` : 'Generate Draft Soal dari Teks Kitab'}
             </Btn>
@@ -980,6 +1006,13 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
           </div>
         </Section>
 
+        {fk && (
+          <Section title="Fakta dari Teks" icon={Sparkles}
+            action={<button type="button" onClick={() => { setFk(null); setTerpakai([]); }} className="text-xs font-semibold text-mute hover:text-ink">Tutup</button>}>
+            <FaktaTeks state={fk} level={form.level} terpakai={terpakai} basi={faktaBasi(fk, form.teks)} disabled={busy || cooldown > 0} onBuat={buatDariFakta} onOtomatis={faktaOtomatis} />
+          </Section>
+        )}
+
         {ai && (
           <Section title={ai.kind === 'terjemah' ? 'Terjemah & Istilah' : 'Analisis Teks'} icon={Sparkles}
             action={<button type="button" onClick={() => setAi(null)} className="text-xs font-semibold text-mute hover:text-ink">Tutup</button>}>
@@ -991,11 +1024,20 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
       <div className="min-w-0 space-y-5 lg:col-span-7">
         {editingId && !ustadz && <RiwayatSoal id={editingId} form={form} setForm={setForm} toast={toast} />}
         <Section title={editingId ? 'Naskah Soal (sedang diedit)' : 'Naskah Soal'} icon={PenLine}
-          action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
+          action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); setJejak(null); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
           {generated && (
             <div className="mb-4 flex gap-2 rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>Draft disusun AI dari teks kitab Anda. Cek kebenaran kunci, pengecoh, dan kutipan Arab sebelum {ustadz ? 'dipakai untuk murid' : 'dikirim ke editor'}.</span>
+            </div>
+          )}
+          {generated && jejak && (
+            <div className="mb-4 space-y-2 rounded-lg border border-line bg-surface px-3 py-3 text-sm">
+              <p className="text-xs font-bold uppercase tracking-wide text-mute">Dasar soal (satu fakta)</p>
+              <p className="leading-relaxed">{jejak.fakta}</p>
+              <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal text-mute">{jejak.kutipan}</p>
+              {jejak.alasan && <div><p className="text-xs font-semibold text-mute">Mengapa tiap pengecoh salah</p><p className="whitespace-pre-wrap text-xs leading-relaxed">{jejak.alasan}</p></div>}
+              <p className="text-xs leading-relaxed text-mute">Catatan ini hanya tampil di layar ini dan tidak ikut tersimpan ke soal. Salin ke pembahasan bila ingin disimpan.</p>
             </div>
           )}
           <div className="space-y-4">
