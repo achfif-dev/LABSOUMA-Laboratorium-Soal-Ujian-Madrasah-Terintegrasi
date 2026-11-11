@@ -1,6 +1,6 @@
 // POST /api/assist: tanya-jawab bersumber atas perpustakaan (tanyakitab), pemeriksaan soal terhadap halaman rujukan (periksarujukan, gratis), terjemah teks, baca foto kitab (fotokitab), analisis teks, telaah dan perbaikan soal, uji jawab buta, saran bab penting, serta bantuan AI Pegon.
 import { route, authenticateAuthor, authenticateReviewer, enforceAi, enforceRate, withRefund, aiPool, firestoreAdmin, num } from '../platform.js';
-import { setujui, mintaRevisi, catatButa } from '../review.js';
+import { setujui, mintaRevisi, catatButa, catatTelaah } from '../review.js';
 import { bacaAlur } from '../alurEditor.js';
 import { bentukSah } from '../bentuk.js';
 import { parseList } from '../access.js';
@@ -9,6 +9,7 @@ import { loadAiConfig } from '../aiConfig.js';
 import { muatTingkatKustom } from '../appConfig.js';
 import { ApiError, validateInput, getModel } from '../soalService.js';
 import { terjemahTeks, analisisTeks, telaahSoal, validateTeks } from '../assistService.js';
+import { ekstrakFakta } from '../faktaService.js';
 import { cekButa } from '../cekButa.js';
 import { sarankanBab, validateBab } from '../babService.js';
 import { perkuatPegon, fotoPegon, validatePegon, validateFoto } from '../pegonService.js';
@@ -23,6 +24,7 @@ import { periksaRujukan } from '../periksaRujukan.js';
 const ASSIST = {
   terjemah: terjemahTeks,
   analisis: analisisTeks,
+  fakta: ekstrakFakta, // langkah 1 pipeline soal: fakta atomik + kutipan dasar yang SUDAH diperiksa kode (src/faktaService.js)
   telaah: telaahSoal,
   cekbuta: (body) => { const v = validateInput(body); return cekButa(body.soal, v.teks, { tingkat: body.tingkat, bentuk: v.bentuk }); },
   pegon: perkuatPegon,
@@ -51,12 +53,12 @@ export default route(async (req) => {
     return { aksi, hasil: await periksaRujukan(req.body) };
   }
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
-  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, telaah, cekbuta, paket, bab, tanyakitab, periksarujukan, pegon, pegonfoto, atau fotokitab.');
+  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, fakta, telaah, cekbuta, paket, bab, tanyakitab, periksarujukan, pegon, pegonfoto, atau fotokitab.');
   // Paket Dauri (satu naskah utuh, banyak panggilan AI) hanya untuk tim penyusun; tab-nya juga tidak ada di aplikasi Ustadz. Ditolak sebelum validasi dan kuota.
   if (aksi === 'paket' && u.role === 'ustadz') throw new ApiError(403, 'FORBIDDEN_ROLE', 'Paket Dauri tidak tersedia untuk peran Ustadz.');
   await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
   // Otoritas kitab dibaca server dari perpustakaan lewat kitabId (hanya aksi yang memilih materi atau menyusun soal); `_kitab` kiriman klien selalu ditimpa.
-  const PAKAI_KITAB = ['terjemah', 'analisis', 'telaah', 'paket', 'bab'];
+  const PAKAI_KITAB = ['terjemah', 'analisis', 'fakta', 'telaah', 'paket', 'bab'];
   const body = PAKAI_KITAB.includes(aksi) ? await denganKitab(req.body) : req.body;
   let teks;
   if (aksi === 'pegon') validatePegon(body); // teks Latin, bukan Arab: jangan lewat validateTeks
@@ -74,6 +76,9 @@ export default route(async (req) => {
     await catatButa(db, FieldValue, { teks: req.body.teks, bentuk: bentukSah(req.body.bentuk) || 'pilgan', soal: req.body.soal, status: hasil.status, uid: u.uid, model: getModel() });
   }
   if (aksi === 'telaah') {
+    // Catatan server atas verdict telaah (soal isian/uraian): dipakai gerbang persetujuan (src/review.js) sebagai pengganti uji buta.
+    const { db, FieldValue } = await firestoreAdmin();
+    await catatTelaah(db, FieldValue, { teks: req.body.teks, bentuk: bentukSah(req.body.bentuk) || 'pilgan', soal: req.body.soal, verdict: hasil.verdict, uid: u.uid, model: getModel() });
     // Gratis, tanpa AI: periksa kutipan pada naskah asli dan pada perbaikan dari AI.
     hasil.verifikasi_naskah = periksaKutipan(bidangDariSoal(req.body.soal), teks);
     hasil.verifikasi_perbaikan = periksaKutipan(bidangDariAI(hasil.perbaikan), teks);
