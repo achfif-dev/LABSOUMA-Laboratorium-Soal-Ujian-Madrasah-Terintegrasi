@@ -39,7 +39,7 @@ const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 const FaktaTeks = lazyPanel(() => import('./FaktaTeks.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
-import { faktaTerikatDari, pilihFaktaBerikut, faktaBasi } from './lib/fakta.js';
+import { faktaTerikatDari, pilihFaktaBerikut, faktaBasi, faktaSahDi, spekDenganFakta, jejakFaktaButir } from './lib/fakta.js';
 import { samaKitab } from './lib/kitabNama.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
@@ -2411,6 +2411,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
   const [komposisi, setKomposisi] = useState(A0.komposisi || { L1: 30, L2: 50, L3: 20 });
   const [lanjutan, setLanjutan] = useState(A0.lanjutan !== undefined ? A0.lanjutan : 40);
   const [jalan, setJalan] = useState(false);
+  const [modeFakta, setModeFakta] = useState(false); // tiap butir terikat SATU fakta dari teks (+1 panggilan AI per segmen untuk ekstrak fakta); mati bawaan
+  const faktaSegRef = useRef(new Map());              // teks segmen -> fakta sah (cache sesi; ekstrak tidak diulang untuk segmen yang sama)
   const [status, setStatus] = useState('');
   const [hasil, setHasil] = useState(A0.hasil || []);            // [{uid, bagian, soal, segmenTeks, segmenHal, kutipanStatus, sikap, catatan}]
   const [kurang, setKurang] = useState([]);          // butir yang gagal dibuat setelah diulang sekali
@@ -2486,7 +2488,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
     if (hasil.length && !window.confirm(`Hasil paket sebelumnya (${hasil.length} butir) akan DIHAPUS dan paket dibuat ulang dari awal.${kekurangan.sisa.length ? ' Bila hanya ingin melengkapi yang kurang, batalkan lalu pakai "Lanjutkan sisa".' : ''} Lanjutkan?`)) return;
-    if (!window.confirm(`Membuat paket ${NK.PRESET_DAURI[dawr].label} memakai ±${rencana.panggilan} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
+    const exFakta = modeFakta ? new Set(rencana.tugas.map((t) => t.segmen)).size : 0; // satu ekstrak fakta per segmen
+    if (!window.confirm(`Membuat paket ${NK.PRESET_DAURI[dawr].label} memakai ±${rencana.panggilan}${exFakta ? ` + ±${exFakta} (ekstrak fakta)` : ''} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
     setErr(null); setHasil([]); setKurang([]);
     await proses(rencana.tugas, [], rencana.panggilan);
   };
@@ -2497,7 +2500,7 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     if (!tugas.length) { toast('Paket sudah lengkap.'); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
-    if (!window.confirm(`Melanjutkan ${kekurangan.sisa.length} butir yang belum ada (${kekurangan.terisi} butir yang sudah jadi tidak diulang) memakai ±${tugas.length} panggilan AI. Lanjutkan?`)) return;
+    if (!window.confirm(`Melanjutkan ${kekurangan.sisa.length} butir yang belum ada (${kekurangan.terisi} butir yang sudah jadi tidak diulang) memakai ±${tugas.length}${modeFakta ? ` + ekstrak fakta untuk segmen yang belum pernah diekstrak` : ''} panggilan AI. Lanjutkan?`)) return;
     setErr(null); setKurang([]);
     await proses(tugas, hasil, tugas.length);
   };
@@ -2508,20 +2511,42 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     const ctl = new AbortController(); ctlRef.current = ctl;
     const kumpul = [...awal]; const sisa = []; const segmenAda = new Set(awal.map((x) => x.segmen).filter((n) => Number.isInteger(n)));
     const FATAL = new Set(['RATE_LIMIT_DAILY', 'AUTH_REQUIRED', 'FORBIDDEN_ROLE', 'BAD_REQUEST', 'INVALID_ARABIC', 'UNAUTHORIZED', 'FORBIDDEN']);
+    let tanpaFaktaN = 0; let gagalFaktaN = 0; // butir yang dibuat tanpa fakta (fakta segmen habis / ekstrak gagal): dilaporkan, tidak disembunyikan
     let beruntun = 0; // panggilan gagal berturut-turut: berhenti bila 3 (mis. offline) supaya kuota tidak terbuang
     const jalankan = async (tugas, label) => {
       const seg = rencana.segmen[tugas.segmen];
+      const kitabIdPaket = (() => { const ids = new Set(perpus.map((x) => String(x.id).split(':')[0])); return ids.size === 1 ? [...ids][0] : ''; })();
+      // Mode fakta: ekstrak fakta segmen (sekali per teks), lalu bagikan satu fakta berbeda ke tiap butir. Gagal ekstrak = segmen ini memakai alur lama.
+      let faktaTugas = null; let spekKirim = tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level }));
+      if (modeFakta) {
+        let daftar = faktaSegRef.current.get(seg.teks);
+        if (!daftar) {
+          setStatus(`${label}: mengekstrak fakta dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
+          try {
+            const df = await panggilSabar('/api/assist', { aksi: 'fakta', teks: seg.teks, nama, tingkat, mapel, kitabId: kitabIdPaket }, ctl.signal, { onTunggu: (n) => setStatus(`Menunggu batas permintaan AI (${n} detik)...`) });
+            daftar = (df.hasil.fakta || []).filter((f) => faktaSahDi(f, seg.teks, window.Kutipan && window.Kutipan.periksaKutipan));
+            faktaSegRef.current.set(seg.teks, daftar);
+          } catch (e) {
+            if (ctl.signal.aborted || (e && e.name === 'AbortError') || (e && (FATAL.has(e.code) || e.status === 401 || e.status === 403))) throw e;
+            daftar = []; gagalFaktaN++;
+          }
+        }
+        // Fakta yang sudah dijadikan butir di segmen ini (dikenali lewat kutipan dasarnya, tahan muat ulang) tidak dibagikan lagi.
+        const sp = spekDenganFakta(tugas.spek, daftar, kumpul.filter((x) => x.segmenTeks === seg.teks));
+        faktaTugas = sp.pilihan; spekKirim = sp.spekKirim; tanpaFaktaN += sp.tanpaFakta;
+      }
       setStatus(`${label}: menyusun ${tugas.spek.length} butir dari segmen ${tugas.segmen + 1} dari ${rencana.segmen.length}...`);
       const d = await panggilSabar('/api/assist', {
         aksi: 'paket', teks: seg.teks, bahasa: bahasaOtomatis(seg.teks), hal: seg.hal || halMulai.trim(), nama, juz, tingkat, kelas, mapel, fokus, cakupan,
-        kitabId: (() => { const ids = new Set(perpus.map((x) => String(x.id).split(':')[0])); return ids.size === 1 ? [...ids][0] : ''; })(), // hanya bila seluruh materi dari satu kitab perpustakaan
-        spek: tugas.spek.map((s) => ({ bentuk: s.bentuk, level: s.level })),
+        kitabId: kitabIdPaket, // hanya bila seluruh materi dari satu kitab perpustakaan
+        spek: spekKirim,
         hindari: PKK.daftarHindari(kumpul.map((x) => x.soal)), // soal yang sudah jadi di paket ini: AI diminta tidak mengulanginya
       }, ctl.signal, { onTunggu: (s) => setStatus(`Menunggu batas permintaan AI (${s} detik)...`) });
       const h = d.hasil;
       for (const b of h.butir) {
         const kode = tugas.spek[b.indeks].bagian;
-        kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model, segmen: tugas.segmen, spek: tugas.spek[b.indeks] });
+        kumpul.push({ uid: `${tugas.id}-${b.indeks}-${kumpul.length}`, bagian: kode, soal: b.soal, segmenTeks: seg.teks, segmenHal: seg.hal, kutipanStatus: b.kutipanStatus, sikap: b.sikap, catatan: b.catatan, model: h.model, segmen: tugas.segmen, spek: tugas.spek[b.indeks],
+          ...jejakFaktaButir(b, faktaTugas) });
       }
       if (h.butir.length) segmenAda.add(tugas.segmen);
       // Butir yang AI sendiri tandai di luar cakupan tidak diulang di segmen yang sama (hasilnya sama, kuota terbuang): dialihkan ke segmen yang terbukti masuk cakupan.
@@ -2552,6 +2577,8 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         if (ctl.signal.aborted) break; k++;
         await aman(t, `Panggilan ${k} dari ${jumlahPanggilan}`);
       }
+      if (gagalFaktaN) toast(`Ekstrak fakta gagal untuk ${gagalFaktaN} segmen; butirnya dibuat tanpa fakta (alur biasa).`);
+      if (tanpaFaktaN) toast(`${tanpaFaktaN} butir dibuat tanpa fakta karena fakta di segmennya sudah habis dipakai butir lain.`);
       if (luar.length && !segmenAda.size) setErr({ code: 'TEKS_TIDAK_MEMADAI', message: `Tidak ada bagian teks yang masuk cakupan${cakupan ? ` "${cakupan}"` : ''}. Periksa apakah materi yang diberikan sesuai dengan cakupan di Konfigurasi.` });
       else if (luar.length) toast(`Segmen ${[...new Set(luar)].join(', ')} dilewati (di luar cakupan); butirnya dialihkan ke segmen lain yang masuk cakupan.`);
       // Butir KEMBAR di dalam paket (tiap segmen disusun lewat panggilan AI terpisah yang tidak saling tahu) dibuang. Penggantinya ikut alur
@@ -2755,11 +2782,16 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
           <p className="mt-1 text-xs text-mute">Dicatat pada semua butir paket supaya tampil di kisi-kisi. {babSaran.length ? 'Pilihan berasal dari saran AI di tab Fokus Ujian.' : 'Tab Fokus Ujian bisa menyarankan bab yang penting.'}</p></div>
       </Section>
 
+      <label className="flex items-start gap-2 rounded-xl border border-line bg-white px-3 py-3 text-sm">
+        <input id="pk-fakta" type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--brand)]" checked={modeFakta} onChange={(e) => setModeFakta(e.target.checked)} disabled={jalan} />
+        <span className="min-w-0 leading-relaxed"><b>Mode fakta</b>: tiap butir menguji satu fakta berbeda dari teks, dengan kutipan dasar yang sudah dicocokkan sistem, dan wajib menjelaskan mengapa tiap pengecoh salah. Menambah ±1 panggilan AI per segmen teks (untuk mengekstrak fakta). Bila fakta di satu segmen habis atau ekstrak gagal, butir yang tersisa dibuat dengan cara biasa dan dilaporkan.</span>
+      </label>
+
       <div className="flex flex-wrap items-center gap-3">
         <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAURI[dawr].label}</Btn>
         {!jalan && hasil.length > 0 && kekurangan.sisa.length > 0 && !rencana.masalah && <Btn kind="soft" onClick={lanjutkan}><RefreshCw size={15} />Lanjutkan sisa ({kekurangan.sisa.length} butir)</Btn>}
         {jalan && !fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}
-        <span className="text-xs text-mute">{rencana.panggilan ? `${rencana.total} butir · ±${rencana.panggilan} panggilan AI (kuota harian dipakai)` : ''}</span>
+        <span className="text-xs text-mute">{rencana.panggilan ? `${rencana.total} butir · ±${rencana.panggilan}${modeFakta ? ` + ±${new Set(rencana.tugas.map((t) => t.segmen)).size}` : ''} panggilan AI (kuota harian dipakai)` : ''}</span>
       </div>
       {status && <Spin>{status}</Spin>}
       {err && <ErrorBox e={err} />}
@@ -2797,6 +2829,13 @@ function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
                       {r && r.sikap && r.sikap.status !== 'aman' && <p className="mt-1 text-xs text-warn">Periksa nada soal: {r.sikap.temuan.map((t) => t.kata).join(', ')}</p>}
                       {(kemiripan.get(q._uid) || []).map((m) => <p key={m.dengan} className="mt-1 text-xs text-warn">{m.jenis === 'kembar' ? 'Kembar' : 'Mirip'} {Math.round(m.skor * 100)}% dengan nomor {nomorUid.get(m.dengan) || '?'}{m.kunciBeda ? ', tetapi kunci jawabannya berbeda: periksa mana yang benar' : ''}. Hapus salah satu bila memang sama.</p>)}
                       {r && r.catatan.filter((c) => !/Kutipan|Kunci jatuh/.test(c)).map((c, i) => <p key={i} className="mt-1 text-xs text-warn">{c}</p>)}
+                      {r && r.faktaDasar && (
+                        <details className="mt-1 text-xs text-mute">
+                          <summary className="cursor-pointer font-semibold text-soft-ink">Dasar butir (satu fakta)</summary>
+                          <p className="mt-1 leading-relaxed">{r.faktaDasar}</p>
+                          {r.alasanPengecoh && <p className="mt-1 whitespace-pre-wrap leading-relaxed"><b>Mengapa pengecoh salah:</b> {r.alasanPengecoh}</p>}
+                        </details>
+                      )}
                     </li>
                   );
                 })}
