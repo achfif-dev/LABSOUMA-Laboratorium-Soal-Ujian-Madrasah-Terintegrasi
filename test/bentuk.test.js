@@ -213,7 +213,7 @@ test('firestore.rules: bentuk, jawaban, rubrik opsional dan dibatasi; kunci waji
   assert.match(soal, /x\.bentuk in \['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'\]/);
   assert.match(soal, /x\.jawaban\.size\(\) <= 2000/);
   assert.match(soal, /x\.rubrik\.size\(\) <= 2000/);
-  assert.match(soal, /function opsiKeys\(\) \{ return \[[^\]]*'bentuk', 'jawaban', 'rubrik'(, 'kitabId', 'halId', 'halIdAkhir')?\]/);
+  assert.match(soal, /function opsiKeys\(\) \{ return \[[^\]]*'bentuk', 'jawaban', 'rubrik'(, 'kitabId', 'halId', 'halIdAkhir')?(, 'dasar')?\]/);
 });
 
 // ---- handler: /api/generate membawa bentuk sampai ke respons ----

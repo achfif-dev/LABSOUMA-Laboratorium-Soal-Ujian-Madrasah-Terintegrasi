@@ -82,3 +82,17 @@ export function jejakFaktaButir(butir, pilihan) {
   const f = butir && pilihan && pilihan[butir.indeks];
   return butir && butir.faktaDasar && f ? { faktaDasar: butir.faktaDasar, faktaKutipan: f.kutipan, alasanPengecoh: butir.alasanPengecoh || '' } : {};
 }
+
+export const MAKS_DASAR = 2000; // sama dengan batas kolom `dasar` di firestore.rules
+
+/**
+ * Teks kolom `dasar` pada soal: fakta yang diuji dan alasan tiap pengecoh salah. Untuk pembaca (penyusun, editor); TIDAK ikut ke naskah ujian.
+ * '' bila tidak ada fakta. Dipotong ke batas aturan Firestore.
+ */
+export function susunDasar({ fakta, alasan } = {}) {
+  const f = String(fakta || '').replace(/\s+/g, ' ').trim();
+  if (!f) return '';
+  const a = String(alasan || '').trim();
+  const teks = `Fakta yang diuji: ${f}${a ? `\nMengapa pengecoh salah: ${a}` : ''}`;
+  return teks.length > MAKS_DASAR ? teks.slice(0, MAKS_DASAR - 1) + '…' : teks;
+}

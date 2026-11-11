@@ -98,6 +98,7 @@ export function bersihkanSoal(raw) {
   const jawaban = teks(raw.jawaban, 2000, 'Jawaban'); const rubrik = teks(raw.rubrik, 2000, 'Pedoman penskoran');
   if (jawaban) data.jawaban = jawaban;
   if (rubrik) data.rubrik = rubrik;
+  const dasar = teks(raw.dasar, 2000, 'Dasar soal'); if (dasar) data.dasar = dasar; // opsional: hanya soal mode fakta
   const reviewerUid = teks(raw.reviewerUid, 128, 'ID peninjau');
   if (reviewerUid) {
     data.reviewerUid = reviewerUid;

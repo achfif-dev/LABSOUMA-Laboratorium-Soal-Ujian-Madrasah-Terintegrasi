@@ -39,7 +39,7 @@ const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 const FaktaTeks = lazyPanel(() => import('./FaktaTeks.jsx'));
 import { rujukanDariHalaman, gabungRujukan, rujukanSah, rentangRujukan, hashBaca, bacaHash } from './lib/rujukan.js';
 import { bagianTeks } from './lib/perpus.js';
-import { faktaTerikatDari, pilihFaktaBerikut, faktaBasi, faktaSahDi, spekDenganFakta, jejakFaktaButir } from './lib/fakta.js';
+import { faktaTerikatDari, pilihFaktaBerikut, faktaBasi, faktaSahDi, spekDenganFakta, jejakFaktaButir, susunDasar } from './lib/fakta.js';
 import { samaKitab } from './lib/kitabNama.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import * as UT from './lib/ustadz.js';
@@ -86,7 +86,7 @@ const ArNama = ({ children, className = '' }) => (children ? <span dir="rtl" lan
 // Tambahan setelah rujukan kitab: " · نama Arab" bila kitab ada di katalog dan punya nama Arab.
 const RefArab = ({ q }) => { const a = namaArabKitab(useCfg(), q.nama); return a ? <> · <ArNama>{a}</ArNama></> : null; };
 const ROLE_LABEL = { pending: 'Menunggu persetujuan', penyusun: 'Penyusun', editor: 'Editor', admin: 'Admin', ustadz: 'Ustadz', nonaktif: 'Nonaktif' };
-const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'];
+const FIELDS = ['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator', 'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'];
 
 const emptyForm = () => ({
   tingkat: 'Aliyah', mapel: 'Fiqih', level: 'L3',
@@ -97,6 +97,7 @@ const emptyForm = () => ({
   stimulus: '', pertanyaan: '', indikator: '', sumberUrl: '',
   bentuk: 'pilgan', // pilgan | lanjutan | benarsalah | isian | uraian (public/bentuk.js)
   opsi: { A: '', B: '', C: '', D: '', E: '' }, kunci: '', pembahasan: '', jawaban: '', rubrik: '', // jawaban/rubrik: isian dan uraian
+  dasar: '', // opsional: fakta yang diuji + alasan pengecoh (mode fakta); untuk penyusun dan editor, tidak masuk naskah ujian
   ai: { dibuat: false, model: '', verifikasi: '', buta: '' }, // jejak audit: dibuat AI? model apa? lolos pemeriksaan apa?
 });
 
@@ -243,6 +244,9 @@ const QuestionView = ({ q }) => (
     )}
     {q.pembahasan && (
       <p className="text-sm leading-relaxed text-mute"><span className="font-semibold text-ink">Pembahasan: </span>{q.pembahasan}</p>
+    )}
+    {q.dasar && (
+      <p className="whitespace-pre-wrap rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-soft-ink"><span className="font-semibold">Dasar soal: </span>{q.dasar}</p>
     )}
     <KutipanBadge q={q} />
     <SikapBadge q={q} />
@@ -636,13 +640,14 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
       setForm((f) => ({
         ...f,
         bentuk: bt, jawaban: s.jawaban || '', rubrik: s.rubrik || '',
+        dasar: s.fakta_dasar ? susunDasar({ fakta: s.fakta_dasar, alasan: s.alasan_pengecoh }) : '',
         stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '',
         opsi: { A: s.pilihan_a || '', B: s.pilihan_b || '', C: s.pilihan_c || '', D: s.pilihan_d || '', E: s.pilihan_e || '' },
         kunci: s.kunci_jawaban || '', pembahasan: s.pembahasan || '', indikator: s.indikator_kisi_kisi || '',
         ai: { dibuat: true, model: String(data.model || '').slice(0, 60), verifikasi: (data.verifikasi && data.verifikasi.status) || '', buta: '' },
       }));
       setGenerated(true);
-      if (fakta) { setTerpakai((t) => (t.includes(fakta.id) ? t : [...t, fakta.id])); setJejak({ fakta: s.fakta_dasar || fakta.fakta, kutipan: fakta.kutipan, alasan: s.alasan_pengecoh || '' }); } else setJejak(null);
+      if (fakta) setTerpakai((t) => (t.includes(fakta.id) ? t : [...t, fakta.id]));
       if (s.cakupan_status === 'tidak_jelas') toast(`Cakupan "${cakupanTerpilih}" tidak bisa dipastikan dari teks ini (judul bab tidak ada). Periksa sendiri apakah soal masuk cakupan.`);
       if (Bt.punyaOpsi(bt)) ujiButa({ stimulus: s.stimulus || '', pertanyaan: s.pertanyaan || '', opsi: { A: s.pilihan_a, B: s.pilihan_b, C: s.pilihan_c, D: s.pilihan_d, E: s.pilihan_e }, kunci: s.kunci_jawaban }, bt); else setButaState(null); // tanpa await: tidak menahan tampilan soal
     } catch (e) {
@@ -730,7 +735,6 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
   // Pipeline soal: fakta atomik dari teks (kutipan diperiksa kode) -> satu fakta dipilih -> soal terikat fakta itu.
   const [fk, setFk] = useState(null);           // {loading, data:{fakta,dibuang}, teks, error}
   const [terpakai, setTerpakai] = useState([]); // id fakta yang sudah dijadikan soal pada teks ini
-  const [jejak, setJejak] = useState(null);     // {fakta, kutipan, alasan}: dasar soal terakhir (tidak disimpan ke soal)
   const runFakta = async () => {
     const bad = arabicProblem(form.teks.trim());
     if (bad || bahasaOtomatis(form.teks) !== 'ar') { setFk({ error: { code: 'INVALID_ARABIC', message: bad || 'Ekstrak fakta hanya tersedia untuk teks Arab.' } }); return; }
@@ -1024,20 +1028,11 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
       <div className="min-w-0 space-y-5 lg:col-span-7">
         {editingId && !ustadz && <RiwayatSoal id={editingId} form={form} setForm={setForm} toast={toast} />}
         <Section title={editingId ? 'Naskah Soal (sedang diedit)' : 'Naskah Soal'} icon={PenLine}
-          action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); setJejak(null); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
+          action={<button type="button" onClick={() => { onReset(); setGenerated(false); setErrors([]); }} className="inline-flex items-center gap-1 text-xs font-semibold text-mute hover:text-ink"><RotateCcw size={13} />Kosongkan</button>}>
           {generated && (
             <div className="mb-4 flex gap-2 rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>Draft disusun AI dari teks kitab Anda. Cek kebenaran kunci, pengecoh, dan kutipan Arab sebelum {ustadz ? 'dipakai untuk murid' : 'dikirim ke editor'}.</span>
-            </div>
-          )}
-          {generated && jejak && (
-            <div className="mb-4 space-y-2 rounded-lg border border-line bg-surface px-3 py-3 text-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-mute">Dasar soal (satu fakta)</p>
-              <p className="leading-relaxed">{jejak.fakta}</p>
-              <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal text-mute">{jejak.kutipan}</p>
-              {jejak.alasan && <div><p className="text-xs font-semibold text-mute">Mengapa tiap pengecoh salah</p><p className="whitespace-pre-wrap text-xs leading-relaxed">{jejak.alasan}</p></div>}
-              <p className="text-xs leading-relaxed text-mute">Catatan ini hanya tampil di layar ini dan tidak ikut tersimpan ke soal. Salin ke pembahasan bila ingin disimpan.</p>
             </div>
           )}
           <div className="space-y-4">
@@ -1085,6 +1080,10 @@ function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ust
             <div><Label htmlFor="pembahasan">Pembahasan / Dalil Pendukung</Label>
               <AutoArea id="pembahasan" maxLength={4000} rows={4} className="field" placeholder="Jelaskan jawaban dan kutip dalil atau teks kitab" value={form.pembahasan} onChange={(e) => set('pembahasan', e.target.value)} />
               <div className="mt-2"><KutipanBadge q={form} /></div></div>
+            {form.dasar && (
+              <div><Label htmlFor="dasar" hint="(untuk editor; tidak ikut ke naskah ujian)">Dasar soal: fakta dan alasan pengecoh</Label>
+                <AutoArea id="dasar" maxLength={2000} rows={3} className="field" value={form.dasar} onChange={(e) => set('dasar', e.target.value)} /></div>
+            )}
             <div><Label htmlFor="indikator" hint="(opsional)">Indikator Kisi-kisi</Label>
               <AutoArea id="indikator" maxLength={1000} rows={2} className="field" placeholder="Peserta didik dapat ..." value={form.indikator} onChange={(e) => set('indikator', e.target.value)} /></div>
           </div>
@@ -3038,7 +3037,7 @@ function App({ user, profile }) {
     const sel = Bt.selaraskan(form); // opsi dan kunci mengikuti bentuk soal (mis. isian tanpa opsi, benar-salah hanya A/B)
     const c = Object.fromEntries(FIELDS.map((k) => [k, sel[k]]));
     const lama = editingId ? (qs.find((x) => x.id === editingId) || {}) : {};
-    for (const k of ['kelas', 'periode', 'bab', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
+    for (const k of ['kelas', 'periode', 'bab', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar']) if (!c[k] && !(k in lama)) delete c[k]; // kosong dan belum pernah ada: jangan kirim (aturan Firestore lama menolak kunci baru)
     if (c.bentuk === 'pilgan' && !('bentuk' in lama)) delete c.bentuk; // pilihan ganda = bawaan: soal biasa tetap sama persis dengan sebelum fitur bentuk
     return { ...c, ai: aiMeta() };
   };
@@ -3120,6 +3119,7 @@ function App({ user, profile }) {
         kunci: q.kunci || '', pembahasan: potong(q.pembahasan, 4000), bentuk: bt, jawaban: potong(q.jawaban, 2000), rubrik: '',
         ai: { dibuat: true, model: potong(x.model, 60), verifikasi: ['lolos', 'periksa', 'gagal', 'tanpa_teks'].includes(v) ? v : '', buta: '' },
       };
+      const ds = x.faktaDasar ? susunDasar({ fakta: x.faktaDasar, alasan: x.alasanPengecoh }) : ''; if (ds) c.dasar = ds; // hanya butir mode fakta
       if (meta.kelas) c.kelas = potong(meta.kelas, 20);
       if (meta.periode) c.periode = potong(meta.periode, 20);
       if (meta.tautan) Object.assign(c, meta.tautan); // bab (kisi-kisi) dan kitabId/halId/halIdAkhir (tautan balik ke perpustakaan), hanya bila ada
@@ -3133,7 +3133,7 @@ function App({ user, profile }) {
     // Diagnosis otomatis saat satu dokumen ditolak: tulis dokumen uji (tanpa kolom opsional, lalu tambah satu kelompok kolom
     // per percobaan) dan hapus lagi. Hasilnya menunjuk kelompok kolom yang ditolak aturan yang BENAR-BENAR terbit di proyek ini.
     const diagnosa = async (dok) => {
-      const KELOMPOK = [['paket', 'dawr', 'cakupan', 'urut'], ['kelas', 'periode'], ['bab'], ['kitabId', 'halId', 'halIdAkhir'], ['bentuk', 'jawaban']];
+      const KELOMPOK = [['paket', 'dawr', 'cakupan', 'urut'], ['kelas', 'periode'], ['bab'], ['kitabId', 'halId', 'halIdAkhir'], ['bentuk', 'jawaban'], ['dasar']];
       let proyek = ''; try { proyek = firebase.app().options.projectId || ''; } catch (e) { proyek = ''; }
       const semua = new Set(KELOMPOK.flat());
       const dasar = Object.fromEntries(Object.entries(dok).filter(([k]) => !semua.has(k)));

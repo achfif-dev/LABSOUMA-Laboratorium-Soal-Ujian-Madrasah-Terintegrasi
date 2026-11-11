@@ -1728,3 +1728,54 @@ Keluhan: AI berhenti sebelum paket lengkap, dan satu-satunya jalan adalah membua
 **Tidak dikerjakan (sengaja):** mengganti `firebase-admin` dengan klien REST. Permukaan Firestore yang dipakai server luas (11 transaksi, batch, query `where/orderBy/select`, `count()`, `collectionGroup`), dan tidak bisa diuji tanpa Firestore sungguhan. Opsi lanjutan bila masih perlu: `excludeFiles` untuk `node_modules/@google-cloud/storage/**` dan `node_modules/@firebase/database*/**` (uji dulu di Preview).
 
 **Belum terverifikasi:** ukuran bundle sebenarnya dan perilaku rewrite di Vercel (lingkungan pengembangan tanpa jaringan). Daftar periksa pascadeploy ada di balasan penyerahan. `npm test`: 826 lulus (817 sebelumnya + 9 baru); 13 berkas gagal sama persis dengan sebelum perubahan karena devDependencies (`lucide-react`, `docx`, dll.) tidak terpasang di lingkungan tersebut.
+
+## [Audit] Mutu pembuatan soal oleh AI dan gerbang persetujuan (11 November 2026)
+
+**Lingkup dan cara.** Repo di-clone, alur generate → uji buta → telaah → setujui dibaca (`src/soalService.js`, `src/cekButa.js`, `src/assistService.js`, `src/review.js`, `src/paketService.js`, `web/lib/kutipan.js`, `eval/`), `npm test` dijalankan (921 tes: 920 lulus, 1 dilewati), dan celah yang dicurigai diuji dengan skrip sekali pakai terhadap fungsi aslinya. **Tidak ada panggilan ke model sungguhan** (tidak ada kunci API), jadi temuan di bawah adalah temuan tentang kode, bukan tentang mutu keluaran model.
+
+**Temuan, dengan status sesudah tindak lanjut hari yang sama.**
+
+| # | Temuan | Bukti | Status |
+|---|---|---|---|
+| 1 | Uji jawab buta tidak diwajibkan. `alasanPerluCatatan` hanya bereaksi bila hasilnya `beda`; soal yang tidak pernah diuji lolos tanpa catatan. Klaim `sepakat` yang tertulis di dokumen soal juga tidak diperiksa terhadap catatan server. | Skrip: soal berkunci terbalik tanpa uji buta menghasilkan daftar alasan kosong. | Diperbaiki |
+| 2 | Pemeriksa kutipan menjawab "apakah ada di teks", bukan "apakah maknanya benar". Kutipan yang dipotong tepat setelah kata negasi (mis. membuang "لا" dari "لا يجوز…") berstatus `lolos`. Satu kata mazhab yang berganti hanya `mirip` dan tidak memblokir persetujuan. | Skrip terhadap `periksaKutipan`. | Negasi terpotong dan `mirip` diperbaiki. **Kutipan di bawah 3 kata tetap tidak diperiksa.** |
+| 3 | Uji buta bisa diulang sampai `sepakat`: catatan server ditimpa per sidik isi, dan tidak ada pengaturan `temperature` sehingga hasil bisa berubah antarpanggilan. | Pembacaan kode (`catatButa`, pencarian `temperature` tanpa hasil). | Penimpaan `beda` ditutup. `temperature` **tidak diubah**. |
+| 4 | `eval/golden.json`: 0 dari 36 kasus terverifikasi ustadz, teks Arab diketik dari ingatan tanpa harakat, 22 dari 36 kasus fiqih, dan uji buta di eval memakai model yang sama dengan pembuat soal (sirkular, kecuali `AI_VERIFY_MODEL` diisi). Eval belum dijalankan sejak prompt generate berubah. | Pembacaan berkas dan `eval/lib.mjs`. | **Belum ditangani** |
+| 5 | Soal isian dan uraian tidak punya uji buta sama sekali; hanya pemeriksaan kutipan. | Pembacaan `review.js` dan `cekButa.js`. | Diperbaiki lewat gerbang telaah (lihat bagian berikut) |
+| 6 | Konflik di prompt: aturan "semua isi soal dari teks" bertabrakan dengan L2/L3 yang butuh kasus baru, sehingga uji buta bisa menolak kasus yang sah atau L3 menjadi L1 yang menyamar. | **Dugaan** dari pembacaan prompt; belum diuji dengan model. | Prompt uji buta diperjelas (kasus boleh baru, hukum harus dari teks). Dampaknya belum terukur. |
+| 7 | README basi: tertulis 770 tes (kenyataan 921 saat audit) dan 72 peringatan lint (kenyataan 75). | `npm test`, `npm run lint`. | **Belum diperbarui** |
+
+**Yang sudah baik (diverifikasi).** Isi teks sumber dibersihkan dari tag pembatas prompt; huruf kunci diacak oleh kode, bukan model; cakupan materi ditegakkan di server; persetujuan hanya lewat server; 920 dari 921 tes lulus sebelum perubahan.
+
+**Akar masalah rancangan.** Satu panggilan AI diminta sekaligus memilih materi, menulis soal, dan menjamin kebenarannya. Pemeriksa yang dilakukan kode (kutipan) hanya menangkap kutipan karangan, bukan kutipan nyata yang dipotong atau dibalik; pemeriksa yang dilakukan model (uji buta) ikut keliru bila satu keluarga model yang sama dipakai di kedua sisi.
+
+## [Perubahan] Gerbang persetujuan, pipeline soal berbasis fakta, dan dasar soal (11 November 2026)
+
+Menindaklanjuti audit di atas. `npm test`: 979 tes (978 lulus, 1 dilewati, 0 gagal); `npm run build` sukses; lint 0 galat (77 peringatan).
+
+**1. Gerbang persetujuan (`src/review.js`, `web/lib/kutipan.js`, `src/cekButa.js`).**
+- Soal berpilihan: persetujuan tanpa catatan server `sepakat` untuk isi yang persis sama **wajib alasan** dari editor. Klaim `sepakat` di dokumen soal tidak dihitung; klaim `beda` tetap dihormati (hanya memperketat).
+- `beda` bersifat lengket: uji ulang atas isi yang sama tidak bisa menimpanya dengan `sepakat`. Jalan keluar sah: ubah soalnya (sidik baru) atau editor menyetujui dengan alasan.
+- Kutipan `mirip` (harakat berbeda, kata berganti, negasi terpotong) kini mewajibkan alasan.
+- Negasi terpotong dideteksi di `web/lib/kutipan.js` (`negasiTerpotong`): bila SEMUA kemunculan kutipan di teks didahului kata negasi sedangkan kutipan sendiri tidak diawali negasi, statusnya `mirip`. Kata yang dipantau: لا، ولا، فلا، ليس، وليس، ليست، لم، ولم، لن، ولن، غير، بلا، دون، بدون. "ما" dan "إلا" **sengaja tidak** dimasukkan (terlalu umum, menimbulkan peringatan palsu). Akibatnya peringatan palsu tetap mungkin; dampaknya hanya meminta alasan, tidak memblokir.
+- Soal isian dan uraian: gerbang telaah. Hasil aksi `telaah` dicatat server di koleksi `telaahHasil` (`catatTelaah`, sidik dari teks, bentuk, stimulus, pertanyaan, jawaban, rubrik). Persetujuan akhir tanpa verdict `layak` wajib alasan; verdict yang lebih buruk bersifat lengket.
+- Prompt uji buta: tokoh dan situasi kasus boleh baru, hukum yang diterapkan harus dari teks.
+
+**2. Pipeline soal berbasis fakta (opsional; alur lama tidak berubah).**
+- `src/faktaService.js` + aksi `fakta` di `/api/assist`: AI mengekstrak fakta atomik dengan kutipan dasar; **kode** memeriksa tiap kutipan terhadap teks dan membuang yang tidak cocok (jumlahnya dilaporkan sebagai `dibuang`).
+- `/api/generate` menerima `faktaTerikat` (soal tunggal) dan `/api/assist` aksi `paket` menerima `faktaTerikat` per butir. Server memeriksa ulang kutipan dasar sebelum memanggil AI (galat 422 `FAKTA_TIDAK_VALID`), butir terikat memakai kutipan dasar fakta (bukan kutipan buatan model), dan butir pilihan wajib memuat `alasan_pengecoh` (mengapa tiap opsi salah). Tanpa fakta, prompt dan skema tidak berubah.
+- `web/lib/rencanaSoal.js` (kisi-kisi oleh kode: fakta × level × bentuk; tiap fakta dipakai sekali sebelum ada yang dipakai ulang) dan `web/lib/fakta.js` (`spekDenganFakta`, `susunSpekFakta`, `faktaSahDi`, `susunDasar`).
+- Antarmuka. **Penyusunan Soal:** tombol *Ekstrak fakta*, panel *Fakta dari Teks* (`web/FaktaTeks.jsx`), *Buat soal dari fakta ini*, dan *Pilihkan fakta yang belum dipakai*. **Paket Dauri:** saklar *Mode fakta* (mati bawaan) yang menambah ±1 panggilan AI per segmen; fakta tidak dibagikan ke dua butir, butir yang tidak kebagian fakta dibuat dengan cara biasa dan **dilaporkan**, bukan dipaksa memakai fakta kembar; gagal ekstrak tidak menghentikan paket.
+
+**3. Dasar soal disimpan.** Fakta yang diuji dan alasan pengecoh kini disimpan di kolom opsional `dasar` (teks, maks. 2.000 karakter) pada dokumen soal, tampil di kartu soal untuk editor, dan **tidak ikut ke naskah ujian**. Kolom ini hanya dikirim bila terisi, sehingga soal biasa tidak berubah sama sekali. Menyentuh: `firestore.rules` (validasi, snapshot riwayat, `opsiKeys`, daftar admin), `web/App.jsx` (daftar bidang, simpan soal tunggal dan Paket, kolom sunting, kartu soal, diagnosis kolom ditolak), `web/lib/riwayat.js`, `src/backup.js`. Tes: `test/dasarSoal.test.js` (termasuk penjaga drift: bidang riwayat klien harus sama dengan daftar `snapshotOk` di aturan, dan batas 2.000 di klien harus sama dengan aturan). Tes lama yang menulis daftar field secara harfiah (`bentuk`, `rujukan`, `ujian`) diperbarui dengan sengaja.
+
+**Urutan rilis `dasar` (penting).** Terbitkan `firestore.rules` **lebih dulu**, baru aplikasi. Bila aplikasi lebih dulu, menyimpan soal hasil mode fakta ditolak aturan lama (`permission-denied`; diagnosis kolom di Paket Dauri akan menyebut `dasar`). Soal tanpa fakta tidak terpengaruh. Catatan: deploy aturan **tidak** diperlukan untuk `cekbutaHasil` dan `telaahHasil`; keduanya ditulis server lewat Admin SDK yang tidak terikat aturan Firestore (aturannya hanya penolak untuk klien). Pernyataan sebaliknya yang sempat disampaikan dalam sesi kerja ini keliru dan dikoreksi di sini.
+
+**Batas yang jujur dan belum dikerjakan.**
+- **Tidak ada pengujian dengan model sungguhan.** Semua tes memakai klien tiruan; `npm run eval` tidak dijalankan. Mutu fakta, pengecoh, dan alasan pengecoh yang sebenarnya belum terukur. Alasan pengecoh adalah penjelasan model, bukan bukti; editor tetap harus memeriksanya.
+- **Aturan Firestore belum diuji di emulator** (tidak tersedia di lingkungan kerja). Pengujian hanya statis (regex atas `firestore.rules`). Satu risiko spesifik: batas evaluasi aturan per permintaan; Paket Dauri menyimpan 8 dokumen per batch dan satu pemeriksaan opsional baru ditambahkan per dokumen. Bila batch ditolak, pengulangan per dokumen yang sudah ada akan terjadi dan diagnosis menyebut kelompok kolom.
+- **Tampilan belum dilihat di perangkat.** Untuk antarmuka hanya ada build, lint, dan uji render komponen `FaktaTeks`; alur klik di Penyusunan Soal dan Paket Dauri belum dijalankan di aplikasi sungguhan.
+- **Beban editor di awal:** soal berpilihan lama yang belum pernah diuji buta, dan soal isian/uraian lama yang belum pernah ditelaah, kini meminta alasan saat disetujui sampai ujinya dijalankan.
+- **Tidak diubah:** kutipan di bawah 3 kata tetap tidak diperiksa; `temperature` tidak diatur; `eval/golden.json` belum diverifikasi ustadz (temuan 4); README belum diperbarui (temuan 7). Penyimpanan banyak soal dari satu rencana kisi-kisi di Penyusunan Soal tidak dibuat (form hanya memegang satu soal).
+
+**Daftar periksa setelah rilis.** (1) Terbitkan `firestore.rules`, lalu aplikasi. (2) Buat satu soal biasa dan simpan: harus tetap berhasil. (3) Di Penyusunan Soal: *Ekstrak fakta* → *Buat soal dari fakta ini* → simpan; kolom *Dasar soal* harus terisi dan tampil di kartu soal setelah dimuat ulang. (4) Paket Dauri kecil dengan *Mode fakta* aktif: periksa pesan laporan butir tanpa fakta dan *Dasar butir*. (5) Setujui satu soal berpilihan tanpa uji buta: harus diminta alasan.

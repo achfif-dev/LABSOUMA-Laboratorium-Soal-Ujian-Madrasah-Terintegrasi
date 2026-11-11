@@ -181,12 +181,12 @@ test('cadangan: kelas dan periode ikut tersimpan bila ada, dan tidak muncul pada
 test('firestore.rules: kelas dan periode OPSIONAL pada soal (klien dan soal lama tetap sah), batasnya sama dengan cadangan', () => {
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
   const soal = rules.slice(rules.indexOf('match /soal/{id}'), rules.indexOf('match /kamusPegon/{id}'));
-  assert.match(soal, /function opsiKeys\(\) \{ return \['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'\]; \}/);
+  assert.match(soal, /function opsiKeys\(\) \{ return \['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\]; \}/);
   assert.match(soal, /hasOnly\(createKeys\(\)\.concat\(opsiKeys\(\)\)\)/, 'create: boleh, bukan wajib');
   assert.match(soal, /hasAll\(createKeys\(\)\)/);
   assert.doesNotMatch(soal.slice(soal.indexOf('function createKeys'), soal.indexOf('function authorKeys')), /kelas|periode|bab|bentuk|jawaban|rubrik/, 'bukan bagian kunci wajib');
   assert.match(soal, /changed\(\)\.hasOnly\(authorKeys\(\)\.concat\(opsiKeys\(\)\)\)/, 'penyusun boleh mengisi kelas/periode saat mengubah');
-  assert.match(soal, /'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'\]/, 'admin');
+  assert.match(soal, /'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\]/, 'admin');
   assert.match(soal, /x\.kelas is string && x\.kelas\.size\(\) <= 20/);
   assert.match(soal, /x\.periode is string && x\.periode\.size\(\) <= 20/);
   assert.match(soal, /x\.bab is string && x\.bab\.size\(\) <= 120/, 'bab: batas sama dengan cadangan (120)');

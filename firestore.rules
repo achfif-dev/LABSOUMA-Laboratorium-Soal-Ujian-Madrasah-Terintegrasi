@@ -55,6 +55,8 @@ service cloud.firestore {
           && (!('bentuk' in x) || x.bentuk in ['pilgan', 'lanjutan', 'benarsalah', 'isian', 'uraian'])
           && (!('jawaban' in x) || (x.jawaban is string && x.jawaban.size() <= 2000))
           && (!('rubrik' in x) || (x.rubrik is string && x.rubrik.size() <= 2000))
+          // Dasar soal (pipeline fakta): fakta yang diuji + alasan pengecoh. Opsional; hanya soal mode fakta yang membawanya.
+          && (!('dasar' in x) || (x.dasar is string && x.dasar.size() <= 2000))
           && x.nama is string && x.nama.size() <= 120
           && x.juz is string && x.juz.size() <= 20
           && x.hal is string && x.hal.size() <= 20
@@ -77,12 +79,12 @@ service cloud.firestore {
       function snapshotOk(s) {
         return s is map
           && s.keys().hasOnly(['tingkat', 'mapel', 'level', 'kelas', 'periode', 'nama', 'juz', 'hal', 'bab', 'teks', 'stimulus', 'pertanyaan', 'indikator',
-                               'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut', 'kitabId', 'halId', 'halIdAkhir'])
+                               'sumberUrl', 'opsi', 'kunci', 'pembahasan', 'bentuk', 'jawaban', 'rubrik', 'dasar', 'status', 'catatan', 'ai', 'paket', 'dawr', 'cakupan', 'urut', 'kitabId', 'halId', 'halIdAkhir'])
           && teksMax(s, 'tingkat', 40) && teksMax(s, 'mapel', 60) && teksMax(s, 'level', 3) && teksMax(s, 'kelas', 20) && teksMax(s, 'periode', 20)
           && teksMax(s, 'nama', 120) && teksMax(s, 'juz', 20) && teksMax(s, 'hal', 20) && teksMax(s, 'bab', 120)
           && teksMax(s, 'teks', 8000) && teksMax(s, 'stimulus', 3000) && teksMax(s, 'pertanyaan', 2000) && teksMax(s, 'indikator', 1000)
           && teksMax(s, 'sumberUrl', 500) && teksMax(s, 'kunci', 1) && teksMax(s, 'pembahasan', 4000) && teksMax(s, 'bentuk', 20)
-          && teksMax(s, 'jawaban', 2000) && teksMax(s, 'rubrik', 2000) && teksMax(s, 'status', 20) && teksMax(s, 'catatan', 1000)
+          && teksMax(s, 'jawaban', 2000) && teksMax(s, 'rubrik', 2000) && teksMax(s, 'dasar', 2000) && teksMax(s, 'status', 20) && teksMax(s, 'catatan', 1000)
           && teksMax(s, 'paket', 40) && teksMax(s, 'dawr', 1) && teksMax(s, 'cakupan', 120)
           && teksMax(s, 'kitabId', 60) && teksMax(s, 'halId', 6) && teksMax(s, 'halIdAkhir', 6)
           && (!('urut' in s) || s.urut is int)
@@ -129,7 +131,7 @@ service cloud.firestore {
       }
       // Penanda Paket Dauri (paket, dawr, cakupan, urut), kelas, kode periode ujian, bab kitab (untuk kisi-kisi), serta bentuk soal dan jawaban bertulis (isian/uraian):
       // OPSIONAL agar soal lama dan klien lama tetap sah (rilis bertahap). Tanpa `bentuk` = pilihan ganda.
-      function opsiKeys() { return ['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir']; }
+      function opsiKeys() { return ['paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar']; }
       function reviewKeys() {
         return ['status', 'catatan', 'reviewerUid', 'reviewerName', 'reviewedAt', 'updatedAt'];
       }
@@ -180,7 +182,7 @@ service cloud.firestore {
           && d().keys().hasOnly(['tingkat', 'mapel', 'level', 'nama', 'juz', 'hal', 'teks', 'stimulus', 'pertanyaan',
                               'indikator', 'opsi', 'kunci', 'pembahasan', 'sumberUrl', 'status', 'catatan', 'ai',
                               'authorUid', 'authorName', 'createdAt', 'updatedAt',
-                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir'].concat(['tahap', 'tinjauan'])) // tahap, tinjauan: jejak alur editor bertingkat, ditulis server
+                              'reviewerUid', 'reviewerName', 'reviewedAt', 'paket', 'dawr', 'cakupan', 'urut', 'kelas', 'periode', 'bab', 'bentuk', 'jawaban', 'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'].concat(['tahap', 'tinjauan'])) // tahap, tinjauan: jejak alur editor bertingkat, ditulis server
           && d().authorUid == resource.data.authorUid
           && d().createdAt == resource.data.createdAt
           && d().status in ['draft', 'pending', 'approved', 'revision']

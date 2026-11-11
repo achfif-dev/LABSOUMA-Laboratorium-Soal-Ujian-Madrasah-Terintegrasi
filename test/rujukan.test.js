@@ -96,8 +96,8 @@ test('aturan Firestore: isi tautan divalidasi bentuknya pada simpan (bukan hanya
 });
 
 test('App.jsx: form membawa tautan, rujukan kosong tidak dikirim, kartu punya tautan, tab Baca Kitab terpasang', () => {
-  assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir'\];/);
-  assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir'\]\) if \(!c\[k\] && !\(k in lama\)\) delete c\[k\]/);
+  assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\];/);
+  assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\]\) if \(!c\[k\] && !\(k in lama\)\) delete c\[k\]/);
   assert.equal((APP.match(/<TautKitab q=\{q\} \/>/g) || []).length, 3);
   assert.match(APP, /tab === 'baca' && <PembacaKitab/);
   assert.match(APP, /bacaHash\(window\.location\.hash\)\) return 'baca'/);
