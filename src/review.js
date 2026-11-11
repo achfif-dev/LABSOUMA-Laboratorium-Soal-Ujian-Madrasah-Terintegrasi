@@ -12,6 +12,7 @@ import { DEFAULT_HOSTS } from './kitabFetch.js';
 import { ALUR_BAWAAN, bolehTinjau, langkahSetelah, catatTinjauan } from './alurSoal.js';
 
 export const KOLEKSI_BUTA = 'cekbutaHasil';
+export const KOLEKSI_TELAAH = 'telaahHasil'; // gerbang soal tanpa opsi (isian, uraian), yang tidak bisa diuji buta
 const norm = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
 
 /** Sidik isi yang diuji-buta: teks kitab, bentuk, stimulus, pertanyaan, opsi A-E, kunci. Berubah bila salah satunya berubah. */
@@ -40,12 +41,40 @@ export async function catatButa(db, FieldValue, { teks, bentuk, soal, status, ui
   } catch (e) { console.error('[review] gagal mencatat uji buta:', e?.code ?? e?.message); return false; }
 }
 
+/** Sidik isi yang ditelaah (soal tanpa opsi): teks kitab, bentuk, stimulus, pertanyaan, jawaban, rubrik. Berubah bila salah satunya berubah. */
+export function sidikTelaah({ teks, bentuk, soal }) {
+  const s = soal || {};
+  const bahan = JSON.stringify(['telaah', norm(teks), bentukSah(bentuk) || 'pilgan', norm(s.stimulus), norm(s.pertanyaan), norm(s.jawaban), norm(s.rubrik)]);
+  return createHash('sha256').update(bahan).digest('hex').slice(0, 40);
+}
+export const sidikTelaahSoal = (q) => sidikTelaah({ teks: q.teks, bentuk: q.bentuk, soal: q });
+
+const PERINGKAT_VERDICT = { layak: 0, perlu_perbaikan: 1, tidak_layak: 2 };
+
+/**
+ * Catat hasil telaah AI untuk soal TANPA opsi (isian, uraian); soal berpilihan memakai uji buta. Dipanggil /api/assist (aksi telaah).
+ * Verdict yang lebih buruk bersifat lengket untuk isi yang persis sama: telaah ulang tidak boleh menimpanya dengan yang lebih baik
+ * (penyusun tidak bisa mengulang sampai "layak"). Mengubah soal = sidik baru = telaah baru.
+ */
+export async function catatTelaah(db, FieldValue, { teks, bentuk, soal, verdict, uid, model }) {
+  if (!(verdict in PERINGKAT_VERDICT) || punyaOpsi(bentuk)) return false;
+  try {
+    const ref = db.doc(`${KOLEKSI_TELAAH}/${sidikTelaah({ teks, bentuk, soal })}`);
+    if (typeof ref.get === 'function') {
+      const lama = await ref.get();
+      if (lama && lama.exists && PERINGKAT_VERDICT[lama.data().verdict] > PERINGKAT_VERDICT[verdict]) return false;
+    }
+    await ref.set({ verdict, uid: String(uid || ''), model: String(model || '').slice(0, 60), at: FieldValue.serverTimestamp() });
+    return true;
+  } catch (e) { console.error('[review] gagal mencatat telaah:', e?.code ?? e?.message); return false; }
+}
+
 /**
  * Alasan yang mewajibkan catatan editor. Kutipan: dihitung ulang dari soal tersimpan (klaim di dokumen hanya dipakai bila tak bisa dihitung ulang).
  * Uji buta (soal berpilihan): WAJIB ada catatan server "sepakat" untuk isi yang persis sama; tanpa itu, editor wajib menulis alasan. Klaim "sepakat" di dokumen tidak dihitung; klaim 'beda' tetap dihormati (hanya bisa memperketat).
  * Kutipan "mirip" (harakat beda, kata berganti, negasi terpotong) juga mewajibkan alasan.
  */
-export function alasanPerluCatatan(q, rekamButa, { sumber, sumberWajib = false } = {}) {
+export function alasanPerluCatatan(q, rekamButa, { sumber, sumberWajib = false, rekamTelaah = null } = {}) {
   const alasan = [];
   const ai = (q && q.ai) || {};
   const bisaDihitung = String(q.teks || '').trim() && String(q.pembahasan || '').trim();
@@ -60,6 +89,12 @@ export function alasanPerluCatatan(q, rekamButa, { sumber, sumberWajib = false }
     const buta = rekamButa && rekamButa.status ? rekamButa.status : (ai.buta === 'beda' ? 'beda' : '');
     if (buta === 'beda') alasan.push('uji jawab buta berbeda dari kunci');
     else if (buta !== 'sepakat') alasan.push('uji jawab buta belum dijalankan untuk isi soal ini (jalankan Uji Buta, atau tulis alasan bila sengaja dilewati)');
+  } else {
+    // Soal tanpa opsi (isian, uraian) tidak bisa diuji buta: gantinya WAJIB ada catatan telaah dari server dengan verdict "layak".
+    const v = rekamTelaah && rekamTelaah.verdict ? rekamTelaah.verdict : '';
+    if (v === 'tidak_layak') alasan.push('telaah AI menyatakan soal ini tidak layak');
+    else if (v === 'perlu_perbaikan') alasan.push('telaah AI menyatakan soal ini masih perlu perbaikan (terapkan perbaikannya, atau tulis alasan bila tidak setuju)');
+    else if (v !== 'layak') alasan.push('soal ini belum ditelaah untuk isi yang sekarang (jalankan Telaah, atau tulis alasan bila sengaja dilewati)');
   }
   if (sumber && sumber.status === 'tidak_cocok') alasan.push('teks kitab hampir seluruhnya tidak ditemukan di halaman sumber (tautan sumber)');
   if (sumberWajib && sumber && ['tanpa_sumber', 'tidak_terjangkau'].includes(sumber.status)) alasan.push('teks kitab belum bisa dicocokkan dengan halaman sumber (tautan sumber kosong atau tidak terjangkau)');
@@ -104,7 +139,8 @@ export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, am
       return;
     }
     const rek = await tx.get(db.doc(`${KOLEKSI_BUTA}/${sidikButaSoal(q)}`));
-    const alasan = alasanPerluCatatan(q, rek.exists ? rek.data() : null, { sumber, sumberWajib });
+    const rekT = await tx.get(db.doc(`${KOLEKSI_TELAAH}/${sidikTelaahSoal(q)}`));
+    const alasan = alasanPerluCatatan(q, rek.exists ? rek.data() : null, { sumber, sumberWajib, rekamTelaah: rekT.exists ? rekT.data() : null });
     if (alasan.length && !note) throw new ApiError(422, 'ALASAN_WAJIB', `Soal ini perlu catatan alasan sebelum disetujui: ${alasan.join('; ')}.`);
     alasanDipakai = alasan;
     tx.update(ref, { status: 'approved', ...jejak('setuju'), catatan: note, reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
