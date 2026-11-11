@@ -256,6 +256,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Catatan hasil telaah AI per isi soal tanpa opsi (isian, uraian), src/review.js: dibaca dan ditulis hanya server. Gerbang persetujuan soal tanpa opsi.
+    match /telaahHasil/{doc} {
+      allow read, write: if false;
+    }
+
     // Perpustakaan kitab (docs/SKEMA-KITAB.md, src/kitabImpor.js): dibaca semua staf, ditulis HANYA server (Admin SDK) lewat /api/kitab.
     // Klien tidak boleh menulis sama sekali, termasuk admin.
     match /kitab/{kid} {
