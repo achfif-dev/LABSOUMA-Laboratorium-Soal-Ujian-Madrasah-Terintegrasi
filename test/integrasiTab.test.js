@@ -3,6 +3,7 @@
 // (c) kisi-kisi tidak menggabungkan bab sama-nama lintas kitab, (d) satu definisi "kitab/bab yang sama" di semua tab.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { sumberWeb } from './_sumberWeb.js';
 import { readFileSync } from 'node:fs';
 import { validateInput, buildUserPrompt, systemPromptFor } from '../src/soalService.js';
 import { samaKitab, cariKitabDi, kunciBab } from '../web/lib/kitabNama.js';
@@ -10,7 +11,7 @@ import { namaUntukForm } from '../web/lib/perpus.js';
 import { buatKisi, analisisCakupan, samaBab } from '../src/kisi.js';
 import { tautanPaket } from '../web/lib/paket.js';
 
-const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+const app = sumberWeb;
 const TEKS = 'بسم الله الرحمن الرحيم. باب الطهارة: الوضوء واجب قبل الصلاة ولا تصح الصلاة بغير طهارة.';
 const dasar = { teks: TEKS, tingkat: 'aliyah', level: 'L1', nama: 'Fathul Qarib', mapel: 'Fiqih' };
 

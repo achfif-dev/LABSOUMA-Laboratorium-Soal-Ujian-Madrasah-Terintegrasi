@@ -26,7 +26,7 @@ test('terapkanMerek: nilai di-escape (tidak bisa menyisipkan HTML) dan penanda d
 });
 
 test('satu sumber: App.jsx tidak lagi menulis footnote atau nama kredit sendiri; layar memuat dipasang di titik muat utama', () => {
-  const app = baca('web/App.jsx');
+  const app = ['web/App.jsx', 'web/AppUstadz.jsx', 'web/panelMalas.jsx'].map(baca).join('\n'); // App.jsx dipecah: kaki ustadz di AppUstadz.jsx, panel malas di panelMalas.jsx
   assert.equal(app.includes('Powered By'), false); assert.equal(app.includes('أحمد عفيف الدين'), false);
   assert.equal((app.match(/<KreditKaki /g) || []).length, 2); // kaki aplikasi penyusun dan aplikasi ustadz
   assert.ok(app.includes('const Spinner = <LayarMuat />;'));   // memuat sesi/profil

@@ -1,6 +1,7 @@
 // Tautan balik soal -> halaman kitab (web/lib/rujukan.js), pembaca (web/lib/pembaca.js), dan jalurnya lewat server, aturan Firestore, riwayat, dan backup.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { sumberWeb } from './_sumberWeb.js';
 import { readFileSync } from 'node:fs';
 import * as R from '../web/lib/rujukan.js';
 import * as P from '../web/lib/pembaca.js';
@@ -8,7 +9,7 @@ import { BIDANG_RIWAYAT } from '../web/lib/riwayat.js';
 import { validasiKitab, JENIS_SUMBER } from '../src/kitabImpor.js';
 
 const RULES = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-const APP = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+const APP = sumberWeb;
 
 test('rujukanDariHalaman: satu halaman, rentang, dan masukan tak sah', () => {
   assert.deepEqual(R.rujukanDariHalaman('fathul-muin', [{ seq: 40 }]), { kitabId: 'fathul-muin', halId: 'p00040', halIdAkhir: '' });

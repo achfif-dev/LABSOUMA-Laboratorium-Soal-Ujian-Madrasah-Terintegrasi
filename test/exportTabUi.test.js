@@ -39,8 +39,9 @@ test('tab Export dirender: daftar format dan penyaring tampil', async () => {
 });
 
 test('tidak ada impor melingkar ke App.jsx dari modul turunan', () => {
-  for (const f of ['ui.jsx', 'ExportTab.jsx', 'AdminKonfigurasi.jsx', 'lib/exportBuilders.js', 'lib/dasar.js']) {
+  // Semua berkas hasil pemecahan App.jsx juga tidak boleh mengimpor App.jsx (akan membuat siklus).
+  for (const f of ['ui.jsx', 'ExportTab.jsx', 'AdminKonfigurasi.jsx', 'lib/exportBuilders.js', 'lib/dasar.js', 'panelMalas.jsx', 'bersama.jsx', 'TinjauanView.jsx', 'Kepala.jsx', 'Compose.jsx', 'ReviewTab.jsx', 'BankTab.jsx', 'FokusUjian.jsx', 'AdminPengguna.jsx', 'Dasbor.jsx', 'bacaBerkas.js', 'PegonTab.jsx', 'PaketDauri.jsx', 'AppUstadz.jsx', 'driveUi.js', 'BackupTab.jsx']) {
     assert.doesNotMatch(readFileSync(new URL(`../web/${f}`, import.meta.url), 'utf8'), /from '(\.\.?\/)+App\.jsx'/, f);
   }
-  assert.match(readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8'), /const Export = denganPegon\(lazyPanel\(\(\) => import\('\.\/ExportTab\.jsx'\)\)\)/);
+  assert.match(readFileSync(new URL('../web/panelMalas.jsx', import.meta.url), 'utf8'), /const Export = denganPegon\(lazyPanel\(\(\) => import\('\.\/ExportTab\.jsx'\)\)\)/);
 });

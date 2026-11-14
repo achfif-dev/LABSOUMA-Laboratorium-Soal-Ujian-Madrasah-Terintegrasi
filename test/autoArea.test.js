@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { sumberWeb } from './_sumberWeb.js';
 
 const baca = (f) => readFileSync(new URL(`../web/${f}`, import.meta.url), 'utf8');
 const ui = baca('ui.jsx');
-const app = baca('App.jsx');
+const app = sumberWeb; // App.jsx dipecah ke beberapa berkas
 
 test('AutoArea: dihitung ulang saat isi, lebar, dan font berubah; tinggi minimum dari rows', () => {
   assert.match(ui, /const AutoArea = /);

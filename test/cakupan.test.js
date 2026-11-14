@@ -1,6 +1,7 @@
 // Batas materi (cakupan) dari Konfigurasi harus DITEGAKKAN server, bukan sekadar isyarat di prompt (src/cakupan.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { sumberWeb } from './_sumberWeb.js';
 import { generateSoal, validateInput, buildUserPrompt, TOOL_TOLAK } from '../src/soalService.js';
 import { generatePaket, TOOL_PAKET } from '../src/paketService.js';
 import { periksaCakupan, blokBatasMateri, blokDaftarIsi, denganBidangCakupan, MAKS_BARIS_ISI } from '../src/cakupan.js';
@@ -134,8 +135,7 @@ test('paket: SEMUA butir di luar cakupan -> TEKS_TIDAK_MEMADAI (klien melewati s
 });
 
 test('klien: tampilan memuat penjelasan batas materi, galat DILUAR_CAKUPAN, dan butir di luar cakupan dialihkan (bukan diulang di segmen sama)', async () => {
-  const { readFileSync } = await import('node:fs');
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const app = sumberWeb;
   assert.match(app, /DILUAR_CAKUPAN: 'Materi di luar cakupan ujian'/);
   assert.match(app, /Batas materi TIDAK berlaku/);
   assert.match(app, /s\.cakupan_status === 'tidak_jelas'/);

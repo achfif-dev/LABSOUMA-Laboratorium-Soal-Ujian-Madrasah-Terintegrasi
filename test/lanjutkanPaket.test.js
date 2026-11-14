@@ -1,7 +1,7 @@
 // Paket Dauri yang berhenti di tengah jalan harus bisa DILANJUTKAN (hanya sisanya), bukan diulang dari awal.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { sumberWeb } from './_sumberWeb.js';
 import { rencanaPaket, sisaPaket, tugasDariSisa, MAKS_BUTIR_PANGGILAN } from '../web/lib/paket.js';
 import { generatePaket } from '../src/paketService.js';
 
@@ -63,7 +63,7 @@ test('generatePaket: AI berhenti lebih awal (tanpa max_tokens) -> butir yang kur
 
 /* ------------------------------------------------ klien */
 test('klien: tombol Lanjutkan sisa, mesin bersama, galat tidak menghentikan semuanya', () => {
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const app = sumberWeb;
   assert.match(app, /PK\.sisaPaket\(rencana, hasil\)/);
   assert.match(app, /Lanjutkan sisa \(\{kekurangan\.sisa\.length\} butir\)/);
   assert.match(app, /await proses\(tugas, hasil, tugas\.length\)/);   // lanjut: awal = hasil yang ada

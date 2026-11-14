@@ -1,7 +1,7 @@
 // Navigasi dua tingkat (web/lib/navigasi.js) dan penjaga struktur di web/App.jsx.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { sumberWeb } from './_sumberWeb.js';
 import { NAV_GRUP, SUB_LABEL, grupDariTab, bangunNav, tujuanGrup } from '../web/lib/navigasi.js';
 
 const tab = (id, n) => ({ id, label: 'L-' + id, ...(n !== undefined ? { n } : {}) });
@@ -57,7 +57,7 @@ test('tujuanGrup: sub-tab terakhir dipakai bila masih tersedia, selain itu yang 
   assert.equal(tujuanGrup(ujian, undefined), 'fokus');
 });
 
-const APP_SEMUA = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+const APP_SEMUA = sumberWeb;
 const APP = APP_SEMUA.slice(0, APP_SEMUA.indexOf('function AppUstadz')); // aplikasi utama saja; menu Ustadz (5 tab) sengaja tidak diubah
 test('App.jsx: menu memakai grup, Review hanya untuk editor/admin, #analisis dipulihkan, sub-tab diingat di setTab', () => {
   assert.ok(APP_SEMUA.includes('function AppUstadz') && APP.length > 100000, 'penanda pemisah aplikasi Ustadz hilang');

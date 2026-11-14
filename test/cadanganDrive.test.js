@@ -1,6 +1,7 @@
 // Cadangan otomatis Soal Saya (peran Ustadz) ke Google Drive: web/lib/cadanganDrive.js, tambahan di web/lib/drive.js, api/drive-client.js.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { sumberWeb } from './_sumberWeb.js';
 import { readFileSync } from 'node:fs';
 import { buatDrive, namaSoalSaya, adalahSoalSaya, soalSayaTerbaru, soalSayaLama, SIMPAN_SOAL_SAYA, DriveError } from '../src/drive.js';
 import { sidikDaftar, createPrefDrive, perluCadangan, cadangkanSoalSaya, daftarSoalSaya, KUNCI_PREF } from '../web/lib/cadanganDrive.js';
@@ -221,7 +222,7 @@ test('/api/drive-client: ustadz dan penyusun boleh; pending, nonaktif, dan tanpa
 });
 
 /* ------------------------------------------------------------ penjaga struktur App.jsx */
-const html = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+const html = sumberWeb;
 test('penjaga: Ustadz memakai /api/drive-client (bukan /api/backup); Dasbor hanya admin; /api/backup info tetap khusus tim', () => {
   const blok = html.slice(html.indexOf('function AppUstadz('), html.indexOf('/* ---------- Backup ke Google Drive'));
   assert.match(blok, /\/api\/drive-client/);

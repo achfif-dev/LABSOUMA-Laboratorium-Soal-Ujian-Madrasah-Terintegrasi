@@ -1,7 +1,7 @@
 // Peran Ustadz, sisi klien: penyimpanan "Soal Saya" di perangkat dan catatan wajib pada setiap ekspor.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { sumberWeb } from './_sumberWeb.js';
 import { createRequire } from 'node:module';
 import { createSoalSaya, CATATAN_USTADZ, KUNCI, MAKS_SOAL, NAMA_BERKAS } from '../src/ustadz.js';
 import { createDraftStore } from '../src/draft.js';
@@ -141,7 +141,7 @@ test('batas jumlah soal; penyimpanan penuh atau diblokir melaporkan alasan tanpa
 /* ---- Catatan wajib pada ekspor ---- */
 globalThis.window = { ...(globalThis.window || {}), Bentuk: Bt, Pegon, docx };
 const B = await import('../web/lib/exportBuilders.js');
-const html = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+const html = sumberWeb;
 const kosong = { A: '', B: '', C: '', D: '', E: '' };
 const dasar = { tingkat: 'MA', mapel: 'Fiqih', level: 'L2', nama: 'Fathul Qarib', juz: '', hal: '10', teks: 'مَاءُ الْبَحْرِ', pembahasan: 'Dasarnya tujuh air suci.', indikator: 'x' };
 const QS = [

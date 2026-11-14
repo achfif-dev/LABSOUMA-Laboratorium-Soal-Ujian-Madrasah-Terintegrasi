@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { sumberWeb } from './_sumberWeb.js';
 import {
   buatBackup, periksaBackup, kandidatArsip, denganArsip, gabungInkremental, gabungInkrementalArsip, bawaArsip, batasUbah,
 } from '../web/lib/drive.js';
@@ -93,7 +93,7 @@ test('berkas tanpa arsip bentuknya sama persis seperti sebelumnya; cadangan lama
 });
 
 test('urutan di UI: daftar arsip dicatat dan diverifikasi di Drive SEBELUM transaksi hapus Firestore', () => {
-  const app = readFileSync(new URL('../web/App.jsx', import.meta.url), 'utf8');
+  const app = sumberWeb;
   const catat = app.indexOf('const awal = await tulisArsip(calon)');
   const hapus = app.indexOf("db.runTransaction(async (tx) => {\n        const snaps = await Promise.all(bagian.map");
   assert.ok(catat > 0 && hapus > 0, 'kedua langkah harus ada');
