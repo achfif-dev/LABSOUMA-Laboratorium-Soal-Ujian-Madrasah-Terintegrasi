@@ -8,11 +8,14 @@
 // Kelas (versi 3): kelas adalah data tersendiri milik tingkat, dipakai soal (soal.kelas) dan penempatan kitab. Sistem ujian (semester 4 kali atau
 // catur wulan 3 kali, nama dan periodenya bisa diubah) dipilih per tingkat; kode periode (soal.periode) bersifat tetap, labelnya boleh diganti.
 // Penempatan kitab (kitab.penempatan) menentukan kitab itu dipakai di kelas dan periode ujian mana; aturannya ada di web/lib/ujian.js.
+// Batas ujian terhubung perpustakaan (web/lib/batasUjian.js): kitab boleh punya `kitabId` (tautan ke perpustakaan; kosong = dicocokkan otomatis menurut nama
+// atau manual), dan tiap periode penempatan boleh punya `batas` ({ awal, akhir } berupa bab/halaman). Keduanya opsional dan hanya ditulis bila terisi.
 // Nama Arab: kitab punya `namaArab` dan `pengarangArab`; mapel punya `namaArab`; tingkat punya `labelArab`. Semuanya opsional dan harus berisi huruf Arab.
 import { ApiError, cleanLine, daftarkanTingkat } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { DEFAULT_HOSTS, hostAllowed, normalisasiUrl } from './kitabFetch.js';
 import { BATAS_UJIAN, KODE_OK, DEFAULT_SISTEM_UJIAN } from './ujian.js';
+import { bersihBatas, bersihKitabId } from '../web/lib/batasUjian.js';
 import { siapkanRiwayat, pangkasRiwayat, bacaRiwayat, bandingkan } from './configBackup.js';
 
 export const TINGKAT_NAMA = ['Ibtidaiyah', 'Tsanawiyah', 'Aliyah']; // kunci tingkat bawaan (dipakai soal lama)
@@ -225,7 +228,10 @@ export function sanitizePenempatan(raw, tingkatKitab, tingkatList, sistemList) {
       const kode = cleanLine(typeof x === 'string' ? x : x && x.kode, BATAS_UJIAN.kode).toLowerCase();
       if (!urutan.includes(kode) || kodeLihat.has(kode)) continue;
       kodeLihat.add(kode);
-      periode.push({ kode, cakupan: typeof x === 'object' ? cleanLine(x.cakupan, BATAS_UJIAN.cakupan) : '' });
+      const entri = { kode, cakupan: typeof x === 'object' ? cleanLine(x.cakupan, BATAS_UJIAN.cakupan) : '' };
+      const batas = typeof x === 'object' ? bersihBatas(x.batas) : null;
+      if (batas) entri.batas = batas;
+      periode.push(entri);
     }
     periode.sort((a, b) => urutan.indexOf(a.kode) - urutan.indexOf(b.kode));
     pen.push({ tingkat: tn, kelas, periode });
@@ -313,6 +319,7 @@ export function sanitizeAppConfig(input) {
       tingkat: tk.length ? tk : [...semuaNama],
       penempatan: [],
       aktif: k.aktif !== false,
+      ...(bersihKitabId(k.kitabId) ? { kitabId: bersihKitabId(k.kitabId) } : {}), // tautan ke perpustakaan; kosong = otomatis menurut nama
     };
   });
   // Penempatan butuh tingkat (beserta kelas dan sistem ujiannya) yang sudah bersih, jadi dihitung sesudah kitab.

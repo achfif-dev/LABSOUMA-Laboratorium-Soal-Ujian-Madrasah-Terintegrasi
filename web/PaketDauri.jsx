@@ -10,7 +10,8 @@ import * as PKK from './lib/paketKembar.js';
 import { bagianTeks } from './lib/perpus.js';
 import { DraftNote, SaranCtx, cleanArabic, kitabUntuk, labelTingkat, tingkatAktif } from './bersama.jsx';
 import { bacaFile, siapkanFoto } from './bacaBerkas.js';
-import { PemilihKitab } from './panelMalas.jsx';
+import { BatasPaket, PemilihKitab } from './panelMalas.jsx';
+import { cakupanEfektif, halamanDiLuarBatas } from './lib/batasUjian.js';
 
 /* ---------- Paket Dauri: satu naskah IMDA utuh dari materi panjang (teks, berkas, atau banyak foto) ----------
  * Perencana ada di lib/paket.js (murni, bertes). Materi dibagi per segmen <= 6.000 karakter; tiap panggilan AI menyusun <= 6 butir dari satu segmen.
@@ -143,7 +144,13 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
   const periodeOpsi = Uj.periodeUntuk(cfg, tingkat);
   const kitabOpsi = kitabUntuk(cfg, tingkat, mapel, kelas, periode);
   const kitabCfg = cariKitab(cfg, nama);
-  const cakupan = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
+  const cakupanAdmin = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
+  const batasCfg = kitabCfg && kelas && periode ? Uj.batasKitab(kitabCfg, tingkat, kelas, periode) : null;
+  const [batasPaket, setBatasPaket] = useState(null); // { kitabId, res } dari BatasPaket: batas yang sudah dicocokkan dengan daftar isi TERKINI
+  const cakupan = cakupanEfektif(cakupanAdmin, batasCfg && batasPaket ? batasPaket.res : null);
+  // Halaman perpustakaan di materi yang terbukti di luar batas ujian: ditolak sebelum kuota AI terpakai. Teks tempelan/foto tidak bisa diperiksa dengan kode; AI memeriksanya lewat cakupan.
+  const luarBatas = batasCfg && batasPaket ? halamanDiLuarBatas(batasPaket.res, batasPaket.kitabId, perpus.map((x) => x.id)).luar : [];
+  const pesanLuarBatas = luarBatas.length ? `Materi memuat ${luarBatas.length} halaman perpustakaan di luar batas ujian (urutan ${batasPaket.res.awal}–${batasPaket.res.akhir}), mis. urutan ${luarBatas.slice(0, 4).join(', ')}. Hapus halaman itu dari materi, atau minta admin mengubah batas di Konfigurasi.` : '';
 
   const sumber = useMemo(() => [{ teks, hal: halMulai.trim() }, ...foto.map((f) => ({ teks: f.teks, hal: f.hal })), ...perpus.map((f) => ({ teks: f.teks, hal: f.hal }))], [teks, halMulai, foto, perpus]);
   const rencana = useMemo(() => PK.rencanaPaket({ dawr, sumber, komposisi, lanjutan: lanjutan / 100 }), [dawr, sumber, komposisi, lanjutan]);
@@ -195,6 +202,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     if (rencana.masalah || !rencana.panggilan) { setErr({ code: 'BAD_REQUEST', message: rencana.masalah || 'Belum ada materi.' }); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
+    if (pesanLuarBatas) { setErr({ code: 'DILUAR_CAKUPAN', message: pesanLuarBatas }); return; }
     if (hasil.length && !window.confirm(`Hasil paket sebelumnya (${hasil.length} butir) akan DIHAPUS dan paket dibuat ulang dari awal.${kekurangan.sisa.length ? ' Bila hanya ingin melengkapi yang kurang, batalkan lalu pakai "Lanjutkan sisa".' : ''} Lanjutkan?`)) return;
     const exFakta = modeFakta ? new Set(rencana.tugas.map((t) => t.segmen)).size : 0; // satu ekstrak fakta per segmen
     if (!window.confirm(`Membuat paket ${NK.PRESET_DAURI[dawr].label} memakai ±${rencana.panggilan}${exFakta ? ` + ±${exFakta} (ekstrak fakta)` : ''} panggilan AI dari kuota harian Anda. Lanjutkan?`)) return;
@@ -208,6 +216,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     if (!tugas.length) { toast('Paket sudah lengkap.'); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
+    if (pesanLuarBatas) { setErr({ code: 'DILUAR_CAKUPAN', message: pesanLuarBatas }); return; }
     if (!window.confirm(`Melanjutkan ${kekurangan.sisa.length} butir yang belum ada (${kekurangan.terisi} butir yang sudah jadi tidak diulang) memakai ±${tugas.length}${modeFakta ? ` + ekstrak fakta untuk segmen yang belum pernah diekstrak` : ''} panggilan AI. Lanjutkan?`)) return;
     setErr(null); setKurang([]);
     await proses(tugas, hasil, tugas.length);
@@ -425,7 +434,9 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         </div>
         {cakupan
           ? <p className="mt-3 rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-soft-ink">Cakupan dari Konfigurasi: <b>{cakupan}</b>. AI hanya boleh membuat soal dari bagian teks yang masuk cakupan ini; segmen yang seluruhnya di luar cakupan dilewati.</p>
-          : <p className="mt-3 text-xs leading-relaxed text-mute">{kitabCfg && kelas && periode ? 'Kitab ini belum punya cakupan untuk kelas dan ujian tersebut di Konfigurasi, jadi semua teks yang Anda berikan dianggap bahan ujian.' : 'Pilih kelas, ujian, dan kitab dari Konfigurasi agar batas materi (mis. Thaharah sampai Puasa) ikut dikirim ke AI. Tanpa itu, semua teks yang Anda berikan dianggap bahan ujian.'}</p>}
+          : <p className="mt-3 text-xs leading-relaxed text-mute">{kitabCfg && kelas && periode ? (batasCfg ? 'Batas ujian kitab ini ditetapkan dari perpustakaan; menunggu daftar isinya termuat.' : 'Kitab ini belum punya cakupan untuk kelas dan ujian tersebut di Konfigurasi, jadi semua teks yang Anda berikan dianggap bahan ujian.') : 'Pilih kelas, ujian, dan kitab dari Konfigurasi agar batas materi (mis. Thaharah sampai Puasa) ikut dikirim ke AI. Tanpa itu, semua teks yang Anda berikan dianggap bahan ujian.'}</p>}
+        <BatasPaket Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} kitabCfg={kitabCfg} batas={batasCfg} siap={!!(kelas && periode)} sudah={perpus.length} onMuat={tambahPerpus} onRes={setBatasPaket} disabled={jalan} />
+        {pesanLuarBatas && <p role="alert" className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-xs leading-relaxed text-bad">{pesanLuarBatas}</p>}
       </Section>
 
       <Section title="Materi" icon={BookOpen}>

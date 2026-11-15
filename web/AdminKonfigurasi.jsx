@@ -3,6 +3,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BookOpen, Check, ClipboardCheck, Download, FileSpreadsheet, Layers, Library, Loader2, RotateCcw, Save, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import * as AL from './lib/alurSoal.js';
+import { buatPemuat, labelEntri } from './lib/perpus.js';
+import { kitabPerpusUntuk, cocokkanKitabPerpus, selesaikanBatas, labelBatas, indeksJangkar, bersihBatas, bersihKitabId } from './lib/batasUjian.js';
+import { SIMPANAN } from './PemilihKitab.jsx';
 import { Btn, Label, Section, ErrorBox, callApi, apiErr, simpanBerkas, useDraftSync, Uj, Draft } from './ui.jsx';
 
 const ImporExcel = React.lazy(() => import('./ImporExcel.jsx'));
@@ -263,6 +266,90 @@ const AktifCek = ({ checked, onChange }) => (
     <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />Aktif
   </label>
 );
+/* ---------- Batas ujian terhubung perpustakaan (lihat web/lib/batasUjian.js) ---------- */
+// Tautan satu kitab katalog ke kitab di perpustakaan: otomatis menurut nama, atau dipilih manual. Tanpa tautan, cakupan tetap teks bebas.
+function TautanPerpus({ b, daftar, gagal, onChange }) {
+  if (!daftar) return gagal
+    ? <p className="text-xs text-mute">Perpustakaan belum bisa dimuat, jadi cakupan sementara hanya berupa teks.</p>
+    : <p className="flex items-center gap-2 text-xs text-mute"><Loader2 size={13} className="spin" />Memuat perpustakaan...</p>;
+  if (!daftar.length) return <p className="text-xs text-mute">Perpustakaan masih kosong, jadi cakupan ditulis manual. Admin bisa mengimpor kitab di Kelola &gt; Perpustakaan.</p>;
+  const h = kitabPerpusUntuk(b, daftar);
+  const id = bersihKitabId(b.kitabId);
+  const info = {
+    tautan: ['text-soft-ink', `Tertaut ke perpustakaan: ${h.item && h.item.judulLatin}. Batas ujian dipilih dari daftar isinya dan ikut bergeser bila daftar isi dikoreksi.`],
+    otomatis: ['text-soft-ink', `Cocok otomatis dengan perpustakaan: ${h.item && h.item.judulLatin}. Batas ujian dipilih dari daftar isinya.`],
+    'tautan-hilang': ['text-warn', 'Kitab yang ditautkan tidak ada lagi atau dinonaktifkan di perpustakaan. Pilih kitab lain, atau kosongkan tautan agar dicocokkan menurut nama.'],
+    manual: ['text-mute', 'Belum ada di perpustakaan, jadi cakupan ditulis manual dan teksnya ditempel manual saat menyusun soal.'],
+  }[h.sumber];
+  return (
+    <div className="space-y-1 rounded-lg bg-soft p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={'tp-' + b._k} className="text-xs font-semibold text-soft-ink">Kitab di perpustakaan</label>
+        <select id={'tp-' + b._k} className="field min-w-0 flex-1 !py-1.5" value={id} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Otomatis menurut nama kitab{h.sumber === 'otomatis' ? ` (${h.item.judulLatin})` : ''}</option>
+          {id && !daftar.some((k) => k.id === id) && <option value={id}>{id} (tidak ditemukan)</option>}
+          {daftar.map((k) => <option key={k.id} value={k.id}>{k.judulLatin} ({k.jumlahHalaman} hal.)</option>)}
+        </select>
+      </div>
+      <p className={`text-xs leading-relaxed ${info[0]}`}>{info[1]}</p>
+    </div>
+  );
+}
+
+// Dua pilihan bab (dari bab ... sampai akhir bab ...) untuk satu ujian; bila kitab belum punya daftar isi, dua nomor urutan halaman.
+function BatasEditor({ b, daftar, isiPerpus, nilai, onChange }) {
+  const [teksA, setTeksA] = useState(() => (nilai && !nilai.awal.judul ? String(nilai.awal.seq) : ''));
+  const [teksZ, setTeksZ] = useState(() => (nilai && !nilai.akhir.judul ? String(nilai.akhir.seq) : ''));
+  if (!daftar || !daftar.length) return null;
+  const h = kitabPerpusUntuk(b, daftar);
+  if (!h.item) return <p className="text-xs text-mute">Kitab ini belum ada di perpustakaan: hanya cakupan teks yang berlaku.</p>;
+  const isi = isiPerpus[h.item.id];
+  if (!isi || isi === 'memuat') return <p className="flex items-center gap-2 text-xs text-mute"><Loader2 size={13} className="spin" />Memuat daftar isi {h.item.judulLatin}...</p>;
+  if (isi === 'gagal') return <p className="text-xs text-warn">Daftar isi {h.item.judulLatin} tidak bisa dimuat. Muat ulang halaman ini lalu coba lagi.</p>;
+  const { entri, jumlah } = isi;
+  const res = nilai ? selesaikanBatas(nilai, entri, jumlah) : null;
+  const jangkar = (i) => ({ seq: entri[i].seq, judul: entri[i].judul });
+  const pilih = (sisi, v) => {
+    if (v === '') { onChange(null); return; }
+    const j = jangkar(Number(v));
+    const lain = sisi === 'awal' ? 'akhir' : 'awal';
+    onChange({ [sisi]: j, [lain]: (nilai && nilai[lain]) || j });
+  };
+  const ubahSeq = (sisi, teks) => {
+    (sisi === 'awal' ? setTeksA : setTeksZ)(teks);
+    const a = parseInt(sisi === 'awal' ? teks : teksA, 10); const z = parseInt(sisi === 'akhir' ? teks : teksZ, 10);
+    if (Number.isInteger(a) && Number.isInteger(z) && a >= 1 && z >= a && z <= jumlah) onChange({ awal: { seq: a }, akhir: { seq: z } });
+  };
+  const nilaiA = nilai ? indeksJangkar(entri, nilai.awal) : -1; const nilaiZ = nilai ? indeksJangkar(entri, nilai.akhir) : -1;
+  const warna = !res ? 'text-mute' : res.status === 'ok' || res.status === 'tetap' ? 'text-soft-ink' : 'text-warn';
+  return (
+    <div className="space-y-1.5 rounded-lg border border-line bg-surface p-2">
+      <p className="text-xs font-semibold text-soft-ink">Batas dari perpustakaan: {h.item.judulLatin} ({jumlah} hal.)</p>
+      {entri.length > 0 ? (
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          <label className="space-y-0.5 text-xs text-mute">Mulai dari bab
+            <select aria-label={`Bab awal ${b.nama || 'kitab'}`} className="field !py-1.5" value={nilaiA >= 0 ? String(nilaiA) : ''} onChange={(e) => pilih('awal', e.target.value)}>
+              <option value="">{nilai && nilaiA < 0 ? `(${nilai.awal.judul || 'urutan ' + nilai.awal.seq} — tidak ada di daftar isi)` : '— Tanpa batas bab —'}</option>
+              {entri.map((e, i) => <option key={i} value={i}>{labelEntri(e)}</option>)}
+            </select></label>
+          <label className="space-y-0.5 text-xs text-mute">Sampai akhir bab
+            <select aria-label={`Bab akhir ${b.nama || 'kitab'}`} className="field !py-1.5" value={nilaiZ >= 0 ? String(nilaiZ) : ''} onChange={(e) => pilih('akhir', e.target.value)}>
+              <option value="">{nilai && nilaiZ < 0 ? `(${nilai.akhir.judul || 'urutan ' + nilai.akhir.seq} — tidak ada di daftar isi)` : '— Tanpa batas bab —'}</option>
+              {entri.map((e, i) => <option key={i} value={i}>{labelEntri(e)}</option>)}
+            </select></label>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-mute">
+          <span className="w-full">Kitab ini belum punya daftar isi. Isi urutan halaman (bukan nomor cetak).</span>
+          <label className="flex items-center gap-1">Dari urutan <input aria-label={`Urutan awal ${b.nama || 'kitab'}`} type="number" min="1" max={jumlah} inputMode="numeric" className="field !w-24 !py-1.5" value={teksA} onChange={(e) => ubahSeq('awal', e.target.value)} /></label>
+          <label className="flex items-center gap-1">sampai <input aria-label={`Urutan akhir ${b.nama || 'kitab'}`} type="number" min="1" max={jumlah} inputMode="numeric" className="field !w-24 !py-1.5" value={teksZ} onChange={(e) => ubahSeq('akhir', e.target.value)} /></label>
+        </div>
+      )}
+      {res && <p className={`text-xs leading-relaxed ${warna}`}>{res.status === 'ok' || res.status === 'tetap' ? 'Batas ujian: ' : res.status === 'bergeser' ? 'Daftar isi berubah dan batas otomatis mengikuti. Batas sekarang: ' : 'Perhatian: '}{labelBatas(res)}{res.catatan.length ? ` · ${res.catatan.join(' ')}` : ''}</p>}
+      {nilai && <button type="button" className="text-xs font-semibold text-bad underline" onClick={() => { setTeksA(''); setTeksZ(''); onChange(null); }}>Hapus batas ujian ini</button>}
+    </div>
+  );
+}
 function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
   const seq = useRef(0);
   const bubuhId = (c) => ({
@@ -280,13 +367,13 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
     const S = (v) => (typeof v === 'string' ? v : ''); const B = (v) => v !== false; const A = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
     const o = (v) => (v && typeof v === 'object' ? v : {}); let maks = 0;
     const kunci = (x) => { const k = Number(o(x)._k); if (Number.isFinite(k) && k > 0) { maks = Math.max(maks, k); return k; } return ++maks; };
-    const P = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').map((x) => ({ tingkat: S(x.tingkat), kelas: S(x.kelas), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), cakupan: S(y.cakupan) })) })) : []);
+    const P = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').map((x) => ({ tingkat: S(x.tingkat), kelas: S(x.kelas), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), cakupan: S(y.cakupan), ...(bersihBatas(y.batas) ? { batas: bersihBatas(y.batas) } : {}) })) })) : []);
     const SU = (v) => (Array.isArray(v) && v.length ? v.filter((x) => x && typeof x === 'object').map((x) => ({ id: S(x.id), label: S(x.label), ...(x.baru === true ? { baru: true } : {}), _k: kunci(x), periode: (Array.isArray(x.periode) ? x.periode : []).filter((y) => y && typeof y === 'object').map((y) => ({ kode: S(y.kode), label: S(y.label), ...(y.baru === true ? { baru: true } : {}), _k: kunci(y) })) })) : null);
     const d = {
       sistemUjian: SU(a.d.sistemUjian) || SU(Uj.daftarSistem(cfg)) || [],
       tingkat: a.d.tingkat.map((x) => ({ nama: S(o(x).nama), label: S(o(x).label), labelArab: S(o(x).labelArab), singkat: S(o(x).singkat), kelas: A(o(x).kelas), kelasTeks: S(o(x).kelasTeks), sistemUjian: S(o(x).sistemUjian), aktif: B(o(x).aktif), ...(o(x).baru === true ? { baru: true } : {}), _k: kunci(x) })),
       mapel: a.d.mapel.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), tingkat: A(o(x).tingkat), aktif: B(o(x).aktif), _k: kunci(x) })),
-      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), penempatan: P(o(x).penempatan), aktif: B(o(x).aktif), _k: kunci(x) })),
+      kitab: a.d.kitab.map((x) => ({ nama: S(o(x).nama), namaArab: S(o(x).namaArab), pengarang: S(o(x).pengarang), pengarangArab: S(o(x).pengarangArab), mapel: S(o(x).mapel), tautan: S(o(x).tautan), tingkat: A(o(x).tingkat), ...(bersihKitabId(o(x).kitabId) ? { kitabId: bersihKitabId(o(x).kitabId) } : {}), penempatan: P(o(x).penempatan), aktif: B(o(x).aktif), _k: kunci(x) })),
     };
     return { d, massal: S(a.massal).slice(0, 200000), basi: a.baseSig !== sigCfg(cfg), maks };
   };
@@ -298,6 +385,15 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
   const [batas, setBatas] = useState(30);
   const [massal, setMassal] = useState(() => (awalCfg.current ? awalCfg.current.massal : ''));
   const [salinDari, setSalinDari] = useState({});
+  // Perpustakaan untuk menautkan kitab dan memilih batas bab. Memakai simpanan bersama (PemilihKitab), jadi tidak memuat ulang bila sudah dibuka.
+  const pem = useMemo(() => buatPemuat((bd) => callApi('/api/kitab', bd), SIMPANAN), []);
+  const [perpus, setPerpus] = useState({ daftar: SIMPANAN.daftar, gagal: false });
+  const [isiPerpus, setIsiPerpus] = useState({}); // id kitab perpustakaan -> { entri, jumlah } | 'memuat' | 'gagal'
+  useEffect(() => {
+    let batal = false;
+    pem.daftar(true).then((l) => { if (!batal) setPerpus({ daftar: l, gagal: false }); }).catch(() => { if (!batal) setPerpus((x) => ({ ...x, gagal: true })); });
+    return () => { batal = true; };
+  }, []);
   const cfgPertama = useRef(true);
   useEffect(() => { if (cfgPertama.current) { cfgPertama.current = false; return; } setD(bubuhId(cfg)); setMassal(''); }, [cfg]); // konfigurasi berubah (disimpan/dipulihkan): mulai dari yang baru
   useEffect(() => {
@@ -415,7 +511,19 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
     if (ditolak) toast('Minimal satu periode. Hapus centang kelas bila kitab tidak dipakai di kelas ini.');
   };
   const setCakupan = (kk, t, kelas, kode, v) => ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => (p.kelas === kelas ? { ...p, periode: (p.periode.length ? p.periode : semuaPeriode(t)).map((y) => (y.kode === kode ? { ...y, cakupan: v } : y)) } : p)));
+  const setBatasPer = (kk, t, kelas, kode, batas) => ubahPen(kk, rapikan(t.nama), (pet) => pet.map((p) => (p.kelas === kelas ? { ...p, periode: (p.periode.length ? p.periode : semuaPeriode(t)).map((y) => { if (y.kode !== kode) return y; const { batas: _lama, ...sisa } = y; return batas ? { ...sisa, batas } : sisa; }) } : p)));
+  const setTautan = (kk, id) => setD((x) => ({ ...x, kitab: x.kitab.map((b) => { if (b._k !== kk) return b; const { kitabId: _lama, ...sisa } = b; return id ? { ...sisa, kitabId: id } : sisa; }) }));
   const [bukaPeta, setBukaPeta] = useState({}); // kitab yang editor penempatannya sedang dibuka (dirender hanya bila dibuka, supaya katalog besar tetap ringan)
+
+  // Daftar isi kitab perpustakaan dimuat hanya untuk kitab yang editor penempatannya sedang dibuka.
+  const idButuh = (perpus.daftar ? d.kitab.filter((b) => bukaPeta[b._k]).map((b) => (kitabPerpusUntuk(b, perpus.daftar).item || {}).id).filter(Boolean) : []).join('|');
+  useEffect(() => {
+    for (const id of idButuh ? idButuh.split('|') : []) {
+      if (isiPerpus[id]) continue;
+      setIsiPerpus((x) => ({ ...x, [id]: 'memuat' }));
+      pem.isi(id).then((r) => setIsiPerpus((x) => ({ ...x, [id]: { entri: r.entri || [], jumlah: r.kitab.jumlahHalaman } }))).catch(() => setIsiPerpus((x) => ({ ...x, [id]: 'gagal' })));
+    }
+  }, [idButuh]);
 
   const setM = (k, patch) => setD((x) => {
     const lama = x.mapel.find((m) => m._k === k);
@@ -580,6 +688,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
                     {[...new Set([...namaMapel, b.mapel].filter(Boolean))].map((n) => <option key={n}>{n}</option>)}
                   </select>
                 </div>
+                <TautanPerpus b={b} daftar={perpus.daftar} gagal={perpus.gagal} onChange={(id) => setTautan(b._k, id)} />
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <TingkatChecks daftar={d.tingkat} value={b.tingkat} onChange={(v) => setK(b._k, { tingkat: v })} />
                   <AktifCek checked={b.aktif} onChange={(v) => setK(b._k, { aktif: v })} />
@@ -608,7 +717,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
                             {!kls.length && <p className="text-xs text-mute">Tingkat ini belum punya kelas. Isi kolom Kelas pada Tingkatan di atas.</p>}
                             {!pet.length && kls.length > 0 && <p className="text-xs text-mute">Belum ada kelas dicentang: kitab berlaku untuk semua kelas dan ujian tingkat ini.</p>}
                             {kls.map((k) => {
-                              const p = pet.find((x) => x.kelas === k); const terisi = p ? p.periode.filter((y) => y.cakupan).length : 0;
+                              const p = pet.find((x) => x.kelas === k); const terisi = p ? p.periode.filter((y) => y.cakupan || y.batas).length : 0;
                               return (
                                 <div key={k} className="space-y-1.5 border-t border-line pt-2 first:border-t-0 first:pt-0">
                                   <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={!!p} onChange={(e) => toggleKelas(b._k, t, k, e.target.checked)} />Kelas {k}</label>
@@ -620,12 +729,14 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
                                         ))}
                                       </div>
                                       <details>
-                                        <summary className="cursor-pointer text-xs font-semibold text-soft-ink">Cakupan materi per ujian (opsional){terisi ? ` · ${terisi} terisi` : ''}</summary>
+                                        <summary className="cursor-pointer text-xs font-semibold text-soft-ink">Batas &amp; cakupan materi per ujian (opsional){terisi ? ` · ${terisi} terisi` : ''}</summary>
                                         <div className="mt-1.5 space-y-1.5">
                                           {per.filter((y) => aktifPeriode(p, y.kode)).map((y) => (
-                                            <div key={y.kode} className="flex flex-wrap items-center gap-2">
+                                            <div key={y.kode} className="space-y-1.5"><div className="flex flex-wrap items-center gap-2">
                                               <span className="w-full text-xs text-mute sm:w-56">{y.label || '(tanpa nama)'}</span>
                                               <input aria-label={`Cakupan ${b.nama || 'kitab'} kelas ${k} ${y.label}`} className="field min-w-0 flex-1 !py-1.5" maxLength={120} placeholder="mis. Kitab Thaharah, bab wudhu sampai tayammum" value={((p.periode.find((z) => z.kode === y.kode) || {}).cakupan) || ''} onChange={(e) => setCakupan(b._k, t, k, y.kode, e.target.value)} />
+                                            </div>
+                                              <BatasEditor b={b} daftar={perpus.daftar} isiPerpus={isiPerpus} nilai={(p.periode.find((z) => z.kode === y.kode) || {}).batas || null} onChange={(v) => setBatasPer(b._k, t, k, y.kode, v)} />
                                             </div>
                                           ))}
                                         </div>

@@ -33,6 +33,8 @@ export const PemilihKitab = lazyPanel(() => import('./PemilihKitab.jsx'));
 
 export const Export = denganPegon(lazyPanel(() => import('./ExportTab.jsx')));
 
+export const BatasPaket = lazyPanel(() => import('./BatasPaket.jsx'));
+
 export const PeriksaRujukan = lazyPanel(() => import('./PeriksaRujukan.jsx'));
 
 export const FaktaTeks = lazyPanel(() => import('./FaktaTeks.jsx'));

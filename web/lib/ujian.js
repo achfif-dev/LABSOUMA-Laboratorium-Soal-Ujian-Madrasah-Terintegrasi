@@ -6,7 +6,8 @@
 // Model data (disimpan di config/app lewat src/appConfig.js):
 //   cfg.sistemUjian = [{ id, label, periode: [{ kode, label }] }]       daftar sistem ujian; nama dan periodenya bisa diubah admin
 //   cfg.tingkat[i]  = { nama, ..., kelas: ['VII', ...], sistemUjian: id } kelas milik tingkat; sistem ujian yang dipakai tingkat itu
-//   cfg.kitab[i]    = { ..., tingkat: [...], penempatan: [{ tingkat, kelas, periode: [{ kode, cakupan }] }] }
+//   cfg.kitab[i]    = { ..., tingkat: [...], kitabId?, penempatan: [{ tingkat, kelas, periode: [{ kode, cakupan, batas? }] }] }
+//                     kitabId = tautan ke perpustakaan; batas = rentang bab/halaman ujian (web/lib/batasUjian.js)
 //
 // Aturan penempatan kitab (sengaja kompatibel dengan konfigurasi lama):
 //   - Tingkat ada di kitab.tingkat tetapi tidak punya entri penempatan  -> kitab berlaku untuk SEMUA kelas dan periode tingkat itu.
@@ -94,6 +95,13 @@ export function cakupanKitab(k, tingkat, kelas, periode) {
   const p = penempatanKitab(k, tingkat).find((x) => x.kelas === kelas);
   const per = p ? arr(p.periode).find((x) => x.kode === periode) : null;
   return per && per.cakupan ? per.cakupan : '';
+}
+
+/** Batas terstruktur ({ awal, akhir }, lihat web/lib/batasUjian.js) untuk kitab pada kelas dan periode tertentu; null bila tidak ada. */
+export function batasKitab(k, tingkat, kelas, periode) {
+  const p = penempatanKitab(k, tingkat).find((x) => x.kelas === kelas);
+  const per = p ? arr(p.periode).find((x) => x.kode === periode) : null;
+  return per && per.batas && typeof per.batas === 'object' ? per.batas : null;
 }
 
 /** Ringkasan teks penempatan satu kitab, satu baris per tingkat: "MTs · Kelas VII: UTS 1, UAS 1 | Kelas VIII: semua periode". */

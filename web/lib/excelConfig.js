@@ -346,7 +346,7 @@ export function gabungkan(cfg, bagian, mode = 'gabung') {
     ringkasan.push(hitung('Kitab', lama.map((k) => k.nama), bagian.kitab.map((k) => k.nama)));
     const baru = bagian.kitab.map((k) => {
       const ada = lama.find((x) => ciSama(x.nama, k.nama));
-      return { nama: ada ? ada.nama : k.nama, namaArab: k.namaArab, pengarang: k.pengarang, pengarangArab: k.pengarangArab, mapel: k.mapel, tautan: k.tautan, tingkat: cocokkanTingkat(k.tingkat, `Kitab "${k.nama}"`), penempatan: ada ? ada.penempatan || [] : [], aktif: k.aktif };
+      return { nama: ada ? ada.nama : k.nama, namaArab: k.namaArab, pengarang: k.pengarang, pengarangArab: k.pengarangArab, mapel: k.mapel, tautan: k.tautan, tingkat: cocokkanTingkat(k.tingkat, `Kitab "${k.nama}"`), penempatan: ada ? ada.penempatan || [] : [], aktif: k.aktif, ...(ada && ada.kitabId ? { kitabId: ada.kitabId } : {}) };
     });
     if (ganti) out.kitab = baru;
     else { const l = [...lama]; for (const k of baru) { const i = l.findIndex((x) => ciSama(x.nama, k.nama)); if (i >= 0) l[i] = k; else l.push(k); } out.kitab = l; }
@@ -370,7 +370,9 @@ export function gabungkan(cfg, bagian, mode = 'gabung') {
         const periode = [];
         for (const y of p.periode) {
           if (!kodeSah.includes(y.kode)) { peringatan.push(`${ket}: kode periode "${y.kode}" bukan bagian dari sistem ${sis.label}; dilewati.`); continue; }
-          periode.push({ kode: y.kode, cakupan: y.cakupan });
+          // Excel hanya memuat teks cakupan; batas terstruktur (bab/halaman perpustakaan) yang sudah diatur di aplikasi tidak boleh hilang karena impor.
+          const lamaPer = ((kitab.penempatan || []).find((q) => q.tingkat === t.nama && ciSama(q.kelas, kelas)) || { periode: [] }).periode.find((q) => q.kode === y.kode);
+          periode.push({ kode: y.kode, cakupan: y.cakupan, ...(lamaPer && lamaPer.batas ? { batas: lamaPer.batas } : {}) });
         }
         if (p.periode.length && !periode.length) continue; // semua kodenya salah: jangan diam-diam menjadi "semua periode"
         const semua = periode.length ? periode : kodeSah.map((kode) => ({ kode, cakupan: '' }));

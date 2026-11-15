@@ -14,6 +14,7 @@ import * as RW from './lib/riwayat.js';
 import { ArNama, DraftNote, EjaanPilih, FIELDS, KITAB_LAIN, KutipanBadge, SaranCtx, SourceLink, cariGoogle, cleanArabic, kitabUntuk, labelArabTingkat, labelTingkat, pageNav, tingkatAktif, urlHalaman, useEjaan, useKamus } from './bersama.jsx';
 import { siapkanFoto } from './bacaBerkas.js';
 import { FaktaTeks, PemilihKitab, PeriksaRujukan } from './panelMalas.jsx';
+import { cakupanEfektif, periksaRujukanDalamBatas } from './lib/batasUjian.js';
 import { AssistView, ButaView, TelaahView } from './TinjauanView.jsx';
 
 const PegonSoal = denganPegon(PegonSoalInti);
@@ -148,7 +149,12 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
   if (form.periode && !periodeOpsi.some((x) => x.kode === form.periode)) periodeOpsi.push({ kode: form.periode, label: Uj.labelPeriode(cfg, form.tingkat, form.periode) + ' (tidak ada di sistem ujian tingkat ini)' });
   const kitabOpsi = kitabUntuk(cfg, form.tingkat, form.mapel, form.kelas, form.periode);
   const kitabCocok = cariKitab(cfg, form.nama);
-  const cakupanTerpilih = kitabCocok && form.kelas && form.periode ? Uj.cakupanKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : '';
+  // Batas ujian dari Konfigurasi: teks cakupan (bahasa admin) dan/atau batas bab/halaman yang terhubung ke perpustakaan.
+  const cakupanAdmin = kitabCocok && form.kelas && form.periode ? Uj.cakupanKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : '';
+  const batasTerpilih = kitabCocok && form.kelas && form.periode ? Uj.batasKitab(kitabCocok, form.tingkat, form.kelas, form.periode) : null;
+  const [batasInfo, setBatasInfo] = useState(null); // { kitabId, res } dari pemilih perpustakaan: batas yang sudah dicocokkan dengan daftar isi TERKINI
+  const resBatas = batasTerpilih && batasInfo ? batasInfo.res : null;
+  const cakupanTerpilih = cakupanEfektif(cakupanAdmin, resBatas);
   // Isian lokal Compose yang ikut dipulihkan setelah muat ulang atau pindah tab: tautan sumber, halaman situs, mode tambah, fokus soal, nama kitab manual.
   const [ex, setEx] = useState(() => {
     const d = Draft.read('composeEx'); const o = d && typeof d === 'object' ? d : {};
@@ -214,6 +220,9 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
     setErrors([]); setApiError(null);
     const bad = arabicProblem(form.teks.trim());
     if (bad) { setApiError({ code: 'INVALID_ARABIC', message: bad }); return; }
+    // Teks dari perpustakaan yang terbukti di luar batas ujian ditolak di sini (pasti, tanpa kuota AI). Teks tempelan tetap diperiksa AI lewat cakupan.
+    const diLuar = resBatas ? periksaRujukanDalamBatas(resBatas, batasInfo.kitabId, { kitabId: form.kitabId, halId: form.halId, halIdAkhir: form.halIdAkhir }) : { ok: null };
+    if (diLuar.ok === false) { setApiError({ code: 'DILUAR_CAKUPAN', message: `${diLuar.alasan} Pilih halaman di dalam batas, atau minta admin mengubah batas ujian di Konfigurasi.` }); return; }
     setBusy(true); setStatus('loading');
     const ctl = new AbortController(); abortRef.current = ctl;
     try {
@@ -275,13 +284,13 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
     finally { setKBusy(false); }
   };
   // Halaman dari perpustakaan -> Rujukan Kitab. Ganti = teks sumber lain (tautan, foto) tidak berlaku lagi; tambah = lanjutan bahasan.
-  const pakaiPerpus = (r, { tambah }) => {
+  const pakaiPerpus = (r, { tambah, otomatis = false }) => {
     if (tambah && form.teks.trim() && form.nama.trim() && form.nama.trim().toLowerCase() !== r.nama.toLowerCase()
       && !window.confirm(`Teks saat ini dari "${form.nama}". Menambahkan halaman dari "${r.nama}" mencampur dua kitab dalam satu soal. Lanjutkan?`)) return;
     const baruRj = rujukanDariHalaman(r.kitabId, r.halaman);
     setForm((f) => ({ ...f, nama: r.nama, juz: r.juz, hal: r.hal, bab: r.bab, teks: r.teks, ...(tambah ? gabungRujukan({ kitabId: f.kitabId, halId: f.halId, halIdAkhir: f.halIdAkhir }, baruRj) : baruRj), ...(tambah ? {} : { sumberUrl: '' }), ai: { ...f.ai, buta: '' } }));
     if (!tambah) { setKInfo(null); setKErr(null); setKManual(false); patchEx({ kFoto: false }); setFotoInfo(null); }
-    toast(`Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
+    toast(otomatis ? `Materi ujian diisi otomatis dari batas ujian: hal. ${r.hal}. Pakai Berikutnya untuk bagian lanjutan.` : `Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
   };
   const importFile = (file) => {
     if (!file) return;
@@ -471,7 +480,8 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
           <div className="space-y-3">
             <div className="space-y-2 rounded-xl border border-line bg-bg p-3 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
               <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="form" onPakai={pakaiPerpus}
-                sekarang={{ teks: form.teks, hal: form.hal, bab: form.bab }} batas={6000} />
+                sekarang={{ teks: form.teks, hal: form.hal, bab: form.bab }} batas={6000}
+                rencana={kitabCocok ? { kitabCfg: kitabCocok, batas: batasTerpilih, siap: !!(form.kelas && form.periode), otomatis: !editingId } : null} onBatas={setBatasInfo} />
               {rujukanSah(form) && (
                 <p role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-soft px-3 py-2 text-xs text-soft-ink">
                   <BookOpen size={13} />Tertaut ke perpustakaan: <b>{form.nama || form.kitabId}</b>, urutan {rentangRujukan(form).dari}{rentangRujukan(form).sampai > rentangRujukan(form).dari ? `–${rentangRujukan(form).sampai}` : ''}.
@@ -538,7 +548,9 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
               {kManual && <input id="nama-manual" aria-label="Nama kitab (ketik manual)" autoFocus className="field mt-2" placeholder="Ketik nama kitab" value={form.nama} onChange={(e) => set('nama', e.target.value)} />}
               {!kitabOpsi.length && <p className="mt-1 text-xs text-mute">Admin bisa menambahkan kitab, atau memetakannya ke {labelTingkat(cfg, form.tingkat)}{form.kelas ? ` kelas ${form.kelas}` : ''} · {form.mapel}, di menu Konfigurasi. Sementara itu pilih “Lainnya”.</p>}
               {cakupanTerpilih && <p className="mt-1 text-xs text-soft-ink">Cakupan materi kitab ini pada kelas {form.kelas} · {Uj.labelPeriode(cfg, form.tingkat, form.periode)}: {cakupanTerpilih}. AI wajib membatasi soal pada cakupan ini; soal di luar cakupan ditolak.</p>}
-              {!cakupanTerpilih && form.nama && <p role="status" className="mt-1 text-xs text-warn">Batas materi TIDAK berlaku: {!form.kelas || !form.periode ? 'pilih Kelas dan Ujian' : !kitabCocok ? 'nama kitab tidak ditemukan di katalog Konfigurasi (pilih dari daftar, bukan ketik manual)' : 'admin belum mengisi cakupan materi kitab ini untuk kelas dan ujian tersebut'}. Tanpa batas, AI boleh memakai bagian mana pun dari teks yang ditempel.</p>}
+             
+              {batasTerpilih && !cakupanTerpilih && <p role="status" className="mt-1 text-xs text-mute">Batas ujian kitab ini ditetapkan dari perpustakaan. Tunggu daftar isinya termuat di “Dari Perpustakaan” di bawah agar batas berlaku.</p>}
+              {!cakupanTerpilih && !batasTerpilih && form.nama && <p role="status" className="mt-1 text-xs text-warn">Batas materi TIDAK berlaku: {!form.kelas || !form.periode ? 'pilih Kelas dan Ujian' : !kitabCocok ? 'nama kitab tidak ditemukan di katalog Konfigurasi (pilih dari daftar, bukan ketik manual)' : 'admin belum mengisi cakupan materi kitab ini untuk kelas dan ujian tersebut'}. Tanpa batas, AI boleh memakai bagian mana pun dari teks yang ditempel.</p>}
               {kitabCocok && (kitabCocok.namaArab || kitabCocok.pengarangArab) && (
                 <div className="mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">
                   {kitabCocok.namaArab && <p dir="rtl" lang="ar" className="ar ar-sm !leading-normal">{kitabCocok.namaArab}</p>}
