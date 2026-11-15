@@ -7,13 +7,21 @@
 #
 # Aman-gagal: bila git tidak bisa membandingkan (mis. commit pertama, clone dangkal), build tetap jalan.
 
-if ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+# Pembanding: commit terakhir yang BERHASIL di-deploy (VERCEL_GIT_PREVIOUS_SHA, diisi Vercel bila ada Ignored Build Step). Satu push berisi beberapa commit
+# (mis. commit kode lalu commit yang hanya mengubah docs/test) tidak boleh dilewati hanya karena commit TERAKHIR-nya tidak menyentuh kode.
+# Bila tidak ada atau tidak ada di clone (clone dangkal): HEAD^, seperti sebelumnya.
+DASAR=""
+if [ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git cat-file -e "$VERCEL_GIT_PREVIOUS_SHA^{commit}" 2>/dev/null; then
+  DASAR="$VERCEL_GIT_PREVIOUS_SHA"
+elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+  DASAR="HEAD^"
+else
   echo "Tidak ada commit pembanding: build dilanjutkan."
   exit 1
 fi
 
 # Hanya berkas yang memengaruhi hasil build/fungsi yang dihitung.
-if git diff --quiet HEAD^ HEAD -- \
+if git diff --quiet "$DASAR" HEAD -- \
   api src web public index.html \
   package.json package-lock.json \
   vercel.json vite.config.js postcss.config.js tailwind.config.js \

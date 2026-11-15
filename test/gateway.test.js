@@ -108,5 +108,13 @@ test('vercel-ignore.sh: lewati bila hanya docs/test berubah, lanjut bila kode be
     assert.equal(sh('sh', ['scripts/vercel-ignore.sh']).status, 1, 'src berubah harus build');
     tulis('vercel.json', '{}'); commit('konfigurasi');
     assert.equal(sh('sh', ['scripts/vercel-ignore.sh']).status, 1, 'vercel.json berubah harus build');
+    // Satu push, banyak commit: commit kode lalu commit yang hanya docs. Terakhir saja = docs (dilewati), padahal kode berubah sejak deploy terakhir.
+    const dasar = sh('git', ['rev-parse', 'HEAD']).stdout.trim();
+    tulis('web/b.js', 'baru'); commit('kode di tengah'); tulis('docs/b.md', 'x'); tulis('test/y.test.js', 'y'); commit('docs di ujung');
+    assert.equal(sh('sh', ['scripts/vercel-ignore.sh']).status, 0, 'tanpa pembanding deploy, hanya commit terakhir yang dilihat (perilaku lama)');
+    const lewatDeploy = (sha) => spawnSync('sh', ['scripts/vercel-ignore.sh'], { cwd: dir, encoding: 'utf8', env: { ...process.env, VERCEL_GIT_PREVIOUS_SHA: sha } });
+    assert.equal(lewatDeploy(dasar).status, 1, 'dibanding deploy terakhir, kode berubah: harus build');
+    assert.equal(lewatDeploy(sh('git', ['rev-parse', 'HEAD^']).stdout.trim()).status, 0, 'sejak deploy terakhir hanya docs/test: dilewati');
+    assert.equal(lewatDeploy('0'.repeat(40)).status, 0, 'SHA pembanding tidak ada di clone: kembali ke HEAD^');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
