@@ -2,7 +2,7 @@ import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import { AutoArea, Btn, Draft, ErrorBox, Label, Section, Select, Spin, Uj, apiErr, callApi, useCfg, useDraftSync } from './ui.jsx';
 import { Bt, bacaPref, cariKitab, mapelUntuk } from './lib/dasar.js';
 import * as PK from './lib/paket.js';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Camera, Check, ClipboardCheck, Layers, ListChecks, Loader2, Pencil, RefreshCw, Save, Send, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import * as NK from './lib/naskah.js';
 import { faktaSahDi, jejakFaktaButir, spekDenganFakta } from './lib/fakta.js';
@@ -11,7 +11,7 @@ import { bagianTeks } from './lib/perpus.js';
 import { DraftNote, SaranCtx, cleanArabic, kitabUntuk, labelTingkat, tingkatAktif } from './bersama.jsx';
 import { bacaFile, siapkanFoto } from './bacaBerkas.js';
 import { BatasPaket, PemilihKitab } from './panelMalas.jsx';
-import { cakupanEfektif, halamanDiLuarBatas } from './lib/batasUjian.js';
+import { cakupanEfektif, halamanDiLuarBatas, labelBatas } from './lib/batasUjian.js';
 
 /* ---------- Paket Dauri: satu naskah IMDA utuh dari materi panjang (teks, berkas, atau banyak foto) ----------
  * Perencana ada di lib/paket.js (murni, bertes). Materi dibagi per segmen <= 6.000 karakter; tiap panggilan AI menyusun <= 6 butir dari satu segmen.
@@ -146,9 +146,16 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
   const kitabCfg = cariKitab(cfg, nama);
   const cakupanAdmin = kitabCfg && kelas && periode ? Uj.cakupanKitab(kitabCfg, tingkat, kelas, periode) : '';
   const batasCfg = kitabCfg && kelas && periode ? Uj.batasKitab(kitabCfg, tingkat, kelas, periode) : null;
+  const [materiOto, setMateriOto] = useState(null);   // kunci batas bila halaman perpustakaan di materi dimuat dari batas ujian (otomatis); null = dipilih sendiri
+  const [memuatOto, setMemuatOto] = useState(false);   // materi dari batas ujian sedang dimuat: pembuatan paket menunggu
+  const [pilihSendiri, setPilihSendiri] = useState(false); // penyusun memilih halaman perpustakaan sendiri walau batas ujian ada
   const [batasPaket, setBatasPaket] = useState(null); // { kitabId, res } dari BatasPaket: batas yang sudah dicocokkan dengan daftar isi TERKINI
   const cakupan = cakupanEfektif(cakupanAdmin, batasCfg && batasPaket ? batasPaket.res : null);
   // Halaman perpustakaan di materi yang terbukti di luar batas ujian: ditolak sebelum kuota AI terpakai. Teks tempelan/foto tidak bisa diperiksa dengan kode; AI memeriksanya lewat cakupan.
+  const batasAktif = !!(batasCfg && batasPaket);
+  // Pilihan kelas/ujian/kitab berganti ke penempatan TANPA batas: halaman yang dimuat otomatis dari batas sebelumnya tidak boleh tertinggal sebagai materi.
+  useEffect(() => { if (materiOto && !batasCfg && !jalan) { setPerpus([]); setMateriOto(null); } }, [materiOto, batasCfg]);
+  const bolehOtomatis = !teks.trim() && foto.length === 0 && (perpus.length === 0 || !!materiOto); // tidak menimpa teks tempelan, foto, atau halaman pilihan sendiri
   const luarBatas = batasCfg && batasPaket ? halamanDiLuarBatas(batasPaket.res, batasPaket.kitabId, perpus.map((x) => x.id)).luar : [];
   const pesanLuarBatas = luarBatas.length ? `Materi memuat ${luarBatas.length} halaman perpustakaan di luar batas ujian (urutan ${batasPaket.res.awal}–${batasPaket.res.akhir}), mis. urutan ${luarBatas.slice(0, 4).join(', ')}. Hapus halaman itu dari materi, atau minta admin mengubah batas di Konfigurasi.` : '';
 
@@ -199,7 +206,8 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
 
   const kekurangan = useMemo(() => PK.sisaPaket(rencana, hasil), [rencana, hasil]);
   const buat = async () => {
-    if (rencana.masalah || !rencana.panggilan) { setErr({ code: 'BAD_REQUEST', message: rencana.masalah || 'Belum ada materi.' }); return; }
+    if (memuatOto) { toast('Materi dari batas ujian masih dimuat. Tunggu sebentar lalu coba lagi.'); return; }
+    if (rencana.masalah || !rencana.panggilan) { setErr({ code: 'BAD_REQUEST', message: rencana.masalah || (batasAktif ? 'Materi dari batas ujian belum dimuat. Tekan "Muat materi dari batas ujian" di bagian atas.' : 'Belum ada materi.') }); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
     if (bad) { setErr({ code: 'INVALID_ARABIC', message: bad }); return; }
     if (pesanLuarBatas) { setErr({ code: 'DILUAR_CAKUPAN', message: pesanLuarBatas }); return; }
@@ -212,6 +220,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
 
   // Lanjutkan: hitung kekurangan dari hasil yang sudah ada, buat hanya itu. Butir yang sudah jadi tidak dihapus dan tidak diulang.
   const lanjutkan = async () => {
+    if (memuatOto) { toast('Materi dari batas ujian masih dimuat. Tunggu sebentar lalu coba lagi.'); return; }
     const tugas = PK.tugasDariSisa(kekurangan.sisa);
     if (!tugas.length) { toast('Paket sudah lengkap.'); return; }
     const bad = masalahArabPaket(rencana.segmen.map((s) => s.teks).join('\n'));
@@ -395,12 +404,22 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
   const ubahKomp = (k, v) => setKomposisi((x) => ({ ...x, [k]: Math.max(0, Math.min(100, Number(v) || 0)) }));
   const bobot = Math.max(1, komposisi.L1 + komposisi.L2 + komposisi.L3);
   // Halaman dari perpustakaan: tiap halaman jadi satu sumber dengan nomor cetaknya sendiri, jadi rujukan hal. per butir akurat.
-  const tambahPerpus = (r) => {
+  const tambahPerpus = (r, opsi = {}) => {
+    if (opsi.ganti) { // dari batas ujian (BatasPaket): menggantikan halaman perpustakaan di materi, tanpa memilih halaman lagi
+      const dari = r.halaman.map((p) => ({ id: `${r.kitabId}:${p.seq}`, nama: r.nama, teks: bagianTeks(p, r.bagian), hal: String(p.hal).slice(0, 20), juz: String(p.juz) })).filter((x) => x.teks.trim()).slice(0, 60);
+      if (!dari.length) { toast('Halaman dalam batas ujian tidak memuat teks.'); return; }
+      setPerpus(dari); setMateriOto(opsi.kunci || null); setPilihSendiri(false);
+      if (!nama.trim()) setNama(r.nama);
+      if (!juz.trim()) setJuz(r.juz);
+      if (!bab.trim() && r.bab) setBab(String(r.bab).slice(0, 120));
+      toast(`${dari.length} halaman dari batas ujian dimuat sebagai materi.`);
+      return;
+    }
     const ada = new Set(perpus.map((x) => x.id));
     const baru = r.halaman.map((p) => ({ id: `${r.kitabId}:${p.seq}`, nama: r.nama, teks: bagianTeks(p, r.bagian), hal: String(p.hal).slice(0, 20), juz: String(p.juz) })).filter((x) => x.teks.trim() && !ada.has(x.id));
     if (!baru.length) { toast('Halaman itu sudah ada di materi (atau kosong).'); return; }
     if (perpus.length && perpus[0].nama.toLowerCase() !== r.nama.toLowerCase() && !window.confirm(`Materi berisi halaman dari "${perpus[0].nama}". Menambahkan dari "${r.nama}" mencampur dua kitab dalam satu paket. Lanjutkan?`)) return;
-    setPerpus((l) => [...l, ...baru].slice(0, 60));
+    setPerpus((l) => [...l, ...baru].slice(0, 60)); setMateriOto(null); // halaman pilihan sendiri: batas tidak lagi menggantikan materi otomatis
     if (!nama.trim()) setNama(r.nama);
     if (!juz.trim()) setJuz(r.juz);
     if (!bab.trim() && r.bab) setBab(String(r.bab).slice(0, 120));
@@ -435,22 +454,32 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         {cakupan
           ? <p className="mt-3 rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-soft-ink">Cakupan dari Konfigurasi: <b>{cakupan}</b>. AI hanya boleh membuat soal dari bagian teks yang masuk cakupan ini; segmen yang seluruhnya di luar cakupan dilewati.</p>
           : <p className="mt-3 text-xs leading-relaxed text-mute">{kitabCfg && kelas && periode ? (batasCfg ? 'Batas ujian kitab ini ditetapkan dari perpustakaan; menunggu daftar isinya termuat.' : 'Kitab ini belum punya cakupan untuk kelas dan ujian tersebut di Konfigurasi, jadi semua teks yang Anda berikan dianggap bahan ujian.') : 'Pilih kelas, ujian, dan kitab dari Konfigurasi agar batas materi (mis. Thaharah sampai Puasa) ikut dikirim ke AI. Tanpa itu, semua teks yang Anda berikan dianggap bahan ujian.'}</p>}
-        <BatasPaket Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} kitabCfg={kitabCfg} batas={batasCfg} siap={!!(kelas && periode)} sudah={perpus.length} onMuat={tambahPerpus} onRes={setBatasPaket} disabled={jalan} />
+        <BatasPaket Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} kitabCfg={kitabCfg} batas={batasCfg} siap={!!(kelas && periode)} sudah={perpus.length} onMuat={tambahPerpus} onRes={setBatasPaket} onBusy={setMemuatOto} otomatis bolehOtomatis={bolehOtomatis && !pilihSendiri} disabled={jalan} />
         {pesanLuarBatas && <p role="alert" className="mt-2 rounded-lg bg-bad-bg px-3 py-2 text-xs leading-relaxed text-bad">{pesanLuarBatas}</p>}
       </Section>
 
       <Section title="Materi" icon={BookOpen}>
         <div className="mb-3 space-y-2">
-          <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="paket" onPakai={tambahPerpus} disabled={jalan} />
+          {batasAktif && !pilihSendiri
+            ? (
+              <p role="status" className="rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-soft-ink">
+                {memuatOto ? 'Memuat materi dari batas ujian...' : materiOto ? <>Materi diambil <b>otomatis</b> dari batas ujian: {labelBatas(batasPaket.res)}. Tidak perlu memilih halaman.</> : <>Batas ujian kitab ini sudah ditetapkan: {labelBatas(batasPaket.res)}. Tekan "Muat materi dari batas ujian" di atas, atau pilih halaman sendiri.</>}
+                {' '}<button type="button" className="font-semibold underline" onClick={() => setPilihSendiri(true)} disabled={jalan}>Pilih halaman sendiri</button>
+              </p>)
+            : (
+              <>
+                {batasAktif && <button type="button" className="text-xs font-semibold text-soft-ink underline" onClick={() => setPilihSendiri(false)}>Kembali ke materi otomatis dari batas ujian</button>}
+                <PemilihKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} katalog={cfg.kitab} mode="paket" onPakai={tambahPerpus} disabled={jalan} />
+              </>)}
           {perpus.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-ink">Halaman dari perpustakaan ({perpus.length}) · {perpus.reduce((n, f) => n + f.teks.length, 0).toLocaleString('id-ID')} karakter</p>
+            <details key={materiOto ? 'oto' : 'manual'} open={!materiOto} className="space-y-1.5">
+              <summary className="cursor-pointer text-xs font-semibold text-ink">{materiOto ? 'Halaman dari batas ujian' : 'Halaman dari perpustakaan'} ({perpus.length}) · {perpus.reduce((n, f) => n + f.teks.length, 0).toLocaleString('id-ID')} karakter</summary>
               <ul className="space-y-1">{perpus.map((f) => (
                 <li key={f.id} className="flex items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5 text-xs">
                   <span className="min-w-0 flex-1 truncate">{f.nama} · hal. {f.hal} · juz {f.juz} · {f.teks.length.toLocaleString('id-ID')} karakter</span>
                   <button type="button" aria-label={`Hapus halaman ${f.hal}`} disabled={jalan} className="text-mute hover:text-bad disabled:opacity-40" onClick={() => setPerpus((l) => l.filter((x) => x.id !== f.id))}><Trash2 size={13} /></button>
                 </li>))}</ul>
-            </div>
+            </details>
           )}
         </div>
         <textarea {...tampilanDariIsi(teks, 'field min-h-[160px] leading-loose')} placeholder="Tempel teks kitab atau buku (Arab atau bahasa lain) di sini. Tidak dibatasi 6.000 karakter." value={teks} onChange={(e) => setTeks(e.target.value)} disabled={jalan} />
