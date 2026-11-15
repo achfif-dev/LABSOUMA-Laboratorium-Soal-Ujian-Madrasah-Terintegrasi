@@ -7,7 +7,7 @@ import { __setFirebaseForTest } from '../src/platform.js';
 import { kosongkanSimpananCari } from '../src/kitabCari.js';
 import { aksiIsiSimpan, aksiIsiAi, validasiIsiAi, JUMLAH_AI_MAKS, TOOL_DAFTAR_ISI } from '../src/kitabIsi.js';
 import { toGeminiSchema } from '../src/gemini.js';
-import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, MAKS_ENTRI_ISI, levelUsul, bersihkanJudul, kandidatJudul, entriDariPilihanAi, normalJudul, ukuranBarisKhas } from '../web/lib/daftarIsi.js';
+import { rapikanJudul, rapikanEntri, periksaEntri, bedaDaftar, usulDariHalaman, gabungUsul, titikLanjut, konteksSebelum, MAKS_ENTRI_ISI, levelUsul, bersihkanJudul, kandidatJudul, entriDariPilihanAi, normalJudul, ukuranBarisKhas } from '../web/lib/daftarIsi.js';
 import { buatPemuat } from '../web/lib/perpus.js';
 import handler from '../src/rute/kitab.js';
 import { fakeDb } from './_fakeDb.js';
@@ -189,6 +189,40 @@ test('usulan dari teks kitab: tidak menulis, menemukan judul bab hasil impor', (
   assert.deepEqual(r.usul.map((e) => [e.seq, e.judul]), [[1, 'باب الصلاة'], [4, 'فصل في الأذان']]);
   assert.equal(tanpaRate(), sebelum);
 }));
+
+test('usulan dengan `dari`: hanya judul pada urutan itu ke atas (melanjutkan), seluruh kitab tetap dibaca; `dari` cacat ditolak', () => siapkan(async (db) => {
+  const editor = sebagai('tok_editor');
+  const semua = await editor({ aksi: 'perpus-isi-usul', kitabId: 'fathul-muin' });
+  assert.equal(semua.dari, 1);
+  const r2 = await editor({ aksi: 'perpus-isi-usul', kitabId: 'fathul-muin', dari: 2 });
+  assert.deepEqual(r2.usul.map((e) => [e.seq, e.judul]), [[4, 'فصل في الأذان']]); assert.equal(r2.dari, 2); assert.equal(r2.dibaca, 6);
+  assert.deepEqual((await editor({ aksi: 'perpus-isi-usul', kitabId: 'fathul-muin', dari: 4 })).usul.map((e) => e.seq), [4], 'halaman titik lanjut ikut dipindai (bisa memuat judul lain)');
+  assert.deepEqual((await editor({ aksi: 'perpus-isi-usul', kitabId: 'fathul-muin', dari: 5 })).usul, []);
+  // hasil dari cache sama dengan pemindaian penuh yang disaring
+  assert.deepEqual(semua.usul.filter((e) => e.seq >= 2), r2.usul);
+  for (const dari of [0, -1, 1.5, '2', 100001]) {
+    const r = await lewat('tok_editor', { aksi: 'perpus-isi-usul', kitabId: 'fathul-muin', dari });
+    assert.equal(r.code, 422, String(dari)); assert.equal(r.body.error.code, 'ISI_USUL_INVALID');
+  }
+}));
+
+test('titikLanjut: mulai dari judul terakhir yang sudah ada, bukan dari halaman 1', () => {
+  assert.equal(titikLanjut([], 100), 1);
+  assert.equal(titikLanjut(undefined, 100), 1);
+  assert.equal(titikLanjut([{ seq: 3 }, { seq: 40 }, { seq: 12 }], 100), 40, 'tidak bergantung urutan larik');
+  assert.equal(titikLanjut([{ seq: 250 }], 100), 100, 'tidak melewati halaman terakhir');
+  assert.equal(titikLanjut([{ seq: NaN }, { seq: 0 }, { seq: 1.5 }, null, { judul: 'x' }], 100), 1, 'seq cacat diabaikan');
+  assert.equal(titikLanjut([{ seq: 5 }], 0), 1);
+  assert.equal(titikLanjut([{ seq: 5 }, { seq: 70 }], 100), 70, 'gabungan daftar dan usulan yang belum dipakai');
+});
+
+test('konteksSebelum: judul terakhir sebelum titik lanjut (maks. 8) untuk konsistensi level AI', () => {
+  const e = Array.from({ length: 12 }, (_, i) => ({ judul: `J${i + 1}`, level: 2, seq: i + 1 }));
+  assert.deepEqual(konteksSebelum(e, 10).map((x) => x.judul), ['J2', 'J3', 'J4', 'J5', 'J6', 'J7', 'J8', 'J9']);
+  assert.deepEqual(konteksSebelum(e, 1), []);
+  assert.deepEqual(konteksSebelum([{ judul: 'A', level: 9.5, seq: 1 }, { judul: '', level: 2, seq: 2 }], 10), []);
+  assert.deepEqual(konteksSebelum(null, 10), []);
+});
 
 test('riwayat: terbaru dulu, memuat daftar sebelum perubahan, dan daftar lama bisa dikembalikan (menjadi versi baru, bukan menghapus riwayat)', () => siapkan(async (db) => {
   const editor = sebagai('tok_editor');

@@ -228,6 +228,24 @@ export function entriDariPilihanAi(pilih, kandidat) {
 }
 
 /** Gabungkan usulan ke daftar yang ada: hanya yang belum ada (halaman + judul sama) yang ditambah. -> { entri, ditambah } */
+/**
+ * Titik lanjut mesin daftar isi (usul aturan dan AI): urutan halaman tempat pemindaian MULAI, supaya tidak mengulang dari awal.
+ * = urutan halaman judul terakhir yang sudah ada (halaman itu ikut dipindai lagi karena bisa memuat judul lain; yang sudah ada dibuang gabungUsul).
+ * Tanpa judul sama sekali: 1. `entri` boleh gabungan daftar sekarang dan usulan yang belum dipakai. Hasil selalu di antara 1 dan `total`.
+ */
+export function titikLanjut(entri, total) {
+  const t = Number.isInteger(total) && total > 0 ? total : 1;
+  let akhir = 0;
+  for (const e of Array.isArray(entri) ? entri : []) if (e && Number.isInteger(e.seq) && e.seq >= 1 && e.seq > akhir) akhir = e.seq;
+  return Math.min(Math.max(1, akhir), t);
+}
+
+/** Entri terakhir sebelum urutan `dari` (maks. `n`), sebagai konteks level untuk AI yang melanjutkan di tengah kitab. */
+export function konteksSebelum(entri, dari, n = 8) {
+  return (Array.isArray(entri) ? entri : []).filter((e) => e && Number.isInteger(e.seq) && e.seq < dari && e.judul && Number.isInteger(e.level))
+    .sort((a, b) => a.seq - b.seq).slice(-n).map(({ judul, level }) => ({ judul, level }));
+}
+
 export function gabungUsul(lama, usul) {
   const ada = new Set((lama || []).map((e) => `${e.seq}|${e.judul}`));
   const baru = usul.filter((e) => !ada.has(`${e.seq}|${e.judul}`));

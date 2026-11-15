@@ -11,7 +11,7 @@ import { route, authenticateAuthor, authenticateAdmin, authenticateReviewer, enf
 import { fetchKitab, DEFAULT_HOSTS } from '../kitabFetch.js';
 import { aksiImpor } from '../kitabImpor.js';
 import { aksiBaca } from '../kitabBaca.js';
-import { validasiIsiAi } from '../kitabIsi.js';
+import { validasiIsiAi, validasiIsiUsul } from '../kitabIsi.js';
 import { aksiOcr, validateFoto } from '../kitabOcr.js';
 import { loadAiConfig } from '../aiConfig.js';
 import { parseList } from '../access.js';
@@ -49,6 +49,7 @@ export default route(async (req) => {
   }
   if (aksi === 'perpus-isi-usul' || aksi === 'perpus-isi-simpan' || aksi === 'perpus-isi-riwayat') {
     const u = await authenticateReviewer(req);
+    if (aksi === 'perpus-isi-usul') validasiIsiUsul(req.body); // masukan cacat ditolak sebelum menghitung batas laju
     if (aksi === 'perpus-isi-usul') await enforceRate(`${u.uid}_kitabisiusul`, LIMIT_ISI_USUL, { pesanHarian: 'Batas usulan daftar isi harian tercapai. Lanjutkan besok.' });
     if (aksi === 'perpus-isi-simpan') await enforceRate(`${u.uid}_kitabisi`, LIMIT_KOREKSI, { pesanHarian: 'Batas penyuntingan daftar isi harian tercapai. Lanjutkan besok.' });
     return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });

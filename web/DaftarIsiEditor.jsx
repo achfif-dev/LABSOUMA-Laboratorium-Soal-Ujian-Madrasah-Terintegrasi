@@ -1,11 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Bot, Eye, History, Loader2, Plus, Sparkles, Square, Quote, Trash2, X } from 'lucide-react';
-import { LABEL_LEVEL, MAKS_ENTRI_ISI, MAKS_JUDUL_ISI, MAKS_CATATAN_ISI, rapikanEntri, rapikanJudul, periksaEntri, bedaDaftar, gabungUsul, levelUsul } from './lib/daftarIsi.js';
+import { LABEL_LEVEL, MAKS_ENTRI_ISI, MAKS_JUDUL_ISI, MAKS_CATATAN_ISI, rapikanEntri, rapikanJudul, periksaEntri, bedaDaftar, gabungUsul, levelUsul, titikLanjut, konteksSebelum } from './lib/daftarIsi.js';
 
 // Penyunting daftar isi kitab (editor dan admin), dipakai di dalam PembacaKitab.jsx pada tombol "Sunting daftar isi" / "Buat daftar isi".
 // Tujuan: membuat daftar isi yang tidak ada (PDF/OCR, berkas tanpa judul bertanda) dan memperbaiki yang keliru (judul, level, halaman).
 // Menyimpan mengirim `rev` yang dilihat penyunting; bila orang lain lebih dulu mengubah daftar ini, server menolak dan tidak ada yang tertimpa.
 // Server: src/kitabIsi.js (peran diperiksa di sana juga). `pem` = pemuat dari web/lib/perpus.js (isiUsul, isiSimpan, isiRiwayat).
+// Kedua mesin MELANJUTKAN, tidak mengulang dari halaman 1: pemindaian mulai dari halaman judul terakhir yang sudah ada (daftar sekarang + usulan yang belum dipakai),
+// bisa diubah lewat "Mulai dari urutan". Hasil sebagian yang dihentikan disimpan di usulan dan dilanjutkan oleh proses berikutnya.
 // "Buat otomatis" ada dua: aturan (instan, gratis) dan "Sempurnakan dengan AI" (bertahap per 60 halaman, kemajuan tampil, bisa dihentikan; hasil sebagian tetap bisa dipakai).
 // Halaman kitab TETAP tampil di sebelah penyunting (PembacaKitab.jsx): "Halaman ini" memakai halaman yang sedang dibuka, "Lihat" membuka halaman sebuah judul, dan
 // "Judul dari teks terpilih" mengambil teks yang diblok di halaman kitab sebagai judul baru di halaman itu. Baris pada halaman yang sedang dibuka disorot.
@@ -30,11 +32,19 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
   const [err, setErr] = useState(null);
   const [info, setInfo] = useState('');
   const barisRef = useRef(null);
+  const [mulai, setMulai] = useState(''); // '' = otomatis (lanjut dari judul terakhir); angka = urutan halaman awal pilihan penyunting
 
   const mentah = useMemo(() => keEntri(baris), [baris]);
   const { galat, peringatan } = useMemo(() => periksaEntri(mentah, total), [mentah, total]);
   const baru = useMemo(() => rapikanEntri(mentah), [mentah]);
   const beda = useMemo(() => bedaDaftar(asal, baru), [asal, baru]);
+  // Titik lanjut: halaman judul terakhir yang sudah ada, termasuk usulan yang belum dipakai dan halaman yang sudah selesai dipilah AI.
+  const titik = useMemo(() => {
+    const dasar = titikLanjut([...baru, ...(usul ? usul.usul : [])], total);
+    return usul && usul.selesaiSampai ? Math.max(dasar, Math.min(total, usul.selesaiSampai + 1)) : dasar;
+  }, [baru, usul, total]);
+  const mulaiAngka = /^\d+$/.test(mulai) ? Math.min(Math.max(1, Number(mulai)), Math.max(1, total)) : null;
+  const dariEfektif = mulaiAngka || titik;
   const berubah = beda.tambah + beda.hapus + beda.ubah > 0 || JSON.stringify(asal.map((e) => e.seq)) !== JSON.stringify(baru.map((e) => e.seq));
   const galatDi = (i) => galat.filter((g) => g.i === i + 1).map((g) => g.pesan);
   const peringatanDi = (i) => peringatan.filter((g) => g.i === i + 1).map((g) => g.pesan);
@@ -59,25 +69,31 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
 
   async function buatUsul() {
     setSibuk('usul'); setErr(null); setUsul(null);
-    try { setUsul({ ...(await pem.isiUsul(kitabId)), sumber: 'aturan' }); } catch (e) { gagal(e, setErr); } finally { setSibuk(''); }
+    try { setUsul({ ...(await pem.isiUsul(kitabId, { dari: dariEfektif })), sumber: 'aturan', dari: dariEfektif }); } catch (e) { gagal(e, setErr); } finally { setSibuk(''); }
   }
   async function jalankanAi() {
-    const panggilan = Math.ceil(total / JUMLAH_AI);
-    if (!window.confirm(`AI akan memilah kandidat judul di seluruh ${total} halaman, sekitar ${panggilan} panggilan AI atas biaya server (jendela tanpa kandidat dilewati). Hasilnya hanya usulan; belum disimpan. Lanjutkan?`)) return;
-    batalRef.current = false; setErr(null); setUsul(null); setInfo('');
-    let kumpul = []; let ditolak = 0; let berhenti = false; let kandidat = 0; let dipanggil = 0;
-    setAi({ dari: 1, ditemukan: 0 });
+    const mulaiDari = dariEfektif; const sisa = Math.max(1, total - mulaiDari + 1); const panggilan = Math.ceil(sisa / JUMLAH_AI);
+    if (!window.confirm(`AI akan memilah kandidat judul dari halaman ${mulaiDari} sampai ${total} (${sisa} halaman, sekitar ${panggilan} panggilan AI atas biaya server; jendela tanpa kandidat dilewati).${mulaiDari > 1 ? ' Halaman sebelumnya yang sudah punya judul tidak diperiksa ulang.' : ''} Hasilnya hanya usulan; belum disimpan. Lanjutkan?`)) return;
+    batalRef.current = false; setErr(null); setInfo('');
+    // Usulan AI sebelumnya yang belum dipakai (mis. proses yang dihentikan) dipertahankan dan digabung dengan hasil baru.
+    const lama = usul && usul.sumber === 'ai' ? usul : null;
+    const awalDari = lama && lama.dari ? Math.min(lama.dari, mulaiDari) : mulaiDari;
+    const konteks = konteksSebelum([...baru, ...(lama ? lama.usul : [])], mulaiDari);
+    let kumpul = []; let ditolak = lama ? lama.ditolak || 0 : 0; let berhenti = false; let kandidat = lama ? lama.kandidat || 0 : 0; let dipanggil = lama ? lama.dipanggil || 0 : 0; let selesai = mulaiDari - 1;
+    setAi({ dari: mulaiDari, ditemukan: 0, mulai: mulaiDari });
     try {
-      for (let dari = 1; dari <= total; dari += JUMLAH_AI) {
+      for (let dari = mulaiDari; dari <= total; dari += JUMLAH_AI) {
         if (batalRef.current) { berhenti = true; break; }
-        setAi({ dari, ditemukan: kumpul.length });
-        const sebelumnya = kumpul.slice(-8).map(({ judul, level }) => ({ judul, level }));
+        setAi({ dari, ditemukan: kumpul.length, mulai: mulaiDari });
+        const sebelumnya = [...konteks, ...kumpul].slice(-8).map(({ judul, level }) => ({ judul, level }));
         const r = await pem.isiAi(kitabId, { dari, jumlah: JUMLAH_AI, sebelumnya });
         kumpul = kumpul.concat(r.entri); ditolak += r.ditolak || 0; kandidat += r.kandidat || 0; if (r.dipanggilAi) dipanggil++;
+        selesai = Math.min(total, dari + JUMLAH_AI - 1);
       }
     } catch (e) { berhenti = true; gagal(e, setErr); } finally { setAi(null); }
-    if (kumpul.length) setUsul({ usul: kumpul, dibaca: total, terpotong: false, sumber: 'ai', sebagian: berhenti, ditolak, kandidat, dipanggil });
-    else if (!berhenti) setUsul({ usul: [], dibaca: total, sumber: 'ai', kandidat, dipanggil });
+    const gabung = lama ? gabungUsul(lama.usul, kumpul).entri : kumpul;
+    if (gabung.length) setUsul({ usul: gabung, dibaca: total - awalDari + 1, terpotong: false, sumber: 'ai', sebagian: berhenti, ditolak, kandidat, dipanggil, dari: awalDari, selesaiSampai: selesai });
+    else if (!berhenti) setUsul({ usul: [], dibaca: total - awalDari + 1, sumber: 'ai', kandidat, dipanggil, dari: awalDari, selesaiSampai: selesai });
   }
   const gantiSemua = (entri) => { setBaris(keBaris(rapikanEntri(entri))); onKotor(true); };
   const pakaiUsul = (mode) => {
@@ -125,31 +141,41 @@ export default function DaftarIsiEditor({ kitab, kitabId, isi, arab, kursor, tot
       <div className="flex flex-wrap items-center gap-2">
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={tambah} disabled={busy || baris.length >= MAKS_ENTRI_ISI}><Plus size={14} />Tambah judul (halaman {kursor})</Btn>
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onMouseDown={(e) => e.preventDefault()} onClick={tambahDariTerpilih} disabled={busy || baris.length >= MAKS_ENTRI_ISI} title="Blok teks judul di halaman kitab, lalu tekan"><Quote size={14} />Judul dari teks terpilih</Btn>
-        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={buatUsul} disabled={busy || sibuk === 'usul' || !!ai}>{sibuk === 'usul' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}Buat otomatis dari teks kitab</Btn>
-        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={jalankanAi} disabled={busy || sibuk === 'usul' || !!ai}><Bot size={14} />Sempurnakan dengan AI</Btn>
+        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={buatUsul} disabled={busy || sibuk === 'usul' || !!ai}>{sibuk === 'usul' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}Buat otomatis dari teks kitab{dariEfektif > 1 ? ` · lanjut hal. ${dariEfektif}` : ''}</Btn>
+        <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={jalankanAi} disabled={busy || sibuk === 'usul' || !!ai}><Bot size={14} />Sempurnakan dengan AI{dariEfektif > 1 ? ` · lanjut hal. ${dariEfektif}` : ''}</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={urutkan} disabled={busy || baris.length < 2}>Urutkan menurut halaman</Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaRiwayat} aria-pressed={!!riwayat}><History size={14} />Riwayat</Btn>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line px-3 py-1.5 text-xs">
+        <span>{baru.some((e) => Number.isInteger(e.seq))
+          ? <>Daftar isi sekarang sampai urutan <b>{titik}</b> dari {total}. Mesin <b>melanjutkan dari urutan {dariEfektif}</b>, bukan dari awal.{titik >= total && !mulaiAngka ? ' Daftar sudah sampai halaman terakhir; hanya halaman terakhir yang dipindai.' : ''}</>
+          : <>Daftar isi masih kosong, jadi mesin mulai dari urutan {dariEfektif}.</>}</span>
+        <label className="flex items-center gap-1 text-mute">Mulai dari urutan
+          <input aria-label="Mulai dari urutan halaman" inputMode="numeric" className="field !w-20 !py-1 text-center" placeholder={String(titik)} value={mulai} onChange={(e) => setMulai(e.target.value.replace(/\D/g, '').slice(0, 6))} disabled={!!ai} /></label>
+        {(mulai !== '' || dariEfektif > 1) && <button type="button" className="font-semibold text-soft-ink underline" disabled={!!ai} onClick={() => setMulai('1')}>Pindai dari awal</button>}
+        {mulai !== '' && <button type="button" className="font-semibold text-soft-ink underline" disabled={!!ai} onClick={() => setMulai('')}>Otomatis</button>}
       </div>
 
       {ai && (
         <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-soft/40 p-3 text-sm">
           <Loader2 size={15} className="spin" />
-          <span>AI memilah halaman {ai.dari}-{Math.min(total, ai.dari + JUMLAH_AI - 1)} dari {total} · {ai.ditemukan} judul terpilih</span>
-          <progress className="h-2 w-40" max={total} value={Math.min(total, ai.dari - 1)} aria-label="Kemajuan pemilahan AI" />
+          <span>AI memilah halaman {ai.dari}-{Math.min(total, ai.dari + JUMLAH_AI - 1)} (mulai {ai.mulai}, sampai {total}) · {ai.ditemukan} judul terpilih</span>
+          <progress className="h-2 w-40" max={Math.max(1, total - ai.mulai + 1)} value={Math.max(0, Math.min(total, ai.dari - 1) - ai.mulai + 1)} aria-label="Kemajuan pemilahan AI" />
           <Btn kind="ghost" className="!px-3 !py-1 !text-xs" onClick={() => { batalRef.current = true; }}><Square size={12} />Hentikan</Btn>
         </div>)}
 
       {usul && (
         <div role="status" className="space-y-2 rounded-xl border border-line bg-soft/40 p-3 text-sm">
           {usul.usul.length === 0
-            ? <p>{usul.sumber === 'ai' ? `AI tidak menemukan judul pada ${usul.kandidat || 0} kandidat. ` : `Tidak ditemukan judul bab di teks ${usul.dibaca} halaman. `}Kitab hasil PDF/OCR sering tanpa baris judul yang jelas; {usul.sumber === 'ai' ? 'tambahkan manual lewat "Tambah judul".' : 'coba "Sempurnakan dengan AI", atau tambahkan manual lewat "Tambah judul".'}</p>
+            ? <p>{usul.sumber === 'ai' ? `AI tidak menemukan judul pada ${usul.kandidat || 0} kandidat. ` : (usul.dari > 1 ? `Tidak ada judul baru pada urutan ${usul.dari} ke atas. ` : `Tidak ditemukan judul bab di teks ${usul.dibaca} halaman. `)}Kitab hasil PDF/OCR sering tanpa baris judul yang jelas; {usul.sumber === 'ai' ? 'tambahkan manual lewat "Tambah judul".' : 'coba "Sempurnakan dengan AI", atau tambahkan manual lewat "Tambah judul".'}</p>
             : (<>
               {usul.sumber === 'ai'
-                ? <p>AI memilih <b>{usul.usul.length}</b> judul dari {usul.kandidat} kandidat{usul.ditolak ? ` (${usul.ditolak} pilihan tidak sah dibuang)` : ''}. Judul selalu persis dari teks kitab; level ditentukan AI. {usul.sebagian ? <b>Proses dihentikan sebelum seluruh kitab selesai: ini hasil sebagian. </b> : null}Periksa sebelum disimpan.</p>
-                : <p>Ditemukan <b>{usul.usul.length}</b> judul dari teks {usul.dibaca} halaman{usul.terpotong ? ` (dipotong ke ${MAKS_ENTRI_ISI} pertama)` : ''}. Ini usulan mesin dari kata kunci (باب، فصل، كتاب، مقدمة، مبحث, "Bab 3"); periksa sebelum disimpan. Judul tanpa kata kunci hanya bisa dikenali lewat "Sempurnakan dengan AI".</p>}
+                ? <p>AI memilih <b>{usul.usul.length}</b> judul dari {usul.kandidat} kandidat{usul.ditolak ? ` (${usul.ditolak} pilihan tidak sah dibuang)` : ''}. Judul selalu persis dari teks kitab; level ditentukan AI. {usul.dari > 1 ? `Dipindai mulai urutan ${usul.dari}, tanpa mengulang halaman yang sudah punya judul. ` : ''}{usul.sebagian ? <b>Proses dihentikan sebelum seluruh kitab selesai: ini hasil sebagian; tekan "Sempurnakan dengan AI" lagi untuk melanjutkan dari urutan {Math.min(total, (usul.selesaiSampai || 0) + 1)}. </b> : null}Periksa sebelum disimpan.</p>
+                : <p>Ditemukan <b>{usul.usul.length}</b> judul {usul.dari > 1 ? `pada urutan ${usul.dari} ke atas (halaman sebelumnya yang sudah punya judul tidak diusulkan ulang)` : `dari teks ${usul.dibaca} halaman`}{usul.terpotong ? ` (dipotong ke ${MAKS_ENTRI_ISI} pertama)` : ''}. Ini usulan mesin dari kata kunci (باب، فصل، كتاب، مقدمة، مبحث, "Bab 3"); periksa sebelum disimpan. Judul tanpa kata kunci hanya bisa dikenali lewat "Sempurnakan dengan AI".</p>}
               <div className="flex flex-wrap gap-2">
                 <Btn kind="primary" className="!px-3 !py-1.5 !text-xs" onClick={() => pakaiUsul('gabung')}>Tambahkan yang belum ada</Btn>
-                <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => pakaiUsul('ganti')}>Ganti seluruh daftar</Btn>
+                {!(usul.dari > 1) && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => pakaiUsul('ganti')}>Ganti seluruh daftar</Btn>}
                 <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => setUsul(null)}>Abaikan</Btn>
               </div></>)}
         </div>)}

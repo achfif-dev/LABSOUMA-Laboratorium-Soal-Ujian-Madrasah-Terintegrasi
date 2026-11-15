@@ -31,20 +31,34 @@ const bersih = (e) => ({ judul: e.judul, level: e.level, juz: e.juz, hal: e.hal,
 const TTL_USUL_MS = 30 * 60_000; const MAKS_CACHE_USUL = 6; const cacheUsul = new Map(); // memori instance; kunci = kitab + revisi + jumlah halaman + penghitung koreksi
 export const _ujiUsul = { reset: () => cacheUsul.clear() };
 
-/** Aksi `perpus-isi-usul`: usulan daftar isi dari teks kitab. Tidak menulis apa pun. Masukan: { kitabId }. Keluaran: { usul, dibaca, terpotong }. */
+/** Memeriksa masukan `perpus-isi-usul` TANPA menyentuh Firestore atau kuota; dipanggil src/rute/kitab.js sebelum batas laju. -> { dari } */
+export function validasiIsiUsul(b) {
+  const dari = b.dari === undefined || b.dari === null ? 1 : b.dari;
+  if (!Number.isInteger(dari) || dari < 1 || dari > 100_000) tolak(422, 'ISI_USUL_INVALID', 'Halaman awal harus bilangan bulat 1 ke atas.');
+  return { dari };
+}
+
+/** Aksi `perpus-isi-usul`: usulan daftar isi dari teks kitab. Tidak menulis apa pun. Masukan: { kitabId, dari? }. Keluaran: { usul, dibaca, terpotong, dari }. */
 export async function aksiIsiUsul(b, kid, m, pengguna) {
   izinkan(pengguna, 'Membuat usulan daftar isi');
+  // `dari` (opsional) = hanya usulan pada urutan halaman >= dari (melanjutkan, bukan mengulang). Seluruh kitab tetap dibaca untuk statistik
+  // (baris berulang seperti kepala halaman, ukuran baris khas), jadi hasilnya sama dengan pemindaian penuh yang disaring; bacaan di-cache tanpa `dari`.
+  const { dari } = validasiIsiUsul(b);
   const kunci = `${kid}:${m.revisi || 1}:${m.ruang || ''}:${m.jumlahHalaman}:${m.koreksi || 0}`; // koreksi teks atau impor ulang mengganti kunci
   const t = Date.now(); const ada = cacheUsul.get(kunci);
-  if (ada && t - ada.at < TTL_USUL_MS) return ada.hasil; // satu usulan membaca SELURUH halaman kitab (ratusan bacaan): ulangan tidak perlu membaca lagi
+  if (ada && t - ada.at < TTL_USUL_MS) return dariHalaman(ada.hasil, dari); // satu usulan membaca SELURUH halaman kitab (ratusan bacaan): ulangan tidak perlu membaca lagi
   const { db } = await firestoreAdmin();
   const snap = await db.collection(koleksiHalaman(kid, m)).select('seq', 'juz', 'hal', 'teks', 'bab').get();
   const halaman = snap.docs.map((d) => d.data()).filter((h) => Number.isInteger(h.seq));
   const semua = usulDariHalaman(halaman);
-  const hasil = { usul: semua.slice(0, MAKS_ENTRI_ISI), dibaca: halaman.length, terpotong: semua.length > MAKS_ENTRI_ISI };
+  const hasil = { semua, dibaca: halaman.length };
   cacheUsul.delete(kunci); cacheUsul.set(kunci, { at: t, hasil });
   while (cacheUsul.size > MAKS_CACHE_USUL) cacheUsul.delete(cacheUsul.keys().next().value);
-  return hasil;
+  return dariHalaman(hasil, dari);
+}
+function dariHalaman({ semua, dibaca }, dari) {
+  const pilih = dari > 1 ? semua.filter((e) => e.seq >= dari) : semua;
+  return { usul: pilih.slice(0, MAKS_ENTRI_ISI), dibaca, terpotong: pilih.length > MAKS_ENTRI_ISI, dari };
 }
 
 /**
