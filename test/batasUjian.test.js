@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bersihBatas, bersihKitabId, cocokkanKitabPerpus, kitabPerpusUntuk, selesaikanBatas, batasBisaDipakai, labelBatas, cakupanEfektif,
-  periksaRujukanDalamBatas, halamanDiLuarBatas, jepitSeq, indeksBabDalamBatas, CAKUPAN_MAKS,
+  periksaRujukanDalamBatas, halamanDiLuarBatas, jepitSeq, indeksBabDalamBatas, tetapkanUjung, CAKUPAN_MAKS,
 } from '../web/lib/batasUjian.js';
 
 const ISI = [
@@ -209,4 +209,18 @@ test('server: batas ikut hilang bersama periodenya bila periode dibuang dari pen
   const k = out.kitab.find((x) => x.nama === kitabNama);
   assert.deepEqual(k.penempatan.flatMap((p) => p.periode), []);
   assert.equal(batasKitab(k, 'Aliyah', kelas, 'kode-tidak-ada'), null);
+});
+
+test('tetapkanUjung (pencarian kalimat): ujung polos, ujung lain dipertahankan, tidak terbalik', () => {
+  assert.deepEqual(tetapkanUjung(null, 'awal', 40), { awal: { seq: 40 }, akhir: { seq: 40 } }, 'belum ada batas: ujung lain sama dulu');
+  assert.deepEqual(tetapkanUjung({ awal: { seq: 40 }, akhir: { seq: 40 } }, 'akhir', 55), { awal: { seq: 40 }, akhir: { seq: 55 } });
+  assert.deepEqual(tetapkanUjung({ awal: { seq: 10 }, akhir: { seq: 30 } }, 'awal', 20), { awal: { seq: 20 }, akhir: { seq: 30 } }, 'ujung lain tetap');
+  assert.deepEqual(tetapkanUjung({ awal: { seq: 10 }, akhir: { seq: 30 } }, 'awal', 50), { awal: { seq: 50 }, akhir: { seq: 50 } }, 'awal melewati akhir polos: akhir ikut pindah');
+  assert.deepEqual(tetapkanUjung({ awal: { seq: 10 }, akhir: { seq: 30 } }, 'akhir', 5), { awal: { seq: 5 }, akhir: { seq: 5 } });
+  const bab = { awal: { seq: 6, judul: 'Bab Wudhu' }, akhir: { seq: 20, judul: 'Bab Tayammum' } };
+  assert.deepEqual(tetapkanUjung(bab, 'akhir', 25), { awal: bab.awal, akhir: { seq: 25 } }, 'campuran: awal dari bab, akhir dari pencarian');
+  assert.deepEqual(tetapkanUjung(bab, 'awal', 50), { awal: { seq: 50 }, akhir: bab.akhir }, 'ujung berjudul tidak dipindah (urutannya baru diketahui setelah daftar isi dibaca)');
+  assert.equal(tetapkanUjung(null, 'awal', 0), null); assert.equal(tetapkanUjung(null, 'tengah', 5), null);
+  const campur = selesaikanBatas(tetapkanUjung(bab, 'akhir', 25), ISI, TOTAL);
+  assert.equal(campur.awal, 6); assert.equal(campur.akhir, 25); assert.equal(campur.status, 'ok'); assert.equal(labelBatas(campur), 'Bab Wudhu (urutan 6–25)');
 });

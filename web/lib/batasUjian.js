@@ -101,6 +101,21 @@ function cariEntri(entri, judul, seqLama) {
   return terbaik;
 }
 
+/**
+ * Tetapkan satu ujung batas dari hasil pencarian kalimat di kitab (untuk pelajaran yang batasnya tidak sama dengan judul bab).
+ * Ujung itu berupa urutan halaman apa adanya: `awal` mulai di halaman itu, `akhir` berakhir di halaman itu (halaman ikut). Ujung lain dipertahankan;
+ * bila belum ada, sama dengan halaman ini; bila kedua ujung polos dan menjadi terbalik, ujung lain ikut pindah ke halaman ini.
+ */
+export function tetapkanUjung(batas, sisi, seq) {
+  const b = bersihBatas(batas);
+  if (!seqSah(seq) || (sisi !== 'awal' && sisi !== 'akhir')) return b;
+  const j = { seq }; const lain = sisi === 'awal' ? 'akhir' : 'awal';
+  let lainJ = b ? b[lain] : j;
+  const a = sisi === 'awal' ? j : lainJ; const z = sisi === 'akhir' ? j : lainJ;
+  if (!a.judul && !z.judul && a.seq > z.seq) lainJ = j;
+  return sisi === 'awal' ? { awal: j, akhir: lainJ } : { awal: lainJ, akhir: j };
+}
+
 /** Indeks entri daftar isi untuk satu jangkar berjudul (untuk menampilkan pilihan bab di Konfigurasi); -1 bila tanpa judul atau tidak ditemukan. */
 export const indeksJangkar = (entri, jangkar) => (jangkar && jangkar.judul ? cariEntri(arr(entri), jangkar.judul, jangkar.seq) : -1);
 

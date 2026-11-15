@@ -4,8 +4,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BookOpen, Check, ClipboardCheck, Download, FileSpreadsheet, Layers, Library, Loader2, RotateCcw, Save, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import * as AL from './lib/alurSoal.js';
 import { buatPemuat, labelEntri } from './lib/perpus.js';
-import { kitabPerpusUntuk, cocokkanKitabPerpus, selesaikanBatas, labelBatas, indeksJangkar, bersihBatas, bersihKitabId } from './lib/batasUjian.js';
+import { kitabPerpusUntuk, cocokkanKitabPerpus, selesaikanBatas, labelBatas, indeksJangkar, tetapkanUjung, bersihBatas, bersihKitabId } from './lib/batasUjian.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
+import { siapkanKueri, potongCuplikan } from './lib/cariKitab.js';
 import { Btn, Label, Section, ErrorBox, callApi, apiErr, simpanBerkas, useDraftSync, Uj, Draft } from './ui.jsx';
 
 const ImporExcel = React.lazy(() => import('./ImporExcel.jsx'));
@@ -297,9 +298,15 @@ function TautanPerpus({ b, daftar, gagal, onChange }) {
 }
 
 // Dua pilihan bab (dari bab ... sampai akhir bab ...) untuk satu ujian; bila kitab belum punya daftar isi, dua nomor urutan halaman.
-function BatasEditor({ b, daftar, isiPerpus, nilai, onChange }) {
+function BatasEditor({ b, daftar, isiPerpus, nilai, onChange, pem }) {
   const [teksA, setTeksA] = useState(() => (nilai && !nilai.awal.judul ? String(nilai.awal.seq) : ''));
   const [teksZ, setTeksZ] = useState(() => (nilai && !nilai.akhir.judul ? String(nilai.akhir.seq) : ''));
+  // Cari kalimat langsung di kitab: untuk pelajaran yang batasnya tidak sama dengan judul bab di daftar isi.
+  const [cariBuka, setCariBuka] = useState(false);
+  const [q, setQ] = useState(''); const [mode, setMode] = useState('frasa');
+  const [hasil, setHasil] = useState(null); // { id, r: respons perpus-cari, hasil[] }
+  const [cariBusy, setCariBusy] = useState(false); const [cariInfo, setCariInfo] = useState('');
+  const urutCari = useRef(0);
   if (!daftar || !daftar.length) return null;
   const h = kitabPerpusUntuk(b, daftar);
   if (!h.item) return <p className="text-xs text-mute">Kitab ini belum ada di perpustakaan: hanya cakupan teks yang berlaku.</p>;
@@ -320,6 +327,36 @@ function BatasEditor({ b, daftar, isiPerpus, nilai, onChange }) {
     const a = parseInt(sisi === 'awal' ? teks : teksA, 10); const z = parseInt(sisi === 'akhir' ? teks : teksZ, 10);
     if (Number.isInteger(a) && Number.isInteger(z) && a >= 1 && z >= a && z <= jumlah) onChange({ awal: { seq: a }, akhir: { seq: z } });
   };
+  const idKitab = h.item.id;
+  // Server membangun indeks kitab lama bertahap (sekali saja); selama `siap` false, panggil lagi.
+  const cari = async (lewati = 0) => {
+    const k = siapkanKueri(q);
+    if (!k.q) { setCariInfo('Ketik kalimat atau kata yang dicari (minimal satu huruf atau angka).'); return; }
+    const n = ++urutCari.current; setCariBusy(true); setCariInfo('');
+    if (!lewati) setHasil(null);
+    try {
+      for (let i = 0; i < 600; i++) {
+        const r = await pem.cari(idKitab, { q, mode, lewati });
+        if (n !== urutCari.current) return;
+        if (r.siap) {
+          setHasil((lama) => (lewati && lama && lama.id === idKitab ? { id: idKitab, r, hasil: [...lama.hasil, ...r.hasil] } : { id: idKitab, r, hasil: r.hasil }));
+          if (!r.total) setCariInfo('Tidak ada halaman yang memuat kata itu. Coba kata lebih pendek, atau pilih "Salah satu kata".');
+          return;
+        }
+        setCariInfo(`Menyiapkan pencarian kitab ini (sekali saja): ${r.kemajuan.selesai}/${r.kemajuan.total} bagian...`);
+      }
+      setCariInfo('Persiapan pencarian belum selesai. Coba lagi sebentar lagi.');
+    } catch (e) { const x = apiErr(e); if (n === urutCari.current && x) setCariInfo(x.message || 'Pencarian gagal.'); }
+    finally { if (n === urutCari.current) setCariBusy(false); }
+  };
+  // Ujung batas dari hasil pencarian = urutan halaman apa adanya (tanpa judul bab): awal mulai di halaman itu, akhir berakhir di halaman itu (ikut).
+  const tetapkan = (sisi, r) => {
+    const lain = sisi === 'awal' ? 'akhir' : 'awal'; const sudahAda = !!(bersihBatas(nilai) && bersihBatas(nilai)[lain]);
+    const B = tetapkanUjung(nilai, sisi, r.seq);
+    onChange(B);
+    setTeksA(B.awal.judul ? '' : String(B.awal.seq)); setTeksZ(B.akhir.judul ? '' : String(B.akhir.seq));
+    setCariInfo(`${sisi === 'awal' ? 'Mulai' : 'Berakhir'} di urutan ${r.seq} (hal. ${r.hal}). ${sudahAda ? 'Periksa batas di bawah.' : 'Tentukan juga ujung lainnya.'}`);
+  };
   const nilaiA = nilai ? indeksJangkar(entri, nilai.awal) : -1; const nilaiZ = nilai ? indeksJangkar(entri, nilai.akhir) : -1;
   const warna = !res ? 'text-mute' : res.status === 'ok' || res.status === 'tetap' ? 'text-soft-ink' : 'text-warn';
   return (
@@ -329,12 +366,12 @@ function BatasEditor({ b, daftar, isiPerpus, nilai, onChange }) {
         <div className="grid gap-1.5 sm:grid-cols-2">
           <label className="space-y-0.5 text-xs text-mute">Mulai dari bab
             <select aria-label={`Bab awal ${b.nama || 'kitab'}`} className="field !py-1.5" value={nilaiA >= 0 ? String(nilaiA) : ''} onChange={(e) => pilih('awal', e.target.value)}>
-              <option value="">{nilai && nilaiA < 0 ? `(${nilai.awal.judul || 'urutan ' + nilai.awal.seq} — tidak ada di daftar isi)` : '— Tanpa batas bab —'}</option>
+              <option value="">{nilai && nilaiA < 0 ? (nilai.awal.judul ? `(${nilai.awal.judul} — tidak ada di daftar isi)` : `Mulai di urutan ${nilai.awal.seq} (dipilih lewat pencarian/urutan)`) : '— Tanpa batas bab —'}</option>
               {entri.map((e, i) => <option key={i} value={i}>{labelEntri(e)}</option>)}
             </select></label>
           <label className="space-y-0.5 text-xs text-mute">Sampai akhir bab
             <select aria-label={`Bab akhir ${b.nama || 'kitab'}`} className="field !py-1.5" value={nilaiZ >= 0 ? String(nilaiZ) : ''} onChange={(e) => pilih('akhir', e.target.value)}>
-              <option value="">{nilai && nilaiZ < 0 ? `(${nilai.akhir.judul || 'urutan ' + nilai.akhir.seq} — tidak ada di daftar isi)` : '— Tanpa batas bab —'}</option>
+              <option value="">{nilai && nilaiZ < 0 ? (nilai.akhir.judul ? `(${nilai.akhir.judul} — tidak ada di daftar isi)` : `Berakhir di urutan ${nilai.akhir.seq} (dipilih lewat pencarian/urutan)`) : '— Tanpa batas bab —'}</option>
               {entri.map((e, i) => <option key={i} value={i}>{labelEntri(e)}</option>)}
             </select></label>
         </div>
@@ -345,6 +382,34 @@ function BatasEditor({ b, daftar, isiPerpus, nilai, onChange }) {
           <label className="flex items-center gap-1">sampai <input aria-label={`Urutan akhir ${b.nama || 'kitab'}`} type="number" min="1" max={jumlah} inputMode="numeric" className="field !w-24 !py-1.5" value={teksZ} onChange={(e) => ubahSeq('akhir', e.target.value)} /></label>
         </div>
       )}
+      <div className="space-y-1.5">
+        <button type="button" className="text-xs font-semibold text-soft-ink underline" aria-expanded={cariBuka} onClick={() => setCariBuka((v) => !v)}>{cariBuka ? 'Tutup pencarian kalimat' : 'Batas tidak sesuai daftar isi? Cari kalimat langsung di kitab'}</button>
+        {cariBuka && (
+          <div className="space-y-1.5 rounded-lg bg-soft p-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <input aria-label={`Cari kalimat di ${h.item.judulLatin}`} dir="auto" className="field min-w-0 flex-1 !py-1.5" placeholder="Ketik kalimat atau kata dari kitab (harakat boleh dihilangkan)" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); cari(0); } }} />
+              <select aria-label="Mode pencarian" className="field !w-auto !py-1.5" value={mode} onChange={(e) => setMode(e.target.value)}><option value="frasa">Kalimat persis</option><option value="kata">Salah satu kata</option></select>
+              <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => cari(0)} disabled={cariBusy}>{cariBusy ? <Loader2 size={14} className="spin" /> : <Search size={14} />}Cari</Btn>
+            </div>
+            {cariInfo && <p role="status" className="text-xs text-mute">{cariInfo}</p>}
+            {hasil && hasil.id === idKitab && hasil.hasil.length > 0 && (
+              <>
+                <p className="text-xs text-mute">{hasil.r.total} halaman memuat kata itu. Pilih halaman tempat pelajaran dimulai atau berakhir.</p>
+                <ul className="max-h-64 space-y-1 overflow-y-auto">
+                  {hasil.hasil.map((r) => (
+                    <li key={r.seq} className="rounded-lg bg-surface p-2">
+                      <p dir="auto" className="text-base leading-snug">{r.awalTerpotong ? '… ' : ''}{potongCuplikan(r, hasil.r.kata, hasil.r.mode).map((x, i) => (x.m ? <mark key={i} className="rounded bg-warn-bg px-0.5 text-ink">{x.t}</mark> : <React.Fragment key={i}>{x.t}</React.Fragment>))}{r.akhirTerpotong ? ' …' : ''}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-mute">
+                        <span>hal. {r.hal} · juz {r.juz} · urutan {r.seq}{r.jumlah > 1 ? ` · ${r.jumlah}×` : ''}</span>
+                        <button type="button" className="font-semibold text-soft-ink underline" onClick={() => tetapkan('awal', r)}>Mulai dari halaman ini</button>
+                        <button type="button" className="font-semibold text-soft-ink underline" onClick={() => tetapkan('akhir', r)}>Berakhir di halaman ini</button>
+                      </div>
+                    </li>))}
+                </ul>
+                {hasil.r.adaLagi && <Btn kind="ghost" className="!px-3 !py-1 !text-xs" onClick={() => cari(hasil.hasil.length)} disabled={cariBusy}>Tampilkan lebih banyak</Btn>}
+              </>)}
+          </div>)}
+      </div>
       {res && <p className={`text-xs leading-relaxed ${warna}`}>{res.status === 'ok' || res.status === 'tetap' ? 'Batas ujian: ' : res.status === 'bergeser' ? 'Daftar isi berubah dan batas otomatis mengikuti. Batas sekarang: ' : 'Perhatian: '}{labelBatas(res)}{res.catatan.length ? ` · ${res.catatan.join(' ')}` : ''}</p>}
       {nilai && <button type="button" className="text-xs font-semibold text-bad underline" onClick={() => { setTeksA(''); setTeksZ(''); onChange(null); }}>Hapus batas ujian ini</button>}
     </div>
@@ -736,7 +801,7 @@ function AppCfgAdmin({ cfg, kustom, diubahAt, onSaved, toast }) {
                                               <span className="w-full text-xs text-mute sm:w-56">{y.label || '(tanpa nama)'}</span>
                                               <input aria-label={`Cakupan ${b.nama || 'kitab'} kelas ${k} ${y.label}`} className="field min-w-0 flex-1 !py-1.5" maxLength={120} placeholder="mis. Kitab Thaharah, bab wudhu sampai tayammum" value={((p.periode.find((z) => z.kode === y.kode) || {}).cakupan) || ''} onChange={(e) => setCakupan(b._k, t, k, y.kode, e.target.value)} />
                                             </div>
-                                              <BatasEditor b={b} daftar={perpus.daftar} isiPerpus={isiPerpus} nilai={(p.periode.find((z) => z.kode === y.kode) || {}).batas || null} onChange={(v) => setBatasPer(b._k, t, k, y.kode, v)} />
+                                              <BatasEditor pem={pem} b={b} daftar={perpus.daftar} isiPerpus={isiPerpus} nilai={(p.periode.find((z) => z.kode === y.kode) || {}).batas || null} onChange={(v) => setBatasPer(b._k, t, k, y.kode, v)} />
                                             </div>
                                           ))}
                                         </div>
