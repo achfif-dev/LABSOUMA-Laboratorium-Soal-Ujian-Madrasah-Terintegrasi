@@ -3,6 +3,7 @@
 //  - `aksi` berawalan "impor-": impor perpustakaan kitab dari ekspor Syamilah. Khusus admin (src/kitabImpor.js).
 //  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
 //  - `aksi` "perpus-koreksi" / "perpus-riwayat": mengoreksi teks satu halaman kitab dan melihat riwayatnya. Khusus editor dan admin (src/kitabKoreksi.js).
+//  - `aksi` "perpus-nomor" / "perpus-nomor-riwayat": menyesuaikan nomor halaman cetak kitab dengan kitab cetak dan melihat riwayatnya. Khusus editor dan admin (src/kitabNomor.js).
 //  - `aksi` "perpus-isi-usul" / "perpus-isi-ai" / "perpus-isi-simpan" / "perpus-isi-riwayat": membuat dan menyunting daftar isi kitab. Khusus editor dan admin (src/kitabIsi.js).
 //    "perpus-isi-ai" = pemilahan kandidat judul dengan AI, bertahap per jendela halaman; tanpa kuota AI per pengguna, batas laju sendiri (seperti OCR).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
@@ -12,12 +13,14 @@ import { fetchKitab, DEFAULT_HOSTS } from '../kitabFetch.js';
 import { aksiImpor } from '../kitabImpor.js';
 import { aksiBaca } from '../kitabBaca.js';
 import { validasiIsiAi, validasiIsiUsul } from '../kitabIsi.js';
+import { validasiNomor } from '../kitabNomor.js';
 import { aksiOcr, validateFoto } from '../kitabOcr.js';
 import { loadAiConfig } from '../aiConfig.js';
 import { parseList } from '../access.js';
 
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
+const LIMIT_NOMOR = { perMinute: 10, perDay: num('LIMIT_NOMOR_PER_DAY', 25) }; // satu proses = sampai sekitar 265 penulisan Firestore (kuota tulis Spark), jadi harian lebih ketat dari koreksi
 const LIMIT_ISI_AI = { perMinute: num('LIMIT_ISI_AI_PER_MINUTE', 15), perDay: num('LIMIT_ISI_AI_PER_DAY', 600) }; // satu kitab = sekitar 10 sampai 15 panggilan
 const LIMIT_ISI_USUL = { perMinute: 6, perDay: num('LIMIT_ISI_USUL_PER_DAY', 20) };   // satu usulan membaca seluruh halaman kitab (ratusan dokumen), jadi lebih ketat
 
@@ -38,6 +41,14 @@ export default route(async (req) => {
   if (aksi === 'perpus-koreksi' || aksi === 'perpus-riwayat') {
     const u = await authenticateReviewer(req);
     if (aksi === 'perpus-koreksi') await enforceRate(`${u.uid}_kitabkoreksi`, LIMIT_KOREKSI, { pesanHarian: 'Batas koreksi kitab harian tercapai. Lanjutkan besok.' });
+    return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
+  }
+  if (aksi === 'perpus-nomor' || aksi === 'perpus-nomor-riwayat') {
+    const u = await authenticateReviewer(req);
+    if (aksi === 'perpus-nomor') {
+      validasiNomor(req.body); // masukan cacat ditolak sebelum menghitung batas laju
+      await enforceRate(`${u.uid}_kitabnomor`, LIMIT_NOMOR, { pesanHarian: 'Batas penyesuaian nomor halaman harian tercapai. Lanjutkan besok, atau naikkan LIMIT_NOMOR_PER_DAY di pengaturan server.' });
+    }
     return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
   }
   if (aksi === 'perpus-isi-ai') {

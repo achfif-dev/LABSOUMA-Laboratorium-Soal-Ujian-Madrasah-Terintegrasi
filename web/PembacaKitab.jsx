@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, Hash, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
@@ -7,6 +7,7 @@ import { SIMPANAN } from './PemilihKitab.jsx';
 import { tampilanTeks, kitabArab } from './lib/bahasa.js';
 import PenyuntingHalaman from './PenyuntingHalaman.jsx';
 import DaftarIsiEditor from './DaftarIsiEditor.jsx';
+import PenyuntingNomor from './PenyuntingNomor.jsx';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
 // daftar isi yang bisa dicari, lompat ke nomor cetak, dan penyorotan rentang halaman yang dirujuk soal (tautan balik dari Bank Soal/Review).
@@ -16,8 +17,10 @@ import DaftarIsiEditor from './DaftarIsiEditor.jsx';
 // `onPosisi({ kitabId, seq })` dipanggil saat halaman berganti, agar alamat (#baca/kitab/40) selalu bisa dibagikan atau dimuat ulang.
 // `bisaKoreksi` (editor dan admin) menampilkan tombol "Koreksi teks" per halaman: memperbaiki teks yang keliru (mis. hasil OCR AI) setelah dicocokkan dengan kitab asli
 // (web/PenyuntingHalaman.jsx; server src/kitabKoreksi.js memeriksa peran sendiri, jadi prop ini hanya mengatur tampilan).
+// Prop yang sama menampilkan tombol "Nomor hal." per halaman: menyamakan nomor halaman cetak dengan kitab cetak yang dipegang madrasah (web/PenyuntingNomor.jsx; server src/kitabNomor.js).
+// `bisaAdmin` hanya mengatur tampilan pilihan khusus admin di sana (server memeriksa peran sendiri).
 // Prop yang sama menampilkan "Sunting daftar isi" / "Buat daftar isi" di tab Daftar isi (web/DaftarIsiEditor.jsx; server src/kitabIsi.js).
-export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false }) {
+export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false, bisaAdmin = false }) {
   const pem = useMemo(() => buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN), []);
   const [pref, setPref] = useState(pengaturanBaca);
   const [daftar, setDaftar] = useState(SIMPANAN.daftar);
@@ -43,6 +46,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [cariBusy, setCariBusy] = useState(false);
   const [kataSorot, setKataSorot] = useState(null);        // { kata[], mode }: kata yang disorot di teks halaman
   const [sunting, setSunting] = useState(null);          // urutan halaman yang sedang dikoreksi (satu per satu)
+  const [nomorBuka, setNomorBuka] = useState(false);   // true = penyunting nomor halaman cetak terbuka di atas halaman
   const [suntingIsi, setSuntingIsi] = useState(false);   // true = penyunting daftar isi terbuka (menggantikan panel samping; halaman kitab tetap tampil)
   const kursorRef = useRef(kursor); kursorRef.current = kursor;
   const kotorRef = useRef(false);                        // true = ada ketikan koreksi yang belum disimpan
@@ -98,6 +102,18 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const kitab = isi && isi.kitab;
   const arab = kitabArab(kitab); // kitab berhuruf Arab dibaca kanan ke kiri; buku berhuruf Latin kiri ke kanan (arah halaman, panah papan ketik, tombol)
   const tk = (ekstra) => tampilanTeks(kitab, ekstra);
+  // Setelah nomor disesuaikan: simpanan sudah ditempel (web/lib/perpus.js), jadi cukup menyusun ulang halaman dan daftar isi yang tampil.
+  const selesaiNomor = async (r) => {
+    try {
+      if (r && r.sesuaiCetak) { // peringatan "halaman virtual" dihapus server: samakan salinan di simpanan
+        const c = SIMPANAN.isi.get(kitabId); if (c) SIMPANAN.isi.set(kitabId, { ...c, kitab: { ...c.kitab, halamanVirtual: false } });
+        if (SIMPANAN.daftar) SIMPANAN.daftar = SIMPANAN.daftar.map((k) => (k.id === kitabId ? { ...k, halamanVirtual: false } : k));
+      }
+      const c = SIMPANAN.isi.get(kitabId); if (c) setIsi(c);
+      setHalaman(await pem.halaman(kitabId, kursorRef.current, kursorRef.current + jumlah - 1, total));
+      setErr(null);
+    } catch (e) { gagal(e); }
+  };
   const geser = useCallback((d) => { setInfo(''); setSorot((s) => s); setKursor((k) => kursorSah(k + d * jumlah, total, jumlah)); }, [total, jumlah]);
   const bisaPisah = kitab && kitab.bentukMatn === 'pemisah-tatwil' && halaman.some((p) => p.batasMatn !== null);
   const bagian = bisaPisah ? pref.bagian : 'semua';
@@ -359,6 +375,10 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
               <span className="hidden text-xs text-mute sm:inline">{kitab.judulLatin}</span>
               {babInfo && entri[aktif] && <span className="text-xs text-mute">· bab: <span {...tk()}>{entri[aktif].judul}</span></span>}
             </div>)}
+          {bisaKoreksi && nomorBuka && kitab && (
+            <div className="p-2 sm:p-3">
+              <PenyuntingNomor key={kitabId} kitab={kitab} kitabId={kitabId} total={total} kursor={kursor} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr} admin={bisaAdmin} onSelesai={selesaiNomor} onTutup={() => setNomorBuka(false)} />
+            </div>)}
           {!halaman.length && (busy || !isi) && <p className="flex items-center gap-2 p-6 text-sm text-mute"><Loader2 size={16} className="spin" />Memuat halaman...</p>}
           {halaman.length > 0 && (
             <div dir={arab ? 'rtl' : 'ltr'} className={`mx-auto flex gap-4 px-1.5 py-3 sm:px-4 sm:py-5 ${jumlah === 2 ? 'max-w-none flex-col xl:flex-row' : lebar.kelas}`}>
@@ -374,7 +394,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                       {p.diverifikasi && <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 font-semibold text-ok"><BadgeCheck size={12} /><span className="sm:hidden">terverifikasi</span><span className="hidden sm:inline">dicocokkan dengan kitab asli</span></span>}
                       {p.dikoreksi && <span className="rounded-full bg-soft px-2 py-0.5 text-soft-ink">dikoreksi</span>}
                       {disorot && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 font-semibold text-brand-fg">rujukan soal</span>}
-                      {bisaKoreksi && sunting !== p.seq && <button type="button" onClick={() => { if (sunting !== null && !bolehTinggal()) return; kotorRef.current = false; setSunting(p.seq); }} className={`${disorot ? '' : 'ml-auto '}inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft`} aria-label={`Koreksi teks halaman ${p.hal}`}><Pencil size={12} /><span className="hidden sm:inline">Koreksi teks</span></button>}
+                      {bisaKoreksi && <button type="button" onClick={() => setNomorBuka(true)} className={`${disorot ? '' : 'ml-auto '}inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft`} aria-label={`Sesuaikan nomor halaman ${p.hal}`}><Hash size={12} /><span className="hidden sm:inline">Nomor hal.</span></button>}
+                      {bisaKoreksi && sunting !== p.seq && <button type="button" onClick={() => { if (sunting !== null && !bolehTinggal()) return; kotorRef.current = false; setSunting(p.seq); }} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-semibold text-ink hover:border-brand hover:bg-soft" aria-label={`Koreksi teks halaman ${p.hal}`}><Pencil size={12} /><span className="hidden sm:inline">Koreksi teks</span></button>}
                     </header>
                     {bisaKoreksi && sunting === p.seq ? (
                       <PenyuntingHalaman key={`${p.seq}:${p.rev || 0}`} p={p} kitab={kitab} kitabId={kitabId} arab={arab} px={px} pem={pem} Btn={Btn} ErrorBox={ErrorBox} apiErr={apiErr}

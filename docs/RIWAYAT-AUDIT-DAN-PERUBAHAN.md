@@ -1779,3 +1779,22 @@ Menindaklanjuti audit di atas. `npm test`: 979 tes (978 lulus, 1 dilewati, 0 gag
 - **Tidak diubah:** kutipan di bawah 3 kata tetap tidak diperiksa; `temperature` tidak diatur; `eval/golden.json` belum diverifikasi ustadz (temuan 4); README belum diperbarui (temuan 7). Penyimpanan banyak soal dari satu rencana kisi-kisi di Penyusunan Soal tidak dibuat (form hanya memegang satu soal).
 
 **Daftar periksa setelah rilis.** (1) Terbitkan `firestore.rules`, lalu aplikasi. (2) Buat satu soal biasa dan simpan: harus tetap berhasil. (3) Di Penyusunan Soal: *Ekstrak fakta* → *Buat soal dari fakta ini* → simpan; kolom *Dasar soal* harus terisi dan tampil di kartu soal setelah dimuat ulang. (4) Paket Dauri kecil dengan *Mode fakta* aktif: periksa pesan laporan butir tanpa fakta dan *Dasar butir*. (5) Setujui satu soal berpilihan tanpa uji buta: harus diminta alasan.
+
+## [Audit dan perubahan] Penyesuaian nomor halaman cetak (15 November 2026)
+**Masalah.** `hal` dan `juz` hasil impor mengikuti satu cetakan (pernyataan "ترقيم الكتاب موافق للمطبوع" pada ekspor Syamilah) atau hanya dibagi otomatis (`halamanVirtual`). Kitab yang dipegang madrasah bisa cetakan lain, sehingga "Hal. N" di aplikasi tidak cocok dengan buku di tangan. Sebelumnya tidak ada jalan mengubah nomor tanpa impor ulang, yang juga menghapus semua koreksi teks dan suntingan daftar isi.
+
+**Temuan audit.**
+1. Nomor cetak tersalin di empat tempat (halaman, `entri` daftar isi, larik `h`/`j` indeks cari, dan salinan di soal). Mengubah satu tempat saja membuat pencarian, daftar isi, dan halaman saling berbeda. Penyunting daftar isi memakai ulang label lama dari daftar yang tersimpan, jadi label usang bertahan walau halamannya sudah berubah.
+2. Cache memori pencarian dan usulan daftar isi berkunci `koreksi`; penghitung itu tidak naik saat nomor berubah, sehingga mesin lain akan terus memakai nomor lama.
+3. Pencarian menurut nomor cetak (`perpus-halaman` dengan `hal`) memakai kueri persis pada kolom `hal`; karena itu nomor harus ditulis ke dokumen halaman, bukan ditumpangkan saat dibaca.
+4. Batas materi (penempatan kitab), tautan soal, dan pemeriksa rujukan memakai `seq`, jadi aman terhadap penomoran ulang.
+5. Belum ditangani: `hal` yang sudah tersalin di soal tidak ikut berubah, sehingga soal yang belum disetujui dapat menampilkan nomor lama; pemeriksa cakupan AI (`src/cakupan.js`) membandingkan metadata soal dengan label daftar isi.
+
+**Perubahan.** `web/lib/nomorHalaman.js` (aturan hitungan, satu sumber dengan layar), `src/kitabNomor.js` (aksi `perpus-nomor`, `perpus-nomor-riwayat`), `web/PenyuntingNomor.jsx` (layar), tombol "Nomor hal." di `web/PembacaKitab.jsx`, rute dan batas laju di `src/rute/kitab.js`, kunci cache di `src/kitabCari.js` dan `src/kitabIsi.js`, peringatan impor di `web/KitabImpor.jsx`, penghitung `nomorDisunting` di `src/kitabImpor.js`, tes `test/nomorHalaman.test.js` (21 tes).
+Tiga cara: satu halaman, geser (selisih dari satu nomor acuan), urutkan (nomori ulang; memperbaiki nomor kembar, mundur, lompat). Halaman cetak yang dibagi (`potongan`) selalu ikut nomor bagian pertamanya. Setiap proses atomik, tercatat, dan bisa dipulihkan dari yang terbaru. Ulangan dengan kunci `op` yang sama tidak menggeser dua kali.
+
+**Batas yang diketahui.**
+- Tes memakai Firestore tiruan (`test/_fakeDb.js`); belum dicoba di Firestore sungguhan. Yang perlu diperhatikan saat uji pertama: kueri rentang pada `dari` di dalam transaksi, dan apakah 250 halaman selesai dalam 10 detik di Vercel Hobby (turunkan `MAKS_NOMOR_PER_PANGGILAN` bila tidak).
+- Kitab di atas 250 halaman dikerjakan beberapa proses berurutan; di antara dua proses, bagian yang belum dikerjakan masih bernomor lama.
+- `tiap N halaman naik 1` (untuk halaman virtual yang lebih kecil dari halaman cetak) belum ada.
+- Anomali nomor pada pergantian juz tidak dianggap anomali oleh penghitungan ulang ini (impor tetap memakai aturan lamanya).

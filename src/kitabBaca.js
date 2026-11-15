@@ -9,6 +9,7 @@ import { validasiKitabId, idHalaman, koleksiHalaman, dokDaftarIsi } from './kita
 import { aksiCari } from './kitabCari.js';
 import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
 import { daftarAktif, ringkas } from './daftarKitab.js';
+import { aksiNomor, aksiNomorRiwayat } from './kitabNomor.js';
 import { aksiIsiUsul, aksiIsiAi, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
@@ -44,6 +45,8 @@ export async function aksiBaca(body, pengguna = null, deps = {}) {
   if (b.aksi === 'perpus-cari') return aksiCari(b, kid, m);
   if (b.aksi === 'perpus-koreksi') return aksiKoreksi(b, kid, m, pengguna);
   if (b.aksi === 'perpus-riwayat') return aksiRiwayat(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-nomor') return aksiNomor(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-nomor-riwayat') return aksiNomorRiwayat(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-usul') return aksiIsiUsul(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-ai') return aksiIsiAi(b, kid, m, pengguna, deps);
   if (b.aksi === 'perpus-isi-simpan') return aksiIsiSimpan(b, kid, m, pengguna);

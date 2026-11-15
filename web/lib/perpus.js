@@ -1,6 +1,7 @@
 // Pemilih kitab/bab/halaman dari perpustakaan (tanpa React): pencocokan katalog, pemotongan matn/syarah, penggabungan teks dan nomor halaman,
 // serta pemuat halaman dengan simpanan memori. Server: src/kitabBaca.js. Layar: web/PemilihKitab.jsx.
 import { cariKitabDi } from './kitabNama.js';
+import { tempelNomor } from './nomorHalaman.js';
 
 export const MAKS_TEKS_SOAL = 6000; // batas teks per soal (Penyusunan Soal)
 export const MAKS_HAL_FORM = 20;    // panjang kolom hal di aturan Firestore
@@ -95,6 +96,17 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
     },
     /** Riwayat koreksi satu halaman (editor/admin): { riwayat: [...], jumlah }. */
     riwayat(kitabId, seq) { return panggil({ aksi: 'perpus-riwayat', kitabId, seq }); },
+    /**
+     * Sesuaikan nomor halaman cetak (editor/admin). `isi` = { op, jenis, dari, sampai?, hal | selisih | mulai, juz?, catatan?, sesuaiCetak? } atau { op, jenis: 'pulih', riwayatId }.
+     * Hasilnya langsung ditempel ke simpanan (halaman dan daftar isi), jadi pembaca dan pemilih kitab melihat nomor baru tanpa membaca ulang.
+     */
+    async nomor(kitabId, isi) {
+      const r = await panggil({ aksi: 'perpus-nomor', kitabId, ...isi });
+      if (Array.isArray(r.halaman) && r.halaman.length) tempelNomor(simpanan, kitabId, r.halaman, kunci);
+      return r;
+    },
+    /** Riwayat penyesuaian nomor halaman (editor/admin): { riwayat: [...], jumlah }. */
+    nomorRiwayat(kitabId) { return panggil({ aksi: 'perpus-nomor-riwayat', kitabId }); },
     /** Usulan daftar isi dari teks kitab (editor/admin; tidak menulis): { usul, dibaca, terpotong }. */
     isiUsul(kitabId, { dari } = {}) { return panggil({ aksi: 'perpus-isi-usul', kitabId, ...(Number.isInteger(dari) && dari > 1 ? { dari } : {}) }); },
     /** Pilah kandidat judul dengan AI untuk halaman [dari, dari+jumlah) (editor/admin; tidak menulis): { entri, dari, sampai, kandidat, dipanggilAi, ditolak, terpotong }. `sebelumnya` = judul terakhir yang sudah terpilih (konsistensi level). */

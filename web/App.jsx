@@ -577,7 +577,7 @@ function App({ user, profile }) {
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
-        {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} />}
+        {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} />}
         {tab === 'baca' && <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>}
         {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}

@@ -44,7 +44,7 @@ export async function aksiIsiUsul(b, kid, m, pengguna) {
   // `dari` (opsional) = hanya usulan pada urutan halaman >= dari (melanjutkan, bukan mengulang). Seluruh kitab tetap dibaca untuk statistik
   // (baris berulang seperti kepala halaman, ukuran baris khas), jadi hasilnya sama dengan pemindaian penuh yang disaring; bacaan di-cache tanpa `dari`.
   const { dari } = validasiIsiUsul(b);
-  const kunci = `${kid}:${m.revisi || 1}:${m.ruang || ''}:${m.jumlahHalaman}:${m.koreksi || 0}`; // koreksi teks atau impor ulang mengganti kunci
+  const kunci = `${kid}:${m.revisi || 1}:${m.ruang || ''}:${m.jumlahHalaman}:${m.koreksi || 0}:${m.nomorDisunting || 0}`; // koreksi teks, penyesuaian nomor halaman, atau impor ulang mengganti kunci
   const t = Date.now(); const ada = cacheUsul.get(kunci);
   if (ada && t - ada.at < TTL_USUL_MS) return dariHalaman(ada.hasil, dari); // satu usulan membaca SELURUH halaman kitab (ratusan bacaan): ulangan tidak perlu membaca lagi
   const { db } = await firestoreAdmin();
