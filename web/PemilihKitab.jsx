@@ -32,6 +32,10 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
   const urut = useRef(0);                     // hanya jawaban permintaan terakhir yang dipakai (ketukan cepat)
   const kunciTerapan = useRef('');            // rencana yang sudah diterapkan: pilihan manual penyusun tidak ditimpa terus-menerus
   const menungguOto = useRef(false);          // true = halaman pertama batas belum diisikan otomatis
+  const seqTarget = useRef(0);                // urutan halaman pertama yang ditunggu untuk diisikan (0 = awal batas)
+  const paksaOto = useRef(false);             // pengisian yang diminta penyusun (Bagian berikutnya/acak): boleh mengganti Teks Kitab yang ada
+  const akhirTerapan = useRef(0);             // urutan halaman terakhir yang dipakai pengisian terakhir
+  const [buka, setBuka] = useState(false);    // mode ringkas (materi otomatis dari batas) dibuka menjadi pemilih lengkap
 
   const gagal = (e) => { const x = apiErr(e); if (x) setErr(x); };
   useEffect(() => { pem.daftar(true).then(setDaftar).catch((e) => { if (!SIMPANAN.daftar) gagal(e); }); }, []); // cocokkan ulang ke server: kitab yang dihapus admin tidak boleh tetap terpilih
@@ -53,7 +57,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
   useEffect(() => { if (onBatas) onBatas(terkunci ? { kitabId: sasaranId, res } : null); }, [kunciRencana, isi, kitabId]); // batas yang sudah diselesaikan dikabarkan ke form (untuk cakupan AI dan pemeriksaan di luar batas)
   useEffect(() => {
     if (!sasaranId || kunciTerapan.current === kunciRencana) return;
-    kunciTerapan.current = kunciRencana; menungguOto.current = !!(rencana && rencana.otomatis && rencana.batas);
+    kunciTerapan.current = kunciRencana; menungguOto.current = !!(rencana && rencana.otomatis && rencana.batas); seqTarget.current = 0; akhirTerapan.current = 0;
     setKitabId(sasaranId);
   }, [kunciRencana]);
   useEffect(() => { if (terkunci) { setKursor(res.awal); setBabIdx(''); } }, [terkunci, terkunci && res.awal, terkunci && res.akhir, kitabId]);
@@ -91,19 +95,42 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
     const r = isianRujukan({ kitab, halaman, bagian: bisaPisah ? bagian : 'semua', babNama: babIdx !== '' ? isi.entri[Number(babIdx)].judul : '', katalog, tambah, sekarang });
     if (!r.teks.trim()) { setInfo('Bagian ini kosong di halaman terpilih.'); return; }
     if (batas && r.panjang > batas) { setInfo(`Hasilnya ${r.panjang.toLocaleString('id-ID')} karakter, melebihi ${batas.toLocaleString('id-ID')}. Kurangi jumlah halaman atau pilih matn/syarah saja.`); return; }
-    if (mode === 'form' && !tambah && String(sekarang.teks || '').trim() && !window.confirm('Ganti Teks Kitab yang sudah ada dengan halaman ini?')) return;
+    if (mode === 'form' && !tambah && !otomatis && String(sekarang.teks || '').trim() && !window.confirm('Ganti Teks Kitab yang sudah ada dengan halaman ini?')) return;
     onPakai({ ...r, kitabId, kitab, halaman, bagian: bisaPisah ? bagian : 'semua' }, { tambah, otomatis });
-    setInfo(`Dipakai: hal. ${r.hal}.`);
+    setInfo(`Dipakai: hal. ${r.hal}.`); akhirTerapan.current = halaman[halaman.length - 1].seq;
     setKursor((k) => Math.min(k + halaman.length, Math.max(lo, hi - jumlah + 1)));
   };
 
   // Materi ujian terisi sendiri: halaman pertama batas dipakai begitu terbaca, hanya bila Teks Kitab masih kosong.
   useEffect(() => {
     if (!menungguOto.current) return;
-    if (String(sekarang.teks || '').trim()) { menungguOto.current = false; return; }
-    if (terkunci && halaman.length && halaman[0].seq === res.awal) { menungguOto.current = false; pakai(false, true); }
+    if (String(sekarang.teks || '').trim() && !paksaOto.current) { menungguOto.current = false; return; }
+    if (terkunci && halaman.length && halaman[0].seq === (seqTarget.current || res.awal)) { menungguOto.current = false; paksaOto.current = false; pakai(false, true); }
   }, [halaman]);
 
+  // Penyusun yang tidak memilih halaman sendiri (mode ringkas): ganti ke bagian lain di dalam batas. Berurutan (berputar ke awal batas) atau acak.
+  const isiBagian = (mulaiSeq) => {
+    menungguOto.current = true; paksaOto.current = true; seqTarget.current = mulaiSeq; setInfo('');
+    if (mulaiSeq === kursor && halaman.length) { menungguOto.current = false; paksaOto.current = false; pakai(false, true); } else setKursor(mulaiSeq);
+  };
+  const bagianBerikutnya = () => isiBagian(akhirTerapan.current >= hi ? lo : kursor);
+  const bagianAcak = () => isiBagian(lo + Math.floor(Math.random() * Math.max(1, hi - jumlah + 2 - lo)));
+  const ringkas = mode === 'form' && !!rencana && !!rencana.otomatis && !!rencana.batas && terkunci && !buka;
+
+  if (ringkas) {
+    const sudahIsi = !!String(sekarang.teks || '').trim();
+    return (
+      <div className="space-y-2 rounded-xl bg-soft p-3 text-xs leading-relaxed text-soft-ink">
+        <p className="flex items-start gap-1.5"><Library size={14} className="mt-0.5 shrink-0" /><span><b>Materi otomatis dari batas ujian:</b> {labelBatas(res)}. {sudahIsi ? 'Teks Kitab di bawah sudah terisi dari batas ini; tidak perlu memilih halaman.' : (busy ? 'Memuat teks dari batas ini...' : 'Teks Kitab akan terisi otomatis.')}{res.catatan.length ? ` ${res.catatan.join(' ')}` : ''}</span></p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={bagianBerikutnya} disabled={disabled || busy}>Bagian berikutnya</Btn>
+          <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={bagianAcak} disabled={disabled || busy}>Bagian acak</Btn>
+          <button type="button" className="font-semibold underline" onClick={() => setBuka(true)} disabled={disabled}>Pilih halaman sendiri</button>
+        </div>
+        {info && <p role="status">{info}</p>}
+        {err && <ErrorBox e={err} />}
+      </div>);
+  }
   if (daftar && !daftar.length) return <p className="rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed text-mute">Perpustakaan kitab masih kosong. Admin bisa mengimpor kitab di Kelola &gt; Perpustakaan.</p>;
   const teksHalaman = halaman.map((p) => p.teks).join('\n\n— — —\n\n');
   const anomali = halaman.filter((p) => p.nomorAnomali);
@@ -118,6 +145,7 @@ export default function PemilihKitab({ Btn, ErrorBox, callApi, apiErr, katalog =
           {daftar.map((k) => <option key={k.id} value={k.id}>{k.judulLatin} ({k.jumlahHalaman} hal.)</option>)}
         </select>
       )}
+      {rencana && rencana.otomatis && rencana.batas && terkunci && buka && <button type="button" className="text-xs font-semibold text-soft-ink underline" onClick={() => setBuka(false)}>Kembali ke materi otomatis dari batas ujian</button>}
       {rencana && sasaran && rencana.batas && kitabId === sasaranId && res && (
         <p role="status" className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${res.status === 'ok' || res.status === 'tetap' || res.status === 'bergeser' ? 'bg-surface text-soft-ink' : 'bg-warn-bg text-warn'}`}>
           <b>Batas ujian:</b> {labelBatas(res)}.{terkunci ? ' Halaman dan bab di luar batas tidak ditawarkan.' : ''}{res.catatan.length ? ` ${res.catatan.join(' ')}` : ''}

@@ -290,7 +290,7 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
     const baruRj = rujukanDariHalaman(r.kitabId, r.halaman);
     setForm((f) => ({ ...f, nama: r.nama, juz: r.juz, hal: r.hal, bab: r.bab, teks: r.teks, ...(tambah ? gabungRujukan({ kitabId: f.kitabId, halId: f.halId, halIdAkhir: f.halIdAkhir }, baruRj) : baruRj), ...(tambah ? {} : { sumberUrl: '' }), ai: { ...f.ai, buta: '' } }));
     if (!tambah) { setKInfo(null); setKErr(null); setKManual(false); patchEx({ kFoto: false }); setFotoInfo(null); }
-    toast(otomatis ? `Materi ujian diisi otomatis dari batas ujian: hal. ${r.hal}. Pakai Berikutnya untuk bagian lanjutan.` : `Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
+    toast(otomatis ? `Materi ujian diisi otomatis dari batas ujian: hal. ${r.hal}. Pakai "Bagian berikutnya" atau "Bagian acak" untuk bagian lain.` : `Teks kitab diisi dari perpustakaan: hal. ${r.hal}.`);
   };
   const importFile = (file) => {
     if (!file) return;
@@ -393,7 +393,7 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
 
   const validate = () => {
     const e = [];
-    if (!form.teks.trim()) e.push('Teks kitab belum diisi.');
+    if (!form.teks.trim()) e.push(resBatas ? 'Teks kitab dari batas ujian belum terisi. Tunggu sebentar, atau tekan "Bagian berikutnya" di bagian perpustakaan.' : 'Teks kitab belum diisi.');
     if (!form.nama.trim()) e.push('Nama kitab belum diisi.');
     e.push(...Bt.periksaSoal(form)); // pertanyaan, opsi/kunci atau jawaban, dan pembahasan, sesuai bentuk soal
     return e;
