@@ -154,3 +154,13 @@ Lihat `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md`, bagian "Penyesuaian nomor halaman c
 - Cache memori pencarian (`src/kitabCari.js`) dan usulan daftar isi (`src/kitabIsi.js`) memakai `nomorDisunting` dalam kuncinya.
 - Yang TIDAK ikut berubah: `hal` yang sudah tersalin di dokumen soal (sengaja, lihat bagian `soal/{id}`). Batas materi, tautan soal, dan pemeriksa rujukan memakai `seq`, bukan `hal`, jadi tidak terpengaruh.
 - Impor ulang ("timpa") menghapus nomor suntingan; layar impor memperingatkan admin.
+
+## Batas halaman cetak di dalam teks (15 November 2026)
+Untuk kitab yang jumlah teks per halaman digitalnya tidak sama dengan per halaman cetak. Penyunting menandai KALIMAT tempat tiap halaman cetak dimulai; admin menerapkannya sehingga satu halaman digital = satu halaman cetak. Aturan: `web/lib/batasCetak.js`; server: `src/kitabBatas.js`; layar: `web/PenandaBatasCetak.jsx` (tombol "Tandai hal. cetak" di kepala halaman pembaca).
+- `kitab/{id}/batasCetak/draf`: `tanda` [{seq, off, hal, juz?, awal}] (posisi karakter di teks halaman digital `seq`; `awal` = penjaga posisi bila teks dikoreksi), `rev` (kunci bentrok), `dasar` {revisi, ruang} (draf milik isi kitab yang mana; berbeda = usang), `oleh`, `namaOleh`, `at`. Editor dan admin; tidak mengubah kitab.
+- `kitab/{id}/batasRiwayat/{id}`: arsip penerapan (jumlah tanda, halaman lama dan baru, siapa). Hanya tambah; tanpa aturan Firestore sendiri.
+- Penerapan (admin) memakai mekanisme impor ulang bertahap: `perpus-batas-mulai` menulis `impor/berjalan` (dengan bidang `batas`: rencana padat, `dasar`, `berikutnya`, `terakhir`) dan daftar isi di ruang baru; `perpus-batas-tulis` menulis satu grup (<= 100 halaman + indeks cari) per panggilan; `impor-selesai` (aksi yang sudah ada) mengalihkan `meta.ruang` dalam satu penulisan lalu menghapus ruang lama. Kitab lama tetap terbaca sampai peralihan.
+- Aturan potong: halaman digital sebelum tanda pertama disalin; antara tanda pertama dan terakhir batas halaman digital hilang dan teks dipotong hanya di tanda; tanda terakhir berlaku sampai akhir halaman digitalnya; sesudahnya disalin. Halaman hasil potongan: `batasMatn: null`, tanpa `rev`, `diverifikasi`, `dikoreksi`.
+- `seq` BERUBAH sesudah penerapan. Batas materi, paket, dan soal yang menaut ke `seq` lama jadi tidak cocok: terapkan hanya pada kitab yang belum dipakai tautan itu. Penghitung koreksi/suntingan di metadata kembali 0 (seperti impor ulang).
+- Judul daftar isi dipindahkan ke halaman hasil yang memuat AWAL halaman digital lamanya (posisi judul di dalam halaman tidak tersimpan), jadi bisa meleset satu halaman cetak; sunting lewat penyunting daftar isi.
+- Batas laju: `LIMIT_BATAS_SIMPAN_PER_DAY` (400), `LIMIT_BATAS_TULIS_PER_DAY` (200); `mulai` 10/hari.

@@ -4,6 +4,7 @@
 //  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
 //  - `aksi` "perpus-koreksi" / "perpus-riwayat": mengoreksi teks satu halaman kitab dan melihat riwayatnya. Khusus editor dan admin (src/kitabKoreksi.js).
 //  - `aksi` "perpus-nomor" / "perpus-nomor-riwayat": menyesuaikan nomor halaman cetak kitab dengan kitab cetak dan melihat riwayatnya. Khusus editor dan admin (src/kitabNomor.js).
+//  - `aksi` "perpus-batas-baca" / "perpus-batas-simpan": draf tanda batas halaman cetak di dalam teks (editor dan admin). "perpus-batas-mulai" / "perpus-batas-tulis": menerapkan draf menjadi halaman baru di ruang baru (admin; src/kitabBatas.js); peralihan memakai "impor-selesai".
 //  - `aksi` "perpus-isi-usul" / "perpus-isi-ai" / "perpus-isi-simpan" / "perpus-isi-riwayat": membuat dan menyunting daftar isi kitab. Khusus editor dan admin (src/kitabIsi.js).
 //    "perpus-isi-ai" = pemilahan kandidat judul dengan AI, bertahap per jendela halaman; tanpa kuota AI per pengguna, batas laju sendiri (seperti OCR).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
@@ -14,6 +15,7 @@ import { aksiImpor } from '../kitabImpor.js';
 import { aksiBaca } from '../kitabBaca.js';
 import { validasiIsiAi, validasiIsiUsul } from '../kitabIsi.js';
 import { validasiNomor } from '../kitabNomor.js';
+import { validasiBatas } from '../kitabBatas.js';
 import { aksiOcr, validateFoto } from '../kitabOcr.js';
 import { loadAiConfig } from '../aiConfig.js';
 import { parseList } from '../access.js';
@@ -21,6 +23,8 @@ import { parseList } from '../access.js';
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
 const LIMIT_NOMOR = { perMinute: 10, perDay: num('LIMIT_NOMOR_PER_DAY', 25) }; // satu proses = sampai sekitar 265 penulisan Firestore (kuota tulis Spark), jadi harian lebih ketat dari koreksi
+const LIMIT_BATAS_SIMPAN = { perMinute: 20, perDay: num('LIMIT_BATAS_SIMPAN_PER_DAY', 400) }; // draf = satu dokumen per simpan (kuota tulis Spark); layar menyimpan otomatis dengan jeda
+const LIMIT_BATAS_TULIS = { perMinute: 20, perDay: num('LIMIT_BATAS_TULIS_PER_DAY', 200) };   // satu panggilan = sampai 100 halaman + indeks; satu kitab = sekitar 7 panggilan
 const LIMIT_ISI_AI = { perMinute: num('LIMIT_ISI_AI_PER_MINUTE', 15), perDay: num('LIMIT_ISI_AI_PER_DAY', 600) }; // satu kitab = sekitar 10 sampai 15 panggilan
 const LIMIT_ISI_USUL = { perMinute: 6, perDay: num('LIMIT_ISI_USUL_PER_DAY', 20) };   // satu usulan membaca seluruh halaman kitab (ratusan dokumen), jadi lebih ketat
 
@@ -50,6 +54,19 @@ export default route(async (req) => {
       await enforceRate(`${u.uid}_kitabnomor`, LIMIT_NOMOR, { pesanHarian: 'Batas penyesuaian nomor halaman harian tercapai. Lanjutkan besok, atau naikkan LIMIT_NOMOR_PER_DAY di pengaturan server.' });
     }
     return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
+  }
+  if (aksi === 'perpus-batas-baca' || aksi === 'perpus-batas-simpan') {
+    const u = await authenticateReviewer(req);
+    if (aksi === 'perpus-batas-simpan') {
+      validasiBatas(req.body); // bentuk cacat ditolak sebelum menghitung batas laju
+      await enforceRate(`${u.uid}_kitabbatas`, LIMIT_BATAS_SIMPAN, { pesanHarian: 'Batas penyimpanan draf batas halaman harian tercapai. Lanjutkan besok, atau naikkan LIMIT_BATAS_SIMPAN_PER_DAY di pengaturan server.' });
+    }
+    return aksiBaca(req.body, { uid: u.uid, role: u.role, nama: u.name || u.email || '' });
+  }
+  if (aksi === 'perpus-batas-mulai' || aksi === 'perpus-batas-tulis') {
+    const u = await authenticateAdmin(req);
+    await enforceRate(`${u.uid}_kitabbatas${aksi === 'perpus-batas-mulai' ? 'mulai' : 'tulis'}`, aksi === 'perpus-batas-mulai' ? { perMinute: 3, perDay: 10 } : LIMIT_BATAS_TULIS, { pesanHarian: 'Batas penerapan batas halaman cetak harian tercapai. Lanjutkan besok, atau naikkan LIMIT_BATAS_TULIS_PER_DAY di pengaturan server.' });
+    return aksiBaca(req.body, { uid: u.uid, role: 'admin', nama: u.name || u.email || '' });
   }
   if (aksi === 'perpus-isi-ai') {
     const u = await authenticateReviewer(req);

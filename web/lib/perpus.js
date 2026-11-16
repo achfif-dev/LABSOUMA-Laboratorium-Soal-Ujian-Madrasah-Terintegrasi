@@ -107,6 +107,25 @@ export function buatPemuat(panggil, simpanan = { daftar: null, isi: new Map(), h
     },
     /** Riwayat penyesuaian nomor halaman (editor/admin): { riwayat: [...], jumlah }. */
     nomorRiwayat(kitabId) { return panggil({ aksi: 'perpus-nomor-riwayat', kitabId }); },
+    /** Draf tanda batas halaman cetak (editor/admin): { tanda, rev, usang }. */
+    batasBaca(kitabId) { return panggil({ aksi: 'perpus-batas-baca', kitabId }); },
+    /** Simpan seluruh draf tanda (editor/admin). `isi` = { tanda, rev }. Keluaran { ok, rev, jumlah }. */
+    batasSimpan(kitabId, isi) { return panggil({ aksi: 'perpus-batas-simpan', kitabId, ...isi }); },
+    /**
+     * Terapkan draf menjadi halaman cetak baru (admin): mulai -> tulis (berulang) -> impor-selesai. `lanjut: true` melewati `mulai` (meneruskan yang terputus).
+     * `kemajuan({ tahap, tertulis, total })` dipanggil tiap tahap. Sesudahnya simpanan kitab ini dibuang karena urutan halaman berganti.
+     */
+    async batasTerapkan(kitabId, { lanjut = false, kemajuan = () => {} } = {}) {
+      let m = null;
+      if (!lanjut) { m = await panggil({ aksi: 'perpus-batas-mulai', kitabId }); kemajuan({ tahap: 'mulai', tertulis: 0, total: m.jumlahBaru }); }
+      let r;
+      do { r = await panggil({ aksi: 'perpus-batas-tulis', kitabId }); kemajuan({ tahap: 'tulis', tertulis: Math.min(r.total, r.berikutnya - 1), total: r.total }); } while (!r.selesai);
+      await panggil({ aksi: 'impor-selesai', kitabId });
+      for (const k of [...simpanan.halaman.keys()]) if (k.startsWith(`${kitabId}:`)) simpanan.halaman.delete(k);
+      simpanan.isi.delete(kitabId); simpanan.daftar = null;
+      kemajuan({ tahap: 'selesai', tertulis: r.total, total: r.total });
+      return { jumlahBaru: r.total, jumlahLama: m ? m.jumlahLama : null };
+    },
     /** Usulan daftar isi dari teks kitab (editor/admin; tidak menulis): { usul, dibaca, terpotong }. */
     isiUsul(kitabId, { dari } = {}) { return panggil({ aksi: 'perpus-isi-usul', kitabId, ...(Number.isInteger(dari) && dari > 1 ? { dari } : {}) }); },
     /** Pilah kandidat judul dengan AI untuk halaman [dari, dari+jumlah) (editor/admin; tidak menulis): { entri, dari, sampai, kandidat, dipanggilAi, ditolak, terpotong }. `sebelumnya` = judul terakhir yang sudah terpilih (konsistensi level). */

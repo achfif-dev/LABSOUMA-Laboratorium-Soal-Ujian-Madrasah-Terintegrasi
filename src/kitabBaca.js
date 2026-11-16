@@ -10,6 +10,7 @@ import { aksiCari } from './kitabCari.js';
 import { aksiKoreksi, aksiRiwayat, halamanKlien } from './kitabKoreksi.js';
 import { daftarAktif, ringkas } from './daftarKitab.js';
 import { aksiNomor, aksiNomorRiwayat } from './kitabNomor.js';
+import { aksiBatasBaca, aksiBatasSimpan, aksiBatasMulai, aksiBatasTulis } from './kitabBatas.js';
 import { aksiIsiUsul, aksiIsiAi, aksiIsiSimpan, aksiIsiRiwayat } from './kitabIsi.js';
 
 export const MAKS_HALAMAN_BACA = 10;
@@ -46,6 +47,10 @@ export async function aksiBaca(body, pengguna = null, deps = {}) {
   if (b.aksi === 'perpus-koreksi') return aksiKoreksi(b, kid, m, pengguna);
   if (b.aksi === 'perpus-riwayat') return aksiRiwayat(b, kid, m, pengguna);
   if (b.aksi === 'perpus-nomor') return aksiNomor(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-batas-baca') return aksiBatasBaca(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-batas-simpan') return aksiBatasSimpan(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-batas-mulai') return aksiBatasMulai(b, kid, m, pengguna);
+  if (b.aksi === 'perpus-batas-tulis') return aksiBatasTulis(b, kid, m, pengguna);
   if (b.aksi === 'perpus-nomor-riwayat') return aksiNomorRiwayat(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-usul') return aksiIsiUsul(b, kid, m, pengguna);
   if (b.aksi === 'perpus-isi-ai') return aksiIsiAi(b, kid, m, pengguna, deps);

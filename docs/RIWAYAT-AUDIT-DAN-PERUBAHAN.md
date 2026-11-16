@@ -1798,3 +1798,9 @@ Tiga cara: satu halaman, geser (selisih dari satu nomor acuan), urutkan (nomori 
 - Kitab di atas 250 halaman dikerjakan beberapa proses berurutan; di antara dua proses, bagian yang belum dikerjakan masih bernomor lama.
 - `tiap N halaman naik 1` (untuk halaman virtual yang lebih kecil dari halaman cetak) belum ada.
 - Anomali nomor pada pergantian juz tidak dianggap anomali oleh penghitungan ulang ini (impor tetap memakai aturan lamanya).
+
+## [Perubahan] Batas halaman cetak di dalam teks (15 November 2026)
+**Latar.** Penyesuaian nomor (bagian sebelumnya) hanya mengganti nomor per halaman digital utuh. Bila jumlah teks per halaman digital tidak sama dengan per halaman cetak, nomornya tidak pernah cocok. Kitab ini belum dipakai soal, jadi `seq` boleh berubah.
+**Perubahan.** Draf tanda batas (editor/admin) + penerapan menjadi halaman baru (admin) lewat ruang baru dan `impor-selesai`. File: `web/lib/batasCetak.js`, `src/kitabBatas.js`, `web/PenandaBatasCetak.jsx`, tombol di `web/PembacaKitab.jsx`, rute dan batas laju di `src/rute/kitab.js`, `buatPemuat` di `web/lib/perpus.js`, `hapusHalaman` diekspor dari `src/kitabImpor.js`, tes `test/batasCetak.test.js` (18 tes).
+**Temuan saat menguji.** Kunci batas laju `mulai` dan `tulis` semula sama, sehingga tujuh panggilan `tulis` menghabiskan jatah `mulai` (3/menit) dan mengulang penerapan ditolak 429; kini terpisah.
+**Batas yang diketahui.** Belum dicoba di Firestore sungguhan; belum ada penanda otomatis di antara dua jangkar (setiap halaman cetak ditandai dengan satu ketukan); koreksi teks saat penerapan berjalan ditolak (409) bila terjadi sebelum `tulis` berikutnya, tetapi koreksi sesudah `tulis` terakhir dan sebelum `impor-selesai` tidak terdeteksi.

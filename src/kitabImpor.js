@@ -141,7 +141,7 @@ async function hapusKoleksi(db, path) {
   return snap.docs.length;
 }
 // Halaman, indeks pencarian, dan daftar isi satu ruang dihapus bersama; yang dilaporkan hanya jumlah halaman.
-async function hapusHalaman(db, kid, meta) {
+export async function hapusHalaman(db, kid, meta) {
   const n = await hapusKoleksi(db, koleksiHalaman(kid, meta));
   await hapusKoleksi(db, koleksiCari(kid, meta));
   await db.doc(dokDaftarIsi(kid, meta)).delete();
