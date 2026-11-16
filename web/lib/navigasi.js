@@ -3,14 +3,14 @@
 export const NAV_GRUP = [
   { id: 'susun', label: 'Susun', tabs: ['compose', 'paket', 'pegon'] },
   { id: 'baca', label: 'Baca Kitab', tabs: ['baca'] }, // pembaca penuh: layar lebar, huruf besar, tanpa membuat soal
-  { id: 'bank', label: 'Bank Soal', tabs: ['review', 'bank'], lencana: 'review' }, // lencana grup = soal menunggu review
+  { id: 'bank', label: 'Bank Soal', tabs: ['review', 'bank', 'luar'], lencana: 'review' }, // lencana grup = soal menunggu review
   { id: 'ujian', label: 'Ujian', tabs: ['fokus', 'export', 'analisis'] },
   { id: 'kelola', label: 'Kelola', tabs: ['backup', 'dasbor', 'users', 'cfg', 'perpus', 'ai'], lencana: 'dasbor' }, // lencana grup = peringatan kuota AI
 ];
 
 /** Label pendek untuk sub-tab (label panjang di TABS tetap dipakai bila grup hanya berisi satu tab). */
 export const SUB_LABEL = {
-  compose: 'Penyusunan', paket: 'Paket Dauri', pegon: 'Pegonizer', review: 'Review', bank: 'Approved',
+  compose: 'Penyusunan', paket: 'Paket Dauri', pegon: 'Pegonizer', review: 'Review', bank: 'Approved', luar: 'Manual (Word)',
   fokus: 'Fokus & Kisi-kisi', export: 'Export', analisis: 'Analisis Butir',
   baca: 'Baca Kitab', backup: 'Backup Drive', dasbor: 'Dasbor', users: 'Pengguna', cfg: 'Konfigurasi', perpus: 'Perpustakaan', ai: 'Pengaturan AI',
 };

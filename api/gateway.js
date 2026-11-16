@@ -23,6 +23,7 @@ export const RUTE = {
   'generate': () => import('../src/rute/generate.js'),
   'kitab': () => import('../src/rute/kitab.js'),
   'session': () => import('../src/rute/session.js'),
+  'soal-luar': () => import('../src/rute/soal-luar.js'),
 };
 
 /** Nama rute dari ?route= (diisi rewrite), dengan cadangan membaca path asli /api/<nama>. */

@@ -105,6 +105,7 @@ const ERR_TITLES = {
   RATE_LIMIT: 'Batas permintaan tercapai', RATE_LIMIT_LOCAL: 'Batas permintaan tercapai', RATE_LIMIT_DAILY: 'Kuota harian habis',
   AI_OVERLOADED: 'Layanan AI sedang sibuk', AI_TIMEOUT: 'AI terlalu lama merespons', AI_BAD_OUTPUT: 'Hasil AI tidak bisa dipakai', AI_MENOLAK: 'AI menolak memproses teks ini',
   KOREKSI_BENTROK: 'Halaman sudah diubah orang lain', KOREKSI_INVALID: 'Koreksi tidak bisa disimpan', KITAB_BERUBAH: 'Kitab baru saja berubah', HALAMAN_TIDAK_ADA: 'Halaman tidak ditemukan',
+  SOAL_LUAR_INVALID: 'Naskah belum bisa disimpan', SOAL_LUAR_DUPLIKAT: 'Naskah sudah ada', KISI_INPUT: 'Butir belum bisa dianalisis',
   AUTH_REQUIRED: 'Sesi berakhir', FORBIDDEN_ROLE: 'Akun belum disetujui', NETWORK: 'Tidak terhubung ke server',
   URL_INVALID: 'Tautan tidak valid', URL_NOT_ALLOWED: 'Situs belum didukung', SUMBER_NOT_FOUND: 'Halaman tidak ditemukan', SUMBER_BLOCKED: 'Situs menolak permintaan otomatis',
   SUMBER_ERROR: 'Situs sumber bermasalah', SUMBER_TIMEOUT: 'Situs sumber lambat', SUMBER_TOO_LARGE: 'Halaman terlalu besar', SUMBER_BUKAN_TEKS: 'Bukan halaman teks',

@@ -1,4 +1,4 @@
-import { AlertTriangle, BarChart3, BookOpen, ClipboardCheck, CloudUpload, Download, Languages, Layers, LayoutDashboard, Library, LibraryBig, ListChecks, Loader2, LogIn, LogOut, Menu, PenLine, RotateCcw, Settings, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { AlertTriangle, BarChart3, BookOpen, ClipboardCheck, CloudUpload, Download, FileUp, Languages, Layers, LayoutDashboard, Library, LibraryBig, ListChecks, Loader2, LogIn, LogOut, Menu, PenLine, RotateCcw, Settings, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
@@ -32,6 +32,7 @@ import { AppUstadz } from './AppUstadz.jsx';
 
 const AnalisisButir = lazyPanel(() => import('./AnalisisButir.jsx'));
 
+const BankLuar = lazyPanel(() => import('./BankLuar.jsx'));
 const KitabImpor = lazyPanel(() => import('./KitabImpor.jsx'));
 
 const PembacaKitab = lazyPanel(() => import('./PembacaKitab.jsx'));
@@ -65,7 +66,7 @@ function App({ user, profile }) {
   const [tab, setTabRaw] = useState(() => {
     const h = (window.location.hash || '').slice(1);
     if (bacaHash(window.location.hash)) return 'baca'; // tautan balik dari soal: #baca/<kitab>/<urutan>
-    return ['compose', 'paket', 'baca', 'bank', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'perpus', 'ai'].includes(h)) ? h : 'compose';
+    return ['compose', 'paket', 'baca', 'bank', 'luar', 'export', 'fokus', 'pegon', 'analisis'].includes(h) || (canReview && ['review', 'backup'].includes(h)) || (isAdmin && ['dasbor', 'users', 'cfg', 'perpus', 'ai'].includes(h)) ? h : 'compose';
   });
   const terakhirRef = useRef({}); // sub-tab terakhir dipakai per grup navigasi (sesi ini)
   // Tab Baca Kitab: halaman awal dari tautan balik soal (#baca/<kitab>/<urutan>[-<akhir>]). Tautan di kartu soal hanya mengubah hash, jadi didengarkan di sini.
@@ -473,6 +474,7 @@ function App({ user, profile }) {
     { id: 'paket', label: 'Paket Dauri', icon: Layers },
     ...(canReview ? [{ id: 'review', label: 'Review/Validasi', icon: ClipboardCheck, n: antrian.length }] : []), // penyusun memantau soalnya lewat Bank Soal
     { id: 'bank', label: 'Bank Soal Approved', icon: Library, n: approvedN },
+    { id: 'luar', label: 'Bank Soal Manual (Word)', icon: FileUp },
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
@@ -575,6 +577,7 @@ function App({ user, profile }) {
         {loaded && tab === 'review' && <Review list={antrian} all={qs} me={me} onApprove={approve} onRevise={revise} />}
         {loaded && tab === 'bank' && <Bank all={qs} onEdit={edit} onDelete={del} onDeleteMany={delMany} canEdit={canEdit} uid={user.uid} onKirim={kirimPaket} onKirimTab={kirimKeTab} />}
         {loaded && tab === 'export' && <Export all={qs} toast={toast} />}
+        {tab === 'luar' && <BankLuar me={user} canReview={canReview} isAdmin={isAdmin} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} />}

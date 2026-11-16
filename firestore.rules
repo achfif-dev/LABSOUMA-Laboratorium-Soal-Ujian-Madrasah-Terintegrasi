@@ -196,6 +196,14 @@ service cloud.firestore {
       );
     }
 
+    // Bank Soal Manual (src/soalLuarService.js): naskah Dauri yang disusun dan diverifikasi editor DI LUAR aplikasi. Dibaca semua staf;
+    // ditulis HANYA server (Admin SDK) lewat /api/soal-luar, yang mencatat pernyataan verifikasi dan pencatatnya. Sengaja koleksi tersendiri,
+    // bukan `soal`: soal di sana baru Approved lewat gerbang server (kutipan, uji buta, tahap editor) yang tidak berlaku untuk naskah manual.
+    match /soalLuar/{id} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     // Kamus Pegon bersama seluruh madrasah. Dibaca semua staf (supaya hasil Pegon seragam); ditulis hanya editor/admin.
     // Id dokumen = jenis + "_" + kata (mis. arab_ilmu, e_seperti, suf_seolah): satu kata, satu dokumen, tanpa tabrakan tulis.
     // Klien tetap memvalidasi ulang setiap entri yang dibaca (public/pegon.js muatBersama); aturan ini lapisan kedua, bukan satu-satunya.
