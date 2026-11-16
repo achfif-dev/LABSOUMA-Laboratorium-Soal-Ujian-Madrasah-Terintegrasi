@@ -14,7 +14,7 @@ export const STATUS_VERIFIKASI = 'terverifikasi_luar';
 export const LEVEL = ['L1', 'L2', 'L3'];
 export const BAGIAN_KODE = ['a', 'b', 'c'];
 export const BENTUK_BAGIAN = { a: ['pilgan', 'lanjutan'], b: ['isian'], c: ['uraian'] };
-export const BATAS = Object.freeze({ butir: 100, pertanyaan: 2000, opsi: 1000, jawaban: 2000, kutipan: 700, bab: 120, indikator: 300, judul: 120, mapel: 60, tingkat: 40, kelas: 20, periode: 20, tahun: 20, kitab: 120, oleh: 120, catatan: 500, hal: 20 });
+export const BATAS = Object.freeze({ butir: 100, pertanyaan: 2000, opsi: 1000, jawaban: 2000, kutipan: 700, bab: 120, indikator: 300, fokus: 160, judul: 120, mapel: 60, tingkat: 40, kelas: 20, periode: 20, tahun: 20, kitab: 120, oleh: 120, catatan: 500, hal: 20 });
 export const KUNCI_OPSI = ['A', 'B', 'C', 'D', 'E'];
 
 const s = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -37,7 +37,7 @@ export function bersihkanButir(x, idx = 0) {
   const pertanyaan = t(b.pertanyaan, BATAS.pertanyaan);
   if (!pertanyaan) galat.push(`${lbl} (${BAGIAN[bagian].huruf} no. ${no}): kalimat soal kosong.`);
   const out = { bagian, no, bentuk: bentukOk, pertanyaan, opsi: {}, kunci: '', jawaban: '', rubrik: '', hal: s(b.hal, BATAS.hal), kutipan: t(b.kutipan, BATAS.kutipan),
-    level: LEVEL.includes(b.level) ? b.level : '', bab: s(b.bab, BATAS.bab), indikator: s(b.indikator, BATAS.indikator), kisiSumber: ['ai', 'draf', 'manual'].includes(b.kisiSumber) ? b.kisiSumber : '' };
+    level: LEVEL.includes(b.level) ? b.level : '', bab: s(b.bab, BATAS.bab), indikator: s(b.indikator, BATAS.indikator), fokus: s(b.fokus, BATAS.fokus), kisiSumber: ['ai', 'draf', 'manual'].includes(b.kisiSumber) ? b.kisiSumber : '' };
   if (bagian === 'a') {
     const o = b.opsi && typeof b.opsi === 'object' ? b.opsi : {};
     for (const k of KUNCI_OPSI) { const v = s(o[k], BATAS.opsi); if (v) out.opsi[k] = v; }
@@ -146,6 +146,9 @@ export function ringkasPaket(paket) {
   const n = (k) => (paket.butir || []).filter((b) => b.bagian === k).length;
   return `${PRESET_DAURI[dauriSah(paket.dawr)].label} · ${paket.mapel || '-'} · ${(paket.butir || []).length} butir · ${BAGIAN_KODE.map((k) => `${BAGIAN[k].huruf} ${n(k)}`).join(' · ')}`;
 }
+
+/** Butir yang belum punya fokus belajar (bahan Lembar Fokus murid). Draf tanpa AI sengaja tidak mengisinya: menebak topik dari kalimat soal berisiko membocorkan soal. */
+export const tanpaFokus = (butir) => (butir || []).filter((b) => !String(b.fokus || '').trim()).length;
 
 /** Butir yang kisi-kisinya masih draf otomatis atau kosong (perlu ditinjau guru sebelum kisi-kisi dibagikan). */
 export const perluTinjauKisi = (butir) => (butir || []).filter((b) => !b.level || !b.indikator || b.kisiSumber === 'draf').length;

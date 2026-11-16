@@ -9,6 +9,7 @@ import { bacaDocxSoal, gabungKunci, MAKS_BERKAS } from './lib/soalDocx.js';
 import { BATAS, LEVEL, bersihkanMeta, bersihkanPaket, butirUntukKisi, lengkapiKisiDraf, perluTinjauKisi, ringkasPaket } from './lib/soalLuar.js';
 import { BAGIAN, PRESET_DAURI } from './lib/naskah.js';
 import * as K from './lib/kisi.js';
+import { bocor, buatKisiFokusDocx, kisiKhususKeCsv, kisiUmumKeCsv, buatKisiUmum, buatKisiKhusus } from './lib/kisiFokus.js';
 
 const HURUF = { a: 'أ', b: 'ب', c: 'ج' };
 const LEVEL_LABEL = { L1: 'L1 Ingatan', L2: 'L2 Aplikasi', L3: 'L3 HOTS' };
@@ -34,6 +35,11 @@ function KisiBaris({ b, onChange, idDasar }) {
         <input id={`${idDasar}-bab`} className="field" maxLength={BATAS.bab} value={b.bab || ''} onChange={(e) => ubah('bab', e.target.value)} />
       </div>
       <div className="sm:col-span-2">
+        <Label htmlFor={`${idDasar}-fk`} hint="(untuk lembar fokus belajar murid; topik luas, tanpa jawaban)">Fokus belajar</Label>
+        <input id={`${idDasar}-fk`} className="field" maxLength={BATAS.fokus} value={b.fokus || ''} onChange={(e) => ubah('fokus', e.target.value)} placeholder="mis. Syarat dan rukun wudhu" />
+        {b.fokus && bocor(b.fokus, b) && <p className="mt-1 flex items-center gap-1 text-xs text-warn"><AlertTriangle size={14} />Fokus ini memuat jawaban atau kalimat soal, jadi akan dibuang dari lembar murid. Tulis lebih umum.</p>}
+      </div>
+      <div className="sm:col-span-2">
         <Label htmlFor={`${idDasar}-ind`} hint={b.kisiSumber === 'draf' ? '(draf otomatis, periksa)' : b.kisiSumber === 'ai' ? '(saran AI, periksa)' : ''}>Indikator</Label>
         <textarea id={`${idDasar}-ind`} rows={2} className="field" maxLength={BATAS.indikator} value={b.indikator || ''} onChange={(e) => ubah('indikator', e.target.value)} />
       </div>
@@ -52,7 +58,7 @@ async function analisisAi(butir, meta, daftarBab) {
     model = r.model || model; peringatan.push(...(r.hasil.peringatan || [])); sikap.push(...((r.hasil.sikap && r.hasil.sikap.temuan) || []));
     r.hasil.kisi.forEach((k) => { const b = kel[k.i]; hasil.set(`${b.bagian}${b.no}`, k); });
   }
-  const gabung = butir.map((b) => { const k = hasil.get(`${b.bagian}${b.no}`); return k ? { ...b, level: k.level, bab: k.bab || b.bab || '', indikator: k.indikator, kisiSumber: k.sumber } : b; });
+  const gabung = butir.map((b) => { const k = hasil.get(`${b.bagian}${b.no}`); return k ? { ...b, level: k.level, bab: k.bab || b.bab || '', indikator: k.indikator, fokus: k.fokus || b.fokus || '', kisiSumber: k.sumber } : b; });
   return { butir: gabung, model, peringatan, sikap };
 }
 
@@ -225,15 +231,22 @@ function KartuPaket({ p, me, isAdmin, muat, toast }) {
   const unduh = async (mode) => {
     setSibuk(mode); setErr(null);
     try {
-      if (mode === 'csv') simpanBerkas(`kisi-kisi-${slug}.csv`, new Blob([K.kisiKeCsv(kisi, '')], { type: 'text/csv;charset=utf-8' }));
-      else { const D = await muatDocx(); simpanBerkas(`kisi-kisi-${slug}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, 'kisi', ''))); }
+      const csv = (nama, isi) => simpanBerkas(`${nama}-${slug}.csv`, new Blob([isi], { type: 'text/csv;charset=utf-8' }));
+      if (mode === 'csv') csv('kisi-kisi-rinci', K.kisiKeCsv(kisi, ''));
+      else if (mode === 'umum-csv') csv('kisi-kisi-umum', kisiUmumKeCsv(buatKisiUmum(p)));
+      else if (mode === 'fokus-csv') csv('fokus-belajar', kisiKhususKeCsv(buatKisiKhusus(p)));
+      else {
+        const D = await muatDocx(); const dok = { umum: ['kisi-kisi-umum', 'umum'], fokus: ['fokus-belajar', 'fokus'], paket: ['kisi-kisi-dan-fokus-belajar', 'lengkap'] }[mode];
+        if (dok) simpanBerkas(`${dok[0]}-${slug}.docx`, await D.Packer.toBlob(buatKisiFokusDocx(D, p, dok[1])));
+        else simpanBerkas(`kisi-kisi-rinci-guru-${slug}.docx`, await D.Packer.toBlob(K.buatKisiDocx(D, kisi, 'kisi', '')));
+      }
       toast('File diunduh.');
     } catch (e) { setErr({ code: 'FILE', message: e && e.message ? e.message : 'Gagal membuat file.' }); } finally { setSibuk(''); }
   };
   const simpanKisi = async () => {
     setSibuk('simpan'); setErr(null);
     try {
-      await callApi('/api/soal-luar', { aksi: 'kisi-simpan', id: p.id, kisi: ubah.map(({ bagian, no, level, bab, indikator, kisiSumber: ks }) => ({ bagian, no, level, bab, indikator, kisiSumber: ks })), sumber: kisiSumber, model });
+      await callApi('/api/soal-luar', { aksi: 'kisi-simpan', id: p.id, kisi: ubah.map(({ bagian, no, level, bab, indikator, fokus, kisiSumber: ks }) => ({ bagian, no, level, bab, indikator, fokus: fokus || '', kisiSumber: ks })), sumber: kisiSumber, model });
       toast('Kisi-kisi diperbarui.'); setUbah(null); muat();
     } catch (e) { setErr(apiErr(e)); } finally { setSibuk(''); }
   };
@@ -256,8 +269,13 @@ function KartuPaket({ p, me, isAdmin, muat, toast }) {
       {buka && (
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Btn kind="primary" onClick={() => unduh('docx')} disabled={!!sibuk}>{sibuk === 'docx' ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Kisi-kisi (DOCX)</Btn>
-            <Btn kind="ghost" onClick={() => unduh('csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />CSV</Btn>
+            <Btn kind="primary" onClick={() => unduh('paket')} disabled={!!sibuk}>{sibuk === 'paket' ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Untuk murid: Umum + Fokus (DOCX)</Btn>
+            <Btn kind="ghost" onClick={() => unduh('umum')} disabled={!!sibuk}>Kisi-kisi Umum</Btn>
+            <Btn kind="ghost" onClick={() => unduh('fokus')} disabled={!!sibuk}>Lembar Fokus Belajar</Btn>
+            <Btn kind="ghost" onClick={() => unduh('docx')} disabled={!!sibuk}>{sibuk === 'docx' ? <Loader2 size={16} className="spin" /> : <Download size={16} />}Kisi-kisi rinci (guru)</Btn>
+            <Btn kind="ghost" onClick={() => unduh('umum-csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Umum CSV</Btn>
+            <Btn kind="ghost" onClick={() => unduh('fokus-csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Fokus CSV</Btn>
+            <Btn kind="ghost" onClick={() => unduh('csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Rinci CSV</Btn>
             {bolehUbah && !ubah && <Btn kind="ghost" onClick={() => setUbah(p.butir.map((b) => ({ ...b })))}>Ubah kisi-kisi</Btn>}
             {bolehUbah && !konfirm && <Btn kind="danger" onClick={() => setKonfirm(true)}><Trash2 size={16} />Hapus</Btn>}
             {konfirm && <><Btn kind="danger" onClick={hapus} disabled={sibuk === 'hapus'}>{sibuk === 'hapus' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}Ya, hapus naskah ini</Btn><Btn kind="ghost" onClick={() => setKonfirm(false)}>Batal</Btn></>}

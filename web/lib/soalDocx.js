@@ -207,68 +207,99 @@ const tanpaBlank = (s) => s.replace(/^\s*[(\[]\s*[._…\s]*[)\]]\s*/, '');
 /** Penanda "lanjutan": kalimat menggantung dengan titik-titik. */
 const adaTitik = (s) => /(?:\.{3,}|…|_{3,}|…)/.test(s);
 
+/** Indeks kurung penutup yang berpasangan dengan kurung pembuka di `dari` (kurung bersarang seperti "(Lepra)" ikut dihitung); -1 bila tidak ada. */
+function kurungTutup(teks, dari) {
+  let d = 0;
+  for (let i = dari; i < teks.length; i++) { if (teks[i] === '(') d++; else if (teks[i] === ')') { d--; if (d === 0) return i; } }
+  return -1;
+}
+
 /**
- * Urai satu butir menurut bagiannya.
+ * Urai satu butir menurut bagiannya. Ikuti naskah nyata (contoh HADITS/USHUL/FIQH Dauri IV):
+ *  - rujukan di ujung baris berwarna merah: "ص113" (halaman kitab) atau "ح1017" (nomor hadits), kadang dipisah tab;
+ *  - pilihan: kelompok "(أ-.. ب-.. ج-..)" boleh di awal, tengah, atau akhir kalimat; teks di sekitarnya digabung menjadi satu kalimat
+ *    dengan "......" di tempat kelompok opsi berada (soal "melanjutkan");
+ *  - isian: jawaban merah dapat berada di tengah kalimat; di kalimat soal tempatnya diganti "......";
+ *  - uraian: jawaban merah mengikuti tanda tanya; tidak diganti titik-titik.
  * @param {'a'|'b'|'c'} kode  @param {{teks:string, merah:Uint8Array}} p  paragraf SETELAH nomor dibuang
  */
 function uraiButir(kode, p) {
   const peringatan = [];
   let { teks, merah } = p;
-  const buang = (n) => { teks = teks.slice(n); merah = merah.slice(n); };
-  const potongAkhir = (n) => { teks = teks.slice(0, teks.length - n); merah = merah.slice(0, merah.length - n); };
+  const potong = (dari, sampai) => { teks = teks.slice(0, dari) + teks.slice(sampai); merah = Uint8Array.from([...merah.slice(0, dari), ...merah.slice(sampai)]); };
+  const pangkasAkhir = () => { const sp = /[\t\s]+$/.exec(teks); if (sp) potong(teks.length - sp[0].length, teks.length); };
 
-  // Halaman kitab di ujung baris (setelah tab/pengisi).
+  // Rujukan di ujung: harus berawalan ص / ح / صفحة (angka polos di ujung bisa jawaban, jadi tidak dianggap rujukan).
+  pangkasAkhir();
   let hal = '';
-  const mh = RE_HAL.exec(teks);
-  if (mh) { hal = keAngkaLatin(mh[1] || ''); potongAkhir(mh[0].length); }
-  // Pengisi di ujung baris (tab, garis bawah, atau titik-titik >= 4): bukan bagian kalimat soal. Isian/uraian saja; di pilgan titik-titik milik kalimat.
-  if (kode !== 'a') {
-    const sp = /[\t\s]+$/.exec(teks); if (sp) potongAkhir(sp[0].length);
-    // Garis jawaban: garis bawah di semua bentuk, titik-titik hanya di uraian (di isian titik-titik adalah bagian kalimat: tempat kosong).
-    const pg = (kode === 'c' ? /[_.…]{4,}$/ : /_{4,}$/).exec(teks); if (pg) potongAkhir(pg[0].length);
-    const sp2 = /[\t\s]+$/.exec(teks); if (sp2) potongAkhir(sp2[0].length);
+  const mh = /(?:^|[\s)\]])(ص|ح|صفحة)\s*[:.]?\s*(\d{1,5}|[ivxlc]{1,6})?\s*$/i.exec(keAngkaLatin(teks));
+  if (mh && (mh[2] || mh[1] !== 'ح')) {
+    const awal = mh.index + mh[0].length - mh[0].trimStart().length;
+    hal = mh[2] ? (mh[1] === 'ح' ? `ح${mh[2]}` : mh[2]) : '';
+    potong(awal, teks.length); pangkasAkhir();
   }
-  { const lead = /^\s*/.exec(teks)[0].length; if (lead) buang(lead); }
+  // Garis jawaban di ujung: garis bawah di semua bentuk, titik-titik hanya di uraian (di isian titik-titik adalah tempat kosong).
+  if (kode !== 'a') { const pg = (kode === 'c' ? /[_.…]{4,}$/ : /_{4,}$/).exec(teks); if (pg) { potong(teks.length - pg[0].length, teks.length); pangkasAkhir(); } }
+  { const lead = /^\s*/.exec(teks)[0].length; if (lead) potong(0, lead); }
 
   if (kode === 'a') {
-    const bl = /^\s*[(\[]\s*[._…\s]*[)\]]\s*/.exec(teks); if (bl) buang(bl[0].length);
+    const bl = /^\s*[(\[]\s*[._…\s]*[)\]]\s*/.exec(teks); if (bl) potong(0, bl[0].length);
     // Kelompok opsi: kurung terakhir yang diawali "أ-"; cadangan: penanda أ- pertama tanpa kurung.
     let kurung = -1;
     for (let i = teks.length - 1; i >= 0; i--) if (teks[i] === '(' && /^\(\s*[اأإ]\s*[-–]/.test(teks.slice(i))) { kurung = i; break; }
-    let awalOpsi; let tutupKurung = false;
-    if (kurung >= 0) { awalOpsi = kurung + 1; tutupKurung = true; } else { const x = /(?:^|\s)[اأإ]\s*[-–]/.exec(teks); awalOpsi = x ? x.index + (x[0].length - x[0].trimStart().length) : -1; }
-    if (awalOpsi < 0) return { pertanyaan: rapikan(teks), opsi: {}, kunci: '', hal, peringatan: ['opsi (أ- ب- ج-) tidak ditemukan'], kunciDari: '' };
-    let akhirOpsi = teks.length;
-    if (tutupKurung) { const c = teks.lastIndexOf(')'); if (c > kurung) akhirOpsi = c; }
-    const pertanyaanTeks = teks.slice(0, tutupKurung ? kurung : awalOpsi);
-    const grup = teks.slice(awalOpsi, akhirOpsi);
-    const grupMerah = merah.slice(awalOpsi, akhirOpsi);
+    let sebelum; let sesudah = ''; let grup; let grupMerah;
+    if (kurung >= 0) {
+      let tutup = kurungTutup(teks, kurung);
+      if (tutup < 0) tutup = teks.length; // kurung tak ditutup (baris terpotong): sisa teks dianggap opsi
+      sebelum = teks.slice(0, kurung); sesudah = tutup < teks.length ? teks.slice(tutup + 1) : '';
+      grup = teks.slice(kurung + 1, tutup); grupMerah = merah.slice(kurung + 1, tutup);
+    } else {
+      const x = /(?:^|\s)[اأإ]\s*[-–]/.exec(teks);
+      if (!x) return { pertanyaan: rapikan(teks), opsi: {}, kunci: '', hal, peringatan: ['opsi (أ- ب- ج-) tidak ditemukan'], kunciDari: '' };
+      const awal = x.index + (x[0].length - x[0].trimStart().length);
+      sebelum = teks.slice(0, awal); grup = teks.slice(awal); grupMerah = merah.slice(awal);
+    }
     const tanda = potongOpsi(grup);
     const opsi = {}; const merahOpsi = {};
     if (!tanda || tanda.length < 2) peringatan.push('kurang dari dua opsi terbaca');
     for (const t of tanda || []) {
-      const isi = potongRentang(grup, grupMerah, t.mulaiTeks, t.akhir);
-      opsi[t.k] = rapikan(isi.teks);
+      opsi[t.k] = rapikan(grup.slice(t.mulaiTeks, t.akhir));
       const huruf = pecahMerah(grup, grupMerah, t.awal, t.mulaiTeks); const badan = pecahMerah(grup, grupMerah, t.mulaiTeks, t.akhir);
-      const markerMerah = huruf.n > 0 && huruf.m / huruf.n >= 0.5;
-      const badanMerah = badan.n > 0 && badan.m / badan.n >= 0.5;
-      merahOpsi[t.k] = markerMerah || badanMerah;
+      merahOpsi[t.k] = (huruf.n > 0 && huruf.m / huruf.n >= 0.5) || (badan.n > 0 && badan.m / badan.n >= 0.5);
     }
     const calon = Object.keys(merahOpsi).filter((k) => merahOpsi[k]);
     let kunci = ''; let kunciDari = '';
     if (calon.length === 1) { kunci = calon[0]; kunciDari = 'merah'; }
     else if (calon.length > 1) peringatan.push(`lebih dari satu opsi bertanda merah (${calon.join(', ')}): kunci dikosongkan`);
-    // Kalimat soal: hitam saja; bila seluruhnya merah (pewarnaan tidak lazim) dianggap bukan tanda kunci.
-    const q = potongRentang(teks, merah, 0, pertanyaanTeks.length);
-    return { pertanyaan: rapikan(q.teks), opsi, kunci, hal, peringatan, kunciDari };
+    // Kalimat soal: teks sebelum dan sesudah kelompok opsi. Bila ada teks sesudahnya, opsi berada di dalam kalimat (melanjutkan): tandai tempatnya.
+    const depan = rapikan(sebelum); const belakang = rapikan(sesudah);
+    const pertanyaan = (belakang && /\p{L}/u.test(belakang)) ? `${depan} ...... ${belakang}`.trim() : rapikan(`${depan} ${belakang}`);
+    return { pertanyaan, opsi, kunci, hal, peringatan, kunciDari };
   }
 
-  // Isian dan uraian: teks merah = jawaban, sisanya kalimat soal.
-  const { n, m } = pecahMerah(teks, merah, 0, teks.length);
-  let soal = teks; let jawaban = '';
-  if (m > 0 && m / Math.max(1, n) <= 0.8) { const x = pisahMerah(teks, merah); soal = x.hitam; jawaban = x.merah; }
-  else if (m > 0) peringatan.push('seluruh kalimat berwarna merah: dianggap pewarnaan biasa, jawaban dikosongkan');
-  return { pertanyaan: rapikan(soal), opsi: {}, kunci: '', jawaban, hal, peringatan, kunciDari: jawaban ? 'merah' : '' };
+  // Isian dan uraian: segmen merah = jawaban; sisanya kalimat soal. Segmen yang hanya berisi spasi diabaikan; segmen yang hanya dipisah spasi digabung.
+  const seg = []; let i = 0;
+  while (i < teks.length) {
+    if (!merah[i]) { i++; continue; }
+    let j = i; while (j < teks.length && merah[j]) j++;
+    const isi = teks.slice(i, j);
+    if (/\S/.test(isi)) {
+      const akhir = seg[seg.length - 1];
+      if (akhir && !/\S/.test(teks.slice(akhir[1], i))) akhir[1] = j; else seg.push([i, j]);
+    }
+    i = j;
+  }
+  const tidakMerah = (() => { let n = 0; for (let k = 0; k < teks.length; k++) if (!merah[k] && /\S/.test(teks[k])) n++; return n; })();
+  if (!seg.length) return { pertanyaan: rapikan(teks), opsi: {}, kunci: '', jawaban: '', hal, peringatan, kunciDari: '' };
+  if (tidakMerah === 0) { peringatan.push('seluruh kalimat berwarna merah: dianggap pewarnaan biasa, jawaban dikosongkan'); return { pertanyaan: rapikan(teks), opsi: {}, kunci: '', jawaban: '', hal, peringatan, kunciDari: '' }; }
+  const jawaban = rapikan(seg.map(([a, z]) => teks.slice(a, z)).join(' / '));
+  let soal = teks;
+  for (const [a, z] of [...seg].reverse()) {
+    const diUjung = !/\S/.test(soal.slice(z));
+    const sudahTitik = /[.…_]{3,}\s*$/.test(soal.slice(0, a)) || /^\s*[.…_]{3,}/.test(soal.slice(z)); // naskah sudah memuat tempat kosongnya
+    soal = soal.slice(0, a) + ((kode === 'c' && diUjung) || sudahTitik ? ' ' : ' ...... ') + soal.slice(z);
+  }
+  return { pertanyaan: rapikan(soal), opsi: {}, kunci: '', jawaban, hal, peringatan, kunciDari: 'merah' };
 }
 
 const bentukBagian = (kode, pertanyaan) => (kode === 'b' ? 'isian' : kode === 'c' ? 'uraian' : (adaTitik(pertanyaan) ? 'lanjutan' : 'pilgan'));
@@ -306,6 +337,8 @@ export function uraiNaskah({ paragraf, kotak = [] }) {
 
     const j = bagianDariJudul(t);
     if (j) { bagian = j.kode; nilai[j.kode] = j.nilai; adaJudulBagian = true; terakhir = null; urutOtomatis = 0; continue; }
+
+    if (/^\(\*.*\*\)$/.test(t)) continue; // penanda kaki halaman naskah, bukan butir
 
     const kt = RE_KUTIPAN.exec(t);
     if (kt) { if (terakhir) terakhir.kutipan = rapikan(t.slice(kt[0].length)); else tanpaDikenal++; continue; }
