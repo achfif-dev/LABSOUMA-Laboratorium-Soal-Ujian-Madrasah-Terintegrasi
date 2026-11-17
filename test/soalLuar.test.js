@@ -20,10 +20,12 @@ function dbTiruan() {
     async create(d) { if (simpan.has(id)) { const e = new Error('6 ALREADY_EXISTS'); e.code = 6; throw e; } simpan.set(id, structuredClone(d)); },
     async get() { return { exists: simpan.has(id), data: () => structuredClone(simpan.get(id)) }; },
     async delete() { simpan.delete(id); },
+    collection: () => ({ async get() { return { docs: [] }; } }), // subkoleksi `berkas` (naskah asli): diuji di test/berkasLuar.test.js
   });
   return {
     simpan,
     collection: (nama) => { assert.equal(nama, 'soalLuar'); return { doc: ref }; },
+    batch() { const ops = []; return { create: (r, d) => ops.push(() => r.create(d)), set: () => {}, delete: () => {}, commit: async () => { for (const o of ops) await o(); } }; },
     async runTransaction(fn) { return fn({ get: (r) => r.get(), update: (r, d) => { simpan.set(r.id, { ...simpan.get(r.id), ...d }); } }); },
   };
 }

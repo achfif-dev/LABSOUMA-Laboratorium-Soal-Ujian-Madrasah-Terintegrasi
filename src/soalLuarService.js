@@ -7,6 +7,7 @@ import { runTool } from './assistService.js';
 import { periksaSikap } from './sikap.js';
 import { ada } from './kisi.js';
 import { BAGIAN } from '../web/lib/naskah.js';
+import { SUBKOLEKSI_BERKAS, MAKS_ASLI, adalahBase64, ukuranDariBase64, potongBase64, MAKS_NASKAH_LUAR } from '../web/lib/berkasLuar.js';
 import { bocor } from '../web/lib/kisiFokus.js';
 import { KOLEKSI, STATUS_VERIFIKASI, LEVEL, BATAS, bersihkanPaket, bersihkanMeta, lengkapiKisiDraf, levelDraf, indikatorDraf } from '../web/lib/soalLuar.js';
 
@@ -43,7 +44,7 @@ export async function simpanPaket(db, FieldValue, { body, uid, nama, role }, sek
   const hash = hashIsi(v.meta, butir);
   const id = idDariHash(hash);
   const ref = db.collection(KOLEKSI).doc(id);
-  const berkas = body.berkas && typeof body.berkas === 'object' ? { nama: cleanLine(body.berkas.nama, 120), ukuran: Math.max(0, Math.min(5 * 1048576, Number(body.berkas.ukuran) || 0)), sha256: /^[0-9a-f]{64}$/.test(String(body.berkas.sha256 || '')) ? body.berkas.sha256 : '' } : { nama: '', ukuran: 0, sha256: '' };
+  const { berkas, bagian } = siapkanAsli(body.berkas);
   const doc = {
     jenis: 'dauri', sumber: 'luar-aplikasi', status: STATUS_VERIFIKASI,
     judul: v.meta.judul, dawr: v.meta.dawr, mapel: v.meta.mapel, tingkat: v.meta.tingkat, kelas: v.meta.kelas, periode: v.meta.periode, tahun: v.meta.tahun, kitab: v.meta.kitab, aksara: v.meta.aksara,
@@ -52,7 +53,12 @@ export async function simpanPaket(db, FieldValue, { body, uid, nama, role }, sek
     kisi: { sumber: body.kisiSumber === 'ai' ? 'ai' : 'draf', model: cleanLine(body.kisiModel, 60), diubahAt: FieldValue.serverTimestamp() },
     createdByUid: uid, createdByName: cleanLine(nama, 120), createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
   };
-  try { await ref.create(doc); } catch (e) {
+  try {
+    const batch = db.batch();
+    batch.create(ref, doc);
+    bagian.forEach((b64, n) => batch.set(ref.collection(SUBKOLEKSI_BERKAS).doc(String(n)), { n, b64 }));
+    await batch.commit();
+  } catch (e) {
     if (e && (e.code === 6 || e.code === 'already-exists' || /ALREADY_EXISTS/.test(String(e.message)))) {
       const ada1 = await ref.get().catch(() => null);
       const d = ada1 && ada1.exists ? ada1.data() : {};
@@ -60,7 +66,32 @@ export async function simpanPaket(db, FieldValue, { body, uid, nama, role }, sek
     }
     throw e;
   }
-  return { id, jumlah: butir.length, hash };
+  return { id, jumlah: butir.length, hash, asliTersimpan: berkas.tersimpan };
+}
+
+/**
+ * Naskah asli (.docx) dari permintaan simpan. `b.isi` = base64. Isi dihitung ulang di server (SHA-256 dan ukuran), tidak dipercaya dari klien;
+ * bila sidik klien ada dan berbeda, ditolak (berkas rusak di perjalanan). Tanpa `isi`, atau terlalu besar: hanya metadata, tersimpan=false.
+ */
+export function siapkanAsli(b) {
+  const o = b && typeof b === 'object' ? b : {};
+  const meta = { nama: cleanLine(o.nama, 120), ukuran: Math.max(0, Math.min(5 * 1048576, Number(o.ukuran) || 0)), sha256: /^[0-9a-f]{64}$/.test(String(o.sha256 || '')) ? o.sha256 : '', tersimpan: false, potongan: 0 };
+  if (!o.isi) return { berkas: meta, bagian: [] };
+  if (!adalahBase64(o.isi)) throw new ApiError(422, 'SOAL_LUAR_INVALID', 'Salinan naskah asli rusak (bukan base64 yang sah). Unggah ulang berkasnya.');
+  const ukuran = ukuranDariBase64(o.isi);
+  if (ukuran > MAKS_ASLI) throw new ApiError(422, 'SOAL_LUAR_INVALID', `Naskah asli terlalu besar untuk disimpan (maksimal ${(MAKS_ASLI / 1048576).toFixed(1)} MB).`);
+  const byte = Buffer.from(o.isi, 'base64');
+  if (byte.length < 4 || byte[0] !== 0x50 || byte[1] !== 0x4b) throw new ApiError(422, 'SOAL_LUAR_INVALID', 'Naskah asli bukan berkas .docx (ZIP) yang sah.');
+  const sidik = sha(byte);
+  if (meta.sha256 && meta.sha256 !== sidik) throw new ApiError(422, 'SOAL_LUAR_INVALID', 'Sidik (SHA-256) naskah asli tidak cocok dengan yang dikirim; berkas rusak di perjalanan. Coba lagi.');
+  const bagian = potongBase64(o.isi);
+  return { berkas: { ...meta, ukuran: byte.length, sha256: sidik, tersimpan: true, potongan: bagian.length }, bagian };
+}
+
+/** Hapus seluruh potongan naskah asli satu naskah. */
+async function hapusBerkas(db, ref) {
+  const snap = await ref.collection(SUBKOLEKSI_BERKAS).get();
+  for (let i = 0; i < snap.docs.length; i += 400) { const b = db.batch(); snap.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref)); await b.commit(); }
 }
 
 /** Ubah kisi-kisi (level, bab, indikator) naskah tersimpan. Isi soal, kunci, dan pernyataan verifikasi TIDAK bisa diubah di sini. */
@@ -96,6 +127,7 @@ export async function hapusPaket(db, { id, uid, role }) {
   const snap = await ref.get();
   if (!snap.exists) throw new ApiError(404, 'NOT_FOUND', 'Naskah tidak ditemukan. Mungkin sudah dihapus.');
   if (role !== 'admin' && snap.data().createdByUid !== uid) throw new ApiError(403, 'FORBIDDEN_ROLE', 'Naskah hanya bisa dihapus oleh pencatatnya atau admin.');
+  await hapusBerkas(db, ref);
   await ref.delete();
   return { id };
 }
@@ -203,3 +235,53 @@ export async function analisisKisi(body, deps = {}) {
 }
 
 export { TOOL_TOLAK };
+
+/* ------------------------------------------------------------ Pemulihan dari cadangan Drive (admin) */
+
+const tgl = (v) => { const d = new Date(v); return typeof v === 'string' && !Number.isNaN(d.getTime()) ? d : null; };
+
+/**
+ * Pulihkan SATU naskah dari entri cadangan (web/lib/berkasLuar.js: serialisasiLuar). Entri divalidasi ulang seperti simpanan baru:
+ * meta dan butir lewat bersihkanMeta/bersihkanPaket, id dan hash harus cocok dengan isi (naskah yang diubah di berkas cadangan ditolak),
+ * dan salinan asli dicek SHA-256-nya. mode "lewati": naskah dengan id yang sama tidak disentuh; "timpa": diganti (potongan asli lama dihapus dulu).
+ * Pernyataan verifikasi dan pencatat asli DIPERTAHANKAN dari cadangan; ditambah jejak `dipulihkan`.
+ */
+export async function pulihkanNaskah(db, FieldValue, { naskah, mode, uid }, sekarang = Date.now()) {
+  const n = naskah && typeof naskah === 'object' && !Array.isArray(naskah) ? naskah : null;
+  if (!n) throw new ApiError(422, 'SOAL_LUAR_INVALID', 'Entri naskah tidak valid.');
+  const id = String(n.id || '');
+  if (!/^lx[0-9a-f]{28}$/.test(id)) throw new ApiError(422, 'SOAL_LUAR_INVALID', 'Id naskah tidak valid.');
+  const v0 = n.verifikasi && typeof n.verifikasi === 'object' ? n.verifikasi : {};
+  // Tanggal verifikasi lama boleh di masa lalu; yang divalidasi hanya bentuknya. `sekarang` diganti ke tanggal verifikasi agar aturan "tidak di masa depan" lolos.
+  const tv = Date.parse(String(v0.tanggal || ''));
+  const m = bersihkanMeta({ ...n, verifikasi: { oleh: v0.oleh, tanggal: v0.tanggal, catatan: v0.catatan, pernyataan: true } }, Number.isNaN(tv) ? sekarang : Math.max(sekarang, tv));
+  const p = bersihkanPaket(n.butir);
+  const galat = [...m.galat, ...p.galat];
+  if (galat.length) throw new ApiError(422, 'SOAL_LUAR_INVALID', `Naskah ${id} ditolak: ${galat.slice(0, 4).join(' ')}`);
+  const hash = hashIsi(m.meta, p.butir);
+  if (idDariHash(hash) !== id) throw new ApiError(422, 'SOAL_LUAR_INVALID', `Naskah ${id} ditolak: isinya tidak cocok dengan id-nya (berkas cadangan diubah?).`);
+  const asli = siapkanAsli(n.berkasB64 ? { ...(n.berkas || {}), isi: n.berkasB64 } : { ...(n.berkas || {}) });
+  const tanpaAsli = !n.berkasB64 && n.berkas && n.berkas.tersimpan === true; // cadangan mengaku punya asli tetapi tidak membawanya
+  const ref = db.collection(KOLEKSI).doc(id);
+  const doc = {
+    jenis: 'dauri', sumber: 'luar-aplikasi', status: STATUS_VERIFIKASI,
+    judul: m.meta.judul, dawr: m.meta.dawr, mapel: m.meta.mapel, tingkat: m.meta.tingkat, kelas: m.meta.kelas, periode: m.meta.periode, tahun: m.meta.tahun, kitab: m.meta.kitab, aksara: m.meta.aksara,
+    verifikasi: { ...m.verifikasi, dicatatOleh: cleanLine(v0.dicatatOleh, 128), dicatatNama: cleanLine(v0.dicatatNama, 120), dicatatPeran: cleanLine(v0.dicatatPeran, 20) },
+    butir: p.butir, jumlah: p.butir.length, hash, berkas: asli.berkas,
+    kisi: { sumber: ['ai', 'draf', 'manual'].includes(n.kisi && n.kisi.sumber) ? n.kisi.sumber : 'draf', model: cleanLine(n.kisi && n.kisi.model, 60), diubahAt: tgl(n.kisi && n.kisi.diubahAt) || FieldValue.serverTimestamp() },
+    createdByUid: cleanLine(n.createdByUid, 128), createdByName: cleanLine(n.createdByName, 120), createdAt: tgl(n.createdAt) || FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    dipulihkan: { oleh: uid, at: FieldValue.serverTimestamp() },
+  };
+  const tulisPotongan = (batch) => asli.bagian.forEach((b64, i) => batch.set(ref.collection(SUBKOLEKSI_BERKAS).doc(String(i)), { n: i, b64 }));
+  if (mode === 'timpa') {
+    await hapusBerkas(db, ref);
+    const batch = db.batch(); batch.set(ref, doc); tulisPotongan(batch); await batch.commit();
+    return { id, hasil: 'ditulis', asli: asli.berkas.tersimpan, tanpaAsli };
+  }
+  try { const batch = db.batch(); batch.create(ref, doc); tulisPotongan(batch); await batch.commit(); } catch (e) {
+    if (e && (e.code === 6 || e.code === 'already-exists' || /ALREADY_EXISTS/.test(String(e.message)))) return { id, hasil: 'dilewati', asli: false, tanpaAsli: false };
+    throw e;
+  }
+  return { id, hasil: 'ditulis', asli: asli.berkas.tersimpan, tanpaAsli };
+}
+export { MAKS_NASKAH_LUAR };

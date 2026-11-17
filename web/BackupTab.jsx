@@ -4,6 +4,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import { CheckCircle2, CloudUpload, Library, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { SUBKOLEKSI_BERKAS, buatBackupLuar, cadanganLuarTerbaru, gabungPotongan, namaBerkasLuar, periksaBackupLuar, serialisasiLuar } from './lib/berkasLuar.js';
 import { muatGis, tautanDriveAman, ukuranBerkas, waktuLokal } from './driveUi.js';
 
 export function BackupTab({ user, isAdmin, toast, onCfg }) {
@@ -21,6 +22,7 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
   const [mode, setMode] = useState('lewati');
   const [pulihKitab, setPulihKitab] = useState(false);
   const [pulihRes, setPulihRes] = useState(null);
+  const [hasilLuar, setHasilLuar] = useState(null); const [filesLuar, setFilesLuar] = useState(null); const [pulihLuarRes, setPulihLuarRes] = useState(null); const [modeLuar, setModeLuar] = useState('lewati');
   const tokenRef = useRef({ v: '', exp: 0 });
   useEffect(() => {
     muatGis().catch(() => {}); // dimuat lebih awal supaya jendela izin tidak terblokir saat tombol diklik
@@ -222,6 +224,55 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
     toast('Pemulihan selesai.');
   });
 
+  // Bank Soal Manual (soalLuar): berkas cadangan TERSENDIRI di folder yang sama. Memuat teks naskah, kisi-kisi, pernyataan verifikasi, dan .docx asli (base64).
+  const cadangkanLuar = () => jalan('luar', async () => {
+    setHasilLuar(null); setPulihLuarRes(null);
+    setStatus('Meminta izin Google Drive...');
+    await ambilToken();
+    const drive = Drv.buatDrive({ ambilToken });
+    const folderId = await drive.siapkanFolder();
+    const db = firebase.firestore(); const naskah = [];
+    setStatus('Membaca Bank Soal Manual dari Firestore...');
+    const snap = await db.collection('soalLuar').get({ source: 'server' });
+    for (const d of snap.docs) {
+      const data = d.data(); let b64 = '';
+      if (data.berkas && data.berkas.tersimpan) {
+        setStatus(`Membaca naskah asli ${naskah.length + 1}/${snap.docs.length}...`);
+        const ps = await d.ref.collection(SUBKOLEKSI_BERKAS).get({ source: 'server' });
+        b64 = gabungPotongan(ps.docs.map((x) => x.data()));
+        if (!b64) throw { code: 'BACKUP_INVALID', message: `Salinan asli naskah "${data.judul || d.id}" tidak lengkap di Firestore; cadangan dihentikan agar tidak ada naskah yang tercadang tanpa aslinya.` };
+      }
+      naskah.push(serialisasiLuar(d.id, data, b64));
+    }
+    if (!naskah.length) throw { code: 'BACKUP_INVALID', message: 'Belum ada naskah di Bank Soal Manual.' };
+    const cad = buatBackupLuar({ naskah, oleh: user.email || user.uid });
+    const isi = JSON.stringify(cad); const nama = namaBerkasLuar();
+    setStatus('Mengunggah ke Google Drive...');
+    const f = await drive.unggah(folderId, nama, isi);
+    setStatus('Memeriksa berkas di Google Drive...');
+    if ((await drive.unduh(f.id)) !== isi) throw new Drv.DriveError('DRIVE_VERIFIKASI', 'Berkas di Google Drive tidak sama dengan data yang dikirim, jadi cadangan tidak dianggap berhasil. Coba lagi.');
+    setHasilLuar({ nama, naskah: naskah.length, asli: cad.jumlah.asli, ukuran: new Blob([isi]).size, link: f.webViewLink || '' });
+    toast('Cadangan Bank Soal Manual tersimpan di Google Drive.');
+  });
+  const muatDaftarLuar = () => jalan('daftar-luar', async () => {
+    await ambilToken(); const drive = Drv.buatDrive({ ambilToken });
+    setFilesLuar(cadanganLuarTerbaru(await drive.daftar(await drive.siapkanFolder())));
+  });
+  const pulihkanLuar = (f) => jalan('pulih-luar', async () => {
+    setPulihLuarRes(null);
+    const drive = Drv.buatDrive({ ambilToken });
+    setStatus('Mengunduh cadangan dari Google Drive...');
+    const c = periksaBackupLuar(JSON.parse(await drive.unduh(f.id)));
+    const r = { ditulis: 0, dilewati: 0, tanpaAsli: 0, ditolak: [] };
+    for (let i = 0; i < c.naskah.length; i++) {
+      setStatus(`Memulihkan naskah ${i + 1}/${c.naskah.length}...`);
+      try {
+        const x = await callApi('/api/soal-luar', { aksi: 'pulihkan', naskah: c.naskah[i], mode: modeLuar });
+        if (x.hasil === 'dilewati') r.dilewati++; else { r.ditulis++; if (x.tanpaAsli) r.tanpaAsli++; }
+      } catch (e) { r.ditolak.push({ id: String((c.naskah[i] && c.naskah[i].id) || i + 1), alasan: (apiErr(e) || {}).message || 'Ditolak.' }); }
+    }
+    setPulihLuarRes(r);
+  });
   const siap = !!(info && info.driveClientId);
   const sibuk = !!busy;
   return (
@@ -291,6 +342,47 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
           </div>
         )}
         {busy === 'baca' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Membaca...'}</p>}
+      </Section>
+
+      <Section title="Bank Soal Manual (naskah Word)" icon={CloudUpload} lipat>
+        <p className="text-sm leading-relaxed text-mute">
+          Cadangan terpisah dari soal biasa: berkas <code>labsouma-soalluar-…json</code> di folder yang sama, memuat teks soal, kisi-kisi, pernyataan verifikasi editor, dan <b className="text-ink">naskah .docx asli</b> tiap naskah. Berkas diunduh kembali dari Drive dan dibandingkan sebelum dianggap berhasil.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Btn kind="primary" onClick={cadangkanLuar} disabled={sibuk || !siap}>{busy === 'luar' ? <Loader2 size={16} className="spin" /> : <CloudUpload size={16} />}Cadangkan Bank Soal Manual</Btn>
+          <Btn kind="ghost" onClick={muatDaftarLuar} disabled={sibuk || !siap}>{busy === 'daftar-luar' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Muat daftar</Btn>
+        </div>
+        {(busy === 'luar' || busy === 'pulih-luar') && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+        {hasilLuar && (
+          <div className="mt-4 rounded-xl bg-ok-bg px-4 py-3 text-sm text-ok">
+            <p className="flex items-center gap-2 font-bold"><CheckCircle2 size={16} className="shrink-0" />Tersimpan dan terverifikasi di Google Drive</p>
+            <p className="mt-1 leading-relaxed">{hasilLuar.nama} · {hasilLuar.naskah} naskah ({hasilLuar.asli} dengan .docx asli) · {ukuranBerkas(hasilLuar.ukuran)}
+              {tautanDriveAman(hasilLuar.link) && <> · <a href={tautanDriveAman(hasilLuar.link)} target="_blank" rel="noopener noreferrer" className="underline">Buka di Drive</a></>}</p>
+          </div>
+        )}
+        {filesLuar && !filesLuar.length && <p className="mt-3 text-sm text-mute">Belum ada cadangan Bank Soal Manual di Drive.</p>}
+        {filesLuar && filesLuar.length > 0 && (
+          <ul className="mt-3 divide-y divide-line text-sm">
+            {filesLuar.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <div className="min-w-0"><p className="truncate font-semibold">{f.name}</p><p className="text-xs text-mute">{waktuLokal(f.modifiedTime)} · {ukuranBerkas(Number(f.size) || 0)}</p></div>
+                {isAdmin && <Btn kind="soft" onClick={() => pulihkanLuar(f)} disabled={sibuk}>Pulihkan</Btn>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {isAdmin && filesLuar && filesLuar.length > 0 && (
+          <div className="mt-3 sm:w-72"><Label htmlFor="luar-mode">Bila naskah dengan id yang sama sudah ada</Label>
+            <Select id="luar-mode" value={modeLuar} onChange={setModeLuar}><option value="lewati">Lewati (aman, bisa diulang)</option><option value="timpa">Timpa dengan isi cadangan</option></Select></div>
+        )}
+        {!isAdmin && <p className="mt-3 text-xs text-mute">Pemulihan hanya dapat dilakukan admin.</p>}
+        {pulihLuarRes && (
+          <div role="status" className="mt-4 rounded-xl bg-soft px-4 py-3 text-sm">
+            <p className="font-bold">{pulihLuarRes.ditulis} naskah dipulihkan, {pulihLuarRes.dilewati} dilewati (sudah ada), {pulihLuarRes.ditolak.length} ditolak.</p>
+            {pulihLuarRes.tanpaAsli > 0 && <p className="mt-1 text-xs text-warn">{pulihLuarRes.tanpaAsli} naskah dipulihkan tanpa .docx asli (tidak ada di berkas cadangan).</p>}
+            {pulihLuarRes.ditolak.slice(0, 10).map((x, i) => <p key={i} className="mt-1 text-xs text-bad">{x.id}: {x.alasan}</p>)}
+          </div>
+        )}
       </Section>
 
       {isAdmin && pilih && (

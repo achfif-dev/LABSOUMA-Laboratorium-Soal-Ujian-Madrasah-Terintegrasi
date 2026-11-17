@@ -8,6 +8,7 @@ import { muatDocx } from './lib/muatDocx.js';
 import { bacaDocxSoal, gabungKunci, MAKS_BERKAS } from './lib/soalDocx.js';
 import { BATAS, LEVEL, bersihkanMeta, bersihkanPaket, butirUntukKisi, lengkapiKisiDraf, perluTinjauKisi, ringkasPaket } from './lib/soalLuar.js';
 import { BAGIAN, PRESET_DAURI } from './lib/naskah.js';
+import { MAKS_ASLI, MIME_DOCX, SUBKOLEKSI_BERKAS, base64KeByte, byteKeBase64, gabungPotongan } from './lib/berkasLuar.js';
 import * as K from './lib/kisi.js';
 import { bocor, buatKisiFokusDocx, kisiKhususKeCsv, kisiUmumKeCsv, buatKisiUmum, buatKisiKhusus } from './lib/kisiFokus.js';
 
@@ -243,6 +244,19 @@ function KartuPaket({ p, me, isAdmin, muat, toast }) {
       toast('File diunduh.');
     } catch (e) { setErr({ code: 'FILE', message: e && e.message ? e.message : 'Gagal membuat file.' }); } finally { setSibuk(''); }
   };
+  const unduhAsli = async () => {
+    setSibuk('asli'); setErr(null);
+    try {
+      const snap = await firebase.firestore().collection('soalLuar').doc(p.id).collection(SUBKOLEKSI_BERKAS).get({ source: 'server' });
+      const b64 = gabungPotongan(snap.docs.map((d) => d.data()));
+      if (!b64) throw new Error('Salinan naskah asli tidak lengkap di server.');
+      const byte = base64KeByte(b64);
+      const h = await crypto.subtle.digest('SHA-256', byte).then((x) => [...new Uint8Array(x)].map((c) => c.toString(16).padStart(2, '0')).join('')).catch(() => '');
+      if (p.berkas && p.berkas.sha256 && h && h !== p.berkas.sha256) throw new Error('Isi naskah asli tidak cocok dengan sidik yang tercatat (SHA-256); berkas tidak diunduh.');
+      simpanBerkas((p.berkas && p.berkas.nama) || `naskah-${slug}.docx`, new Blob([byte], { type: MIME_DOCX }));
+      toast('Naskah asli diunduh.');
+    } catch (e) { setErr({ code: 'FILE', message: e && e.message ? e.message : 'Gagal mengunduh naskah asli.' }); } finally { setSibuk(''); }
+  };
   const simpanKisi = async () => {
     setSibuk('simpan'); setErr(null);
     try {
@@ -262,6 +276,7 @@ function KartuPaket({ p, me, isAdmin, muat, toast }) {
           <p className="font-bold text-ink" dir="auto">{p.judul}</p>
           <p className="text-xs text-mute">{ringkasPaket(p)}</p>
           <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ok"><CheckCircle2 size={14} />Diverifikasi di luar aplikasi oleh {p.verifikasi && p.verifikasi.oleh}{p.verifikasi && p.verifikasi.tanggal ? `, ${p.verifikasi.tanggal}` : ''}<span className="text-mute">· dicatat {p.createdByName || 'editor'}{tgl ? `, ${tgl}` : ''}</span></p>
+          {p.berkas && p.berkas.nama && !p.berkas.tersimpan && <p className="mt-1 text-xs text-mute">Salinan asli ({p.berkas.nama}) tidak tersimpan; hanya teks soal.</p>}
           {tinjau > 0 && <p className="mt-1 text-xs text-warn">{tinjau} butir kisi-kisinya masih draf/kosong.</p>}
         </div>
         <Btn kind="ghost" onClick={() => setBuka(!buka)} aria-expanded={buka}>{buka ? <ChevronUp size={16} /> : <ChevronDown size={16} />}{buka ? 'Tutup' : 'Buka'}</Btn>
@@ -276,6 +291,7 @@ function KartuPaket({ p, me, isAdmin, muat, toast }) {
             <Btn kind="ghost" onClick={() => unduh('umum-csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Umum CSV</Btn>
             <Btn kind="ghost" onClick={() => unduh('fokus-csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Fokus CSV</Btn>
             <Btn kind="ghost" onClick={() => unduh('csv')} disabled={!!sibuk}><FileSpreadsheet size={16} />Rinci CSV</Btn>
+            {p.berkas && p.berkas.tersimpan && <Btn kind="soft" onClick={unduhAsli} disabled={!!sibuk}>{sibuk === 'asli' ? <Loader2 size={16} className="spin" /> : <FileText size={16} />}Naskah asli (.docx)</Btn>}
             {bolehUbah && !ubah && <Btn kind="ghost" onClick={() => setUbah(p.butir.map((b) => ({ ...b })))}>Ubah kisi-kisi</Btn>}
             {bolehUbah && !konfirm && <Btn kind="danger" onClick={() => setKonfirm(true)}><Trash2 size={16} />Hapus</Btn>}
             {konfirm && <><Btn kind="danger" onClick={hapus} disabled={sibuk === 'hapus'}>{sibuk === 'hapus' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}Ya, hapus naskah ini</Btn><Btn kind="ghost" onClick={() => setKonfirm(false)}>Batal</Btn></>}
@@ -336,7 +352,8 @@ export default function BankLuar({ me, canReview, isAdmin, toast }) {
         const lama = peringatan.findIndex((x) => /^Tidak ada tanda kunci|butir .*belum punya kunci/.test(x)); if (lama >= 0 && butir.every((b) => (b.bagian === 'a' ? b.kunci : true))) peringatan.splice(lama, 1);
       }
       if (!butir.length) throw new Error(peringatan[0] || 'Tidak ada butir soal terbaca.');
-      setHasil({ ...r, butir: lengkapiKisiDraf(butir).map((b) => ({ ...b, kisiSumber: 'draf' })), peringatan, berkas: { nama: f.name, ukuran: f.size, sha256: await sha256(buf) } });
+      const asliMuat = f.size <= MAKS_ASLI;
+      setHasil({ ...r, butir: lengkapiKisiDraf(butir).map((b) => ({ ...b, kisiSumber: 'draf' })), peringatan: asliMuat ? peringatan : [...peringatan, `Berkas ${(f.size / 1048576).toFixed(1)} MB melebihi batas penyimpanan naskah asli (${(MAKS_ASLI / 1048576).toFixed(1)} MB): teks soal tetap disimpan, salinan aslinya tidak.`], berkas: { nama: f.name, ukuran: f.size, sha256: await sha256(buf), ...(asliMuat ? { isi: byteKeBase64(buf) } : {}) } });
     } catch (e) { setErr({ code: 'FILE', message: e && e.message ? e.message : 'Berkas tidak bisa dibaca.' }); } finally { setBaca(false); }
   };
   const selesai = () => { setHasil(null); if (inputNaskah.current) inputNaskah.current.value = ''; if (inputKunci.current) inputKunci.current.value = ''; muat(); };

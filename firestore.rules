@@ -202,6 +202,11 @@ service cloud.firestore {
     match /soalLuar/{id} {
       allow read: if isStaff();
       allow write: if false;
+      // Salinan asli (.docx) sebagai potongan base64; ditulis server, dibaca staf (unduh dan cadangan Drive).
+      match /berkas/{n} {
+        allow read: if isStaff();
+        allow write: if false;
+      }
     }
 
     // Kamus Pegon bersama seluruh madrasah. Dibaca semua staf (supaya hasil Pegon seragam); ditulis hanya editor/admin.
