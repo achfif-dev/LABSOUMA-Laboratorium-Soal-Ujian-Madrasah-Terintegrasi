@@ -19,6 +19,7 @@ import { periksaKutipan, bidangDariAI, bidangDariSoal } from '../kutipan.js';
 import { periksaSikap } from '../sikap.js';
 import { denganKitab, peringatanOtoritas } from '../otoritas.js';
 import { tanyaKitab, validasiTanya } from '../telaahKitab.js';
+import { chatBebas } from '../chatBebas.js';
 import { periksaRujukan } from '../periksaRujukan.js';
 
 const ASSIST = {
@@ -32,6 +33,7 @@ const ASSIST = {
   fotokitab: fotoKitab, // OCR teks Arab dari foto halaman kitab fisik
   paket: generatePaket, // satu segmen teks -> beberapa butir naskah IMDA (tanpa narasi, 3 opsi, kutipan kitab terverifikasi)
   tanyakitab: tanyaKitab, // tanya-jawab bersumber atas perpustakaan: dua panggilan AI, kutipan diverifikasi kode (src/telaahKitab.js)
+  chatbebas: chatBebas, // chat bebas dua arah: TANPA pencarian dan verifikasi kitab; jawaban ditandai tidak diverifikasi (src/chatBebas.js)
   bab: sarankanBab, // saran bab penting untuk diujikan (haluan Aswaja); daftar isi opsional, bukan teks Arab wajib
 };
 
@@ -53,7 +55,7 @@ export default route(async (req) => {
     return { aksi, hasil: await periksaRujukan(req.body) };
   }
   const run = Object.hasOwn(ASSIST, aksi) ? ASSIST[aksi] : null;
-  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, fakta, telaah, cekbuta, paket, bab, tanyakitab, periksarujukan, pegon, pegonfoto, atau fotokitab.');
+  if (!run) throw new ApiError(400, 'BAD_REQUEST', 'Aksi harus terjemah, analisis, fakta, telaah, cekbuta, paket, bab, tanyakitab, chatbebas, periksarujukan, pegon, pegonfoto, atau fotokitab.');
   // Paket Dauri (satu naskah utuh, banyak panggilan AI) hanya untuk tim penyusun; tab-nya juga tidak ada di aplikasi Ustadz. Ditolak sebelum validasi dan kuota.
   if (aksi === 'paket' && u.role === 'ustadz') throw new ApiError(403, 'FORBIDDEN_ROLE', 'Paket Dauri tidak tersedia untuk peran Ustadz.');
   await muatTingkatKustom(); // tingkat buatan admin ikut dikenali validasi
@@ -64,7 +66,7 @@ export default route(async (req) => {
   if (aksi === 'pegon') validatePegon(body); // teks Latin, bukan Arab: jangan lewat validateTeks
   else if (aksi === 'pegonfoto' || aksi === 'fotokitab') validateFoto(body);
   else if (aksi === 'paket') validatePaket(body); // segmen <= 6.000 karakter, bentuk dan level tiap butir; tolak input cacat sebelum menghabiskan kuota
-  else if (aksi === 'tanyakitab') validasiTanya(body); // pertanyaan 3-500 karakter, maks 4 kitab; tolak input cacat sebelum menghabiskan kuota
+  else if (aksi === 'tanyakitab' || aksi === 'chatbebas') validasiTanya(body); // pertanyaan 3-500 karakter, maks 4 kitab; tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'bab') validateBab(body); // nama kitab + daftar isi (Arab atau Latin); tolak input cacat sebelum menghabiskan kuota
   else if (aksi === 'telaah' || aksi === 'cekbuta') teks = validateInput(body).teks; else teks = validateTeks(body).teks;
   await loadAiConfig(); // pengaturan AI dari admin (kunci, model, penyedia); sebelum menghitung kuota

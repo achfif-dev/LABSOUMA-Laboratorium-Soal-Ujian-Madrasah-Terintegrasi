@@ -10,6 +10,40 @@ export const MAKS_HALAMAN_JAWAB = 6;   // halaman yang dibacakan ke AI
 export const MAKS_TEKS_HALAMAN = 3500; // karakter per halaman yang dikirim ke AI (verifikasi tetap memakai halaman utuh)
 export const MAKS_KUERI = 4;
 export const MAKS_KATA_PER_KUERI = 4;
+export const MAKS_RIWAYAT = 6;         // pasangan tanya-jawab sebelumnya yang dikirim sebagai konteks percakapan
+export const MAKS_TEKS_RIWAYAT = 700;  // karakter per pesan riwayat
+
+/**
+ * Riwayat percakapan dari klien -> larik { role: 'user'|'ai', teks } yang rapi. Peran tak dikenal dan pesan kosong dibuang;
+ * hanya MAKS_RIWAYAT pasang terakhir yang dipertahankan. Riwayat hanya konteks untuk memahami pertanyaan lanjutan, BUKAN sumber jawaban.
+ */
+export function bersihkanRiwayat(r) {
+  const hasil = [];
+  for (const m of (Array.isArray(r) ? r : []).slice(-MAKS_RIWAYAT * 4)) {
+    const role = m && m.role === 'user' ? 'user' : (m && m.role === 'ai' ? 'ai' : null);
+    const teks = String((m && m.teks) ?? '').replace(/\s+/g, ' ').trim().slice(0, MAKS_TEKS_RIWAYAT);
+    if (role && teks) hasil.push({ role, teks });
+  }
+  return hasil.slice(-MAKS_RIWAYAT * 2);
+}
+
+/**
+ * Layar chat: daftar pesan ({role:'user',teks} | {role:'ai',hasil}) -> riwayat yang dikirim ke server.
+ * Jawaban AI hanya ikut bila lolos verifikasi (ditampilkan); selain itu dikirim sebagai "tidak ada jawaban terverifikasi" agar tidak ikut menjadi konteks.
+ */
+export function susunRiwayat(pesan) {
+  const keluar = [];
+  for (const m of Array.isArray(pesan) ? pesan : []) {
+    if (!m) continue;
+    if (m.role === 'user') { keluar.push({ role: 'user', teks: m.teks }); continue; }
+    if (m.role !== 'ai' || !m.hasil) continue;
+    if (m.mode === 'bebas') { keluar.push({ role: 'ai', teks: `[Jawaban bebas, tidak diverifikasi dari kitab] ${m.hasil.jawaban || ''}` }); continue; }
+    const h = m.hasil; const tampil = (h.status === 'terverifikasi' || h.status === 'sebagian') && h.jawaban;
+    const sumber = tampil ? [...new Set((h.poin || []).filter((p) => p.status === 'cocok' || p.status === 'mirip').map((p) => `${p.kitab} hal. ${p.hal}`))].slice(0, 3) : [];
+    keluar.push({ role: 'ai', teks: tampil ? `${h.jawaban}${sumber.length ? ` [Sumber: ${sumber.join('; ')}]` : ''}` : 'Tidak ada jawaban terverifikasi dari kitab untuk pertanyaan itu.' });
+  }
+  return bersihkanRiwayat(keluar);
+}
 
 /**
  * Pilihan kitab di layar Tanya Kitab: mengalihkan (centang/lepas) satu kitab dari daftar terpilih.
