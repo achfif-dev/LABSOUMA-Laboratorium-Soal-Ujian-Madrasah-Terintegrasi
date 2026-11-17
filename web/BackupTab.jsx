@@ -5,6 +5,7 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import { CheckCircle2, CloudUpload, Library, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { SUBKOLEKSI_BERKAS, buatBackupLuar, cadanganLuarTerbaru, gabungPotongan, namaBerkasLuar, periksaBackupLuar, serialisasiLuar } from './lib/berkasLuar.js';
+import { SIMPAN_AWAL, SIMPAN_PILIHAN, hapusKandidat, kandidatRapikan } from './lib/rapikanCadangan.js';
 import { muatGis, tautanDriveAman, ukuranBerkas, waktuLokal } from './driveUi.js';
 
 export function BackupTab({ user, isAdmin, toast, onCfg }) {
@@ -23,6 +24,7 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
   const [pulihKitab, setPulihKitab] = useState(false);
   const [pulihRes, setPulihRes] = useState(null);
   const [hasilLuar, setHasilLuar] = useState(null); const [filesLuar, setFilesLuar] = useState(null); const [pulihLuarRes, setPulihLuarRes] = useState(null); const [modeLuar, setModeLuar] = useState('lewati');
+  const [simpanN, setSimpanN] = useState(String(SIMPAN_AWAL)); const [rapi, setRapi] = useState(null); const [rapiRes, setRapiRes] = useState(null);
   const tokenRef = useRef({ v: '', exp: 0 });
   useEffect(() => {
     muatGis().catch(() => {}); // dimuat lebih awal supaya jendela izin tidak terblokir saat tombol diklik
@@ -273,6 +275,21 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
     }
     setPulihLuarRes(r);
   });
+  // Merapikan cadangan lama (admin): dua langkah, periksa dulu lalu hapus. Yang terbaru selalu dipertahankan (lib/rapikanCadangan.js).
+  const periksaRapi = (n = simpanN) => jalan('rapi-periksa', async () => {
+    setRapiRes(null); setStatus('Meminta izin Google Drive...'); await ambilToken();
+    const drive = Drv.buatDrive({ ambilToken });
+    setStatus('Membaca daftar cadangan...');
+    const l = await drive.daftar(await drive.siapkanFolder());
+    setRapi({ n, soal: kandidatRapikan(l, 'soal', n), luar: kandidatRapikan(l, 'luar', n) });
+  });
+  const jalankanRapi = () => jalan('rapi-hapus', async () => {
+    const drive = Drv.buatDrive({ ambilToken }); const daftar = [...rapi.soal, ...rapi.luar];
+    setStatus(`Menghapus ${daftar.length} cadangan lama...`);
+    const r = await hapusKandidat(drive, daftar);
+    setRapiRes(r); setRapi(null); setFiles(null); setFilesLuar(null);
+    toast(`${r.dihapus} cadangan lama dihapus dari Google Drive.`);
+  });
   const siap = !!(info && info.driveClientId);
   const sibuk = !!busy;
   return (
@@ -384,6 +401,33 @@ export function BackupTab({ user, isAdmin, toast, onCfg }) {
           </div>
         )}
       </Section>
+
+      {isAdmin && (
+        <Section title="Rapikan cadangan lama (admin)" icon={Trash2} lipat>
+          <p className="text-sm leading-relaxed text-mute">
+            Menghapus cadangan soal dan cadangan Bank Soal Manual yang lebih tua dari <b className="text-ink">{rapi ? rapi.n : simpanN} terbaru</b> di folder “LABSOUMA Backup”. Setiap cadangan berisi data lengkap, jadi yang terbaru sudah memuat semuanya,
+            termasuk soal yang diarsipkan. Cadangan terbaru tidak pernah dihapus, dan berkas lain di folder (mis. cadangan Soal Saya) tidak disentuh. Penghapusan bersifat <b className="text-ink">permanen</b> (tidak masuk Sampah Drive).
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="w-40"><Label htmlFor="rapi-n">Simpan terbaru</Label><Select id="rapi-n" value={simpanN} onChange={(v) => { setSimpanN(v); setRapi(null); setRapiRes(null); }}>{SIMPAN_PILIHAN.map((n) => <option key={n} value={String(n)}>{n} cadangan</option>)}</Select></div>
+            <Btn kind="ghost" onClick={() => periksaRapi()} disabled={sibuk || !siap}>{busy === 'rapi-periksa' ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}Periksa yang bisa dihapus</Btn>
+          </div>
+          {(busy === 'rapi-periksa' || busy === 'rapi-hapus') && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-mute"><Loader2 size={14} className="spin" />{status || 'Memproses...'}</p>}
+          {rapi && !rapi.soal.length && !rapi.luar.length && <p role="status" className="mt-3 text-sm text-mute">Tidak ada cadangan lama yang perlu dihapus.</p>}
+          {rapi && (rapi.soal.length > 0 || rapi.luar.length > 0) && (
+            <div className="mt-3">
+              <ul className="max-h-56 divide-y divide-line overflow-auto rounded-xl border border-line text-sm">
+                {[...rapi.soal, ...rapi.luar].map((f) => <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2"><span className="truncate font-semibold">{f.name}</span><span className="shrink-0 text-xs text-mute">{ukuranBerkas(Number(f.size) || 0)}</span></li>)}
+              </ul>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Btn kind="danger" onClick={jalankanRapi} disabled={sibuk}>{busy === 'rapi-hapus' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}Hapus {rapi.soal.length + rapi.luar.length} cadangan lama</Btn>
+                <Btn kind="ghost" onClick={() => setRapi(null)} disabled={sibuk}>Batal</Btn>
+              </div>
+            </div>
+          )}
+          {rapiRes && <p role="status" className="mt-3 text-sm text-ink">{rapiRes.dihapus} cadangan dihapus{rapiRes.gagal.length ? `; ${rapiRes.gagal.length} gagal (${rapiRes.gagal.slice(0, 3).join(', ')})` : ''}.</p>}
+        </Section>
+      )}
 
       {isAdmin && pilih && (
         <Section title="Pulihkan dari cadangan" icon={RotateCcw} lipat>

@@ -216,7 +216,7 @@ export function buatDrive({ ambilToken, fetchImpl }) {
     async hapus(id) { await api(`${BASE}/files/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
     async daftar(folderId) {
       const q = `'${kutip(folderId)}' in parents and trashed=false`;
-      const r = await (await api(`${BASE}/files?${qs({ q, orderBy: 'modifiedTime desc', pageSize: 50, fields: 'files(id,name,size,modifiedTime,webViewLink)' })}`)).json();
+      const r = await (await api(`${BASE}/files?${qs({ q, orderBy: 'modifiedTime desc', pageSize: 200, fields: 'files(id,name,size,modifiedTime,webViewLink)' })}`)).json();
       return r.files || [];
     },
   };
