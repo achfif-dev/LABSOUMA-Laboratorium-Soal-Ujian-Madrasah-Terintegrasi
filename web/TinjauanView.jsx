@@ -55,7 +55,7 @@ export function TelaahView({ state, onApply, onUseNotes }) {
   );
 }
 
-export function AssistView({ state, onIdea }) {
+export function AssistView({ state, onIdea, labelIde = 'Buat soal dari fokus ini' }) {
   if (state.loading) return <Spin>{state.kind === 'terjemah' ? 'Sedang menerjemahkan teks kitab...' : 'Sedang menganalisis teks kitab...'}</Spin>;
   if (state.error) return <ErrorBox e={state.error} />;
   const d = state.data;
@@ -82,7 +82,7 @@ export function AssistView({ state, onIdea }) {
           <li key={i} className="rounded-lg border border-line bg-surface px-3 py-2">
             <p className="flex items-start gap-2"><span className="mt-0.5 shrink-0 rounded-md bg-soft px-2 py-px text-xs font-bold text-soft-ink">{x.level}</span><span className="min-w-0 flex-1 leading-relaxed">{x.fokus}</span></p>
             {x.alasan && <p className="mt-1 text-xs leading-relaxed text-mute">{x.alasan}</p>}
-            <button type="button" onClick={() => onIdea(x)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline"><Sparkles size={13} />Buat soal dari fokus ini</button>
+            <button type="button" onClick={() => onIdea(x)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline"><Sparkles size={13} />{labelIde}</button>
           </li>))}</ul></div>
       {d.potensi_pengecoh.length > 0 && <div><H3>Calon pengecoh</H3><ul className="list-disc space-y-1 pl-5">{d.potensi_pengecoh.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
       {d.catatan_khilaf && <div><H3>Perbedaan pendapat dalam teks</H3><p className="leading-relaxed">{d.catatan_khilaf}</p></div>}

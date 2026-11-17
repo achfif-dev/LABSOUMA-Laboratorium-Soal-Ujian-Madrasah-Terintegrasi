@@ -6,7 +6,7 @@ import { peringatanLevel } from './lib/fakta.js';
 const JENIS = { hukum: 'Hukum', bilangan: 'Bilangan', syarat: 'Syarat', definisi: 'Definisi', dalil: 'Dalil', perbedaan_pendapat: 'Beda pendapat' };
 
 /** Daftar fakta atomik dari teks (kutipan dasar sudah diperiksa kode). Soal dibuat terikat pada SATU fakta yang dipilih pengguna. */
-export default function FaktaTeks({ state, level, terpakai, basi, disabled, onBuat, onOtomatis }) {
+export default function FaktaTeks({ state, level, terpakai, basi, disabled, onBuat, onOtomatis, labelBuat = 'Buat soal dari fakta ini' }) {
   if (state.loading) return <Spin>Sedang mengekstrak fakta dari teks kitab...</Spin>;
   if (state.error) return <ErrorBox e={state.error} />;
   const d = state.data;
@@ -20,7 +20,7 @@ export default function FaktaTeks({ state, level, terpakai, basi, disabled, onBu
       <p className="text-xs leading-relaxed text-mute">
         Tiap fakta dikutip persis dari teks dan sudah dicocokkan oleh sistem{d.dibuang ? ` (${d.dibuang} fakta dibuang karena kutipannya tidak cocok)` : ''}. Soal yang dibuat dari satu fakta wajib menjelaskan alasan setiap pengecoh.
       </p>
-      <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={onOtomatis} disabled={disabled || basi}><Wand2 size={13} />Pilihkan fakta yang belum dipakai</Btn>
+      {onOtomatis && <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={onOtomatis} disabled={disabled || basi}><Wand2 size={13} />Pilihkan fakta yang belum dipakai</Btn>}
       <ul className="space-y-2">
         {d.fakta.map((f) => {
           const pakai = terpakai.includes(f.id); const warn = peringatanLevel(f, level);
@@ -34,7 +34,7 @@ export default function FaktaTeks({ state, level, terpakai, basi, disabled, onBu
               <p className="mt-1 leading-relaxed">{f.fakta}</p>
               <p dir="rtl" lang="ar" className="ar ar-sm mt-1 !leading-normal text-mute">{f.kutipan}</p>
               {warn && <p className="mt-1 text-xs leading-relaxed text-warn">{warn}</p>}
-              <button type="button" disabled={disabled || basi} onClick={() => onBuat(f)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline disabled:opacity-50"><Sparkles size={13} />Buat soal dari fakta ini</button>
+              <button type="button" disabled={disabled || basi} onClick={() => onBuat(f)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-soft-ink hover:underline disabled:opacity-50"><Sparkles size={13} />{labelBuat}</button>
             </li>
           );
         })}

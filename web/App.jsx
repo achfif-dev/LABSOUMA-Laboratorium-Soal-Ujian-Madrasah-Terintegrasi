@@ -5,6 +5,7 @@ import 'firebase/compat/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlurCtx, AppCfgCtx, Btn, Draft, ErrorBox, apiErr, callApi, simpanBerkas, useDraftSync } from './ui.jsx';
 import { bacaHash } from './lib/rujukan.js';
+import { campurKitab, terapkanKiriman } from './lib/pilihanBaca.js';
 import * as NV from './lib/navigasi.js';
 import { Bt, FALLBACK_CFG, mapelUntuk } from './lib/dasar.js';
 import * as AL from './lib/alurSoal.js';
@@ -164,6 +165,7 @@ function App({ user, profile }) {
   }, [berisi]);
   const [composeKey, setComposeKey] = useState(0); // naik tiap form dikosongkan/disimpan, supaya state lokal Compose (tautan, hasil AI) ikut bersih
   const [msg, setMsg] = useState('');
+  const [kirimanBaca, setKirimanBaca] = useState(null); // kiriman dari pembaca kitab (alat AI) yang belum dipakai Compose: hasil fakta/analisis dan fokus soal
   const timer = useRef(null);
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 3500); };
   useEffect(() => {
@@ -474,6 +476,20 @@ function App({ user, profile }) {
     setTab('compose'); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const saranCtx = { saran, setSaran, pakaiBab };
+  // Dari alat AI di pembaca kitab (web/AlatTeksKitab.jsx) ke Penyusunan Soal: teks dan rujukan halaman pindah ke form (naskah soal tidak disentuh);
+  // hasil ekstrak fakta/analisis dan fokus soal dibawa lewat `kirimanBaca` dan dipasang Compose saat dibuka. Soal TIDAK dibuat otomatis: bentuk, level, dan batas ujian dipilih di sana.
+  const kirimDariBaca = (o) => {
+    const k = o && o.kiriman; if (!k) return;
+    const tambah = !!o.tambah; const sama = form.teks.trim() === k.teks;
+    if (!tambah && !sama && form.teks.trim() && !window.confirm(`Teks Kitab di Penyusunan Soal akan diganti dengan teks dari pembaca${editingId ? ' (soal yang sedang diedit memakai teks rujukan baru)' : ''}. Naskah soal tidak berubah. Lanjutkan?`)) return;
+    if (tambah && campurKitab(form, k) && !window.confirm(`Teks saat ini dari "${form.nama}". Menambahkan teks dari "${k.nama}" mencampur dua kitab dalam satu soal. Lanjutkan?`)) return;
+    const r = terapkanKiriman(form, k, { tambah });
+    if (r.galat) { toast(r.galat); return; }
+    setForm(r.form);
+    setKirimanBaca({ tambah, fk: tambah ? null : o.fk || null, ai: tambah ? null : o.ai || null, ide: o.ide || null, fakta: o.fakta || null });
+    setTab('compose'); window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast(tambah ? 'Teks ditambahkan ke Rujukan Kitab.' : `Teks dimuat ke Rujukan Kitab (hal. ${k.hal}). Pilih bentuk dan level, lalu Generate.`);
+  };
 
   const pending = qs.filter((q) => q.status === 'pending');
   // Antrean editor: dengan alur bertingkat, editor hanya melihat soal yang menunggu tahapnya (admin dan mapel satu tahap: semua).
@@ -613,7 +629,7 @@ function App({ user, profile }) {
         <KamusCtx.Provider value={kamusCtx}>
         <SaranCtx.Provider value={saranCtx}>
         {loadErr && <p role="alert" className="mb-4 rounded-xl bg-bad-bg px-4 py-3 text-sm text-bad">{loadErr}</p>}
-        {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor}
+        {tab === 'compose' && <Compose key={composeKey} form={form} setForm={setForm} editingId={editingId} onSave={saveDraft} onSend={sendEditor} kiriman={kirimanBaca} onKirimanDipakai={() => setKirimanBaca(null)}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
         {tab === 'paket' && <PaketDauri toast={toast} onSimpan={simpanPaket} onBukaBank={bukaPaketDiBank} onCekBank={cekKembarBank} />}
         {needsData && !loaded && <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>}
@@ -638,7 +654,8 @@ function App({ user, profile }) {
         {tab === 'pegon' && <PegonTab toast={toast} />}
         {bacaPernah.current && (
           <div hidden={tab !== 'baca'}>
-            <PembacaKitab key={bacaKunci} Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} tabAktif={tab === 'baca'} />
+            <PembacaKitab key={bacaKunci} Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} tabAktif={tab === 'baca'}
+              onKirimSoal={kirimDariBaca} katalog={appCfg.kitab} formTerisi={!!form.teks.trim()} konteksSoal={{ tingkat: form.tingkat, mapel: form.mapel, bentuk: form.bentuk, level: form.level }} />
             <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>
           </div>)}
         {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}

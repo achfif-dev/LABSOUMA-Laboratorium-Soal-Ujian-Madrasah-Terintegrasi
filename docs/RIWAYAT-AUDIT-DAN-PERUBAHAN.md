@@ -1804,3 +1804,32 @@ Tiga cara: satu halaman, geser (selisih dari satu nomor acuan), urutkan (nomori 
 **Perubahan.** Draf tanda batas (editor/admin) + penerapan menjadi halaman baru (admin) lewat ruang baru dan `impor-selesai`. File: `web/lib/batasCetak.js`, `src/kitabBatas.js`, `web/PenandaBatasCetak.jsx`, tombol di `web/PembacaKitab.jsx`, rute dan batas laju di `src/rute/kitab.js`, `buatPemuat` di `web/lib/perpus.js`, `hapusHalaman` diekspor dari `src/kitabImpor.js`, tes `test/batasCetak.test.js` (18 tes).
 **Temuan saat menguji.** Kunci batas laju `mulai` dan `tulis` semula sama, sehingga tujuh panggilan `tulis` menghabiskan jatah `mulai` (3/menit) dan mengulang penerapan ditolak 429; kini terpisah.
 **Batas yang diketahui.** Belum dicoba di Firestore sungguhan; belum ada penanda otomatis di antara dua jangkar (setiap halaman cetak ditandai dengan satu ketukan); koreksi teks saat penerapan berjalan ditolak (409) bila terjadi sebelum `tulis` berikutnya, tetapi koreksi sesudah `tulis` terakhir dan sebelum `impor-selesai` tidak terdeteksi.
+
+## [Audit dan perubahan] Alat AI di tab Kitab: terjemah, analisis, ekstrak fakta, dan soal dari teks yang diblok (18 November 2026)
+**Masalah.** Terjemah, analisis, ekstrak fakta, dan Generate hanya ada di Penyusunan Soal, yang bekerja dari kolom Teks Kitab. Pembaca kitab (`web/PembacaKitab.jsx`) hanya membaca, mencari, menyalin, dan (editor/admin) mengoreksi. Untuk memakai AI atas teks yang sedang dibaca, penyusun harus menyalin teks, pindah tab, menempel, lalu mengisi nama kitab, juz, halaman, dan bab sendiri; tautan rujukan ke halaman kitab ikut hilang.
+
+**Temuan audit.**
+1. Aksi server `terjemah`, `analisis`, dan `fakta` (`src/rute/assist.js`) sudah menerima `kitabId`, jadi otoritas kitab, validasi (6.000 karakter, teks Arab), kuota, dan pengembalian kuota saat gagal berlaku sama bila dipanggil dari pembaca. Tidak ada perubahan server.
+2. Generate soal tidak bisa dipindahkan begitu saja ke pembaca: ia bergantung pada bentuk, level, jenjang, kelas, periode, cakupan ujian, fokus, uji buta, dan `periksaRujukanDalamBatas`. Menduplikasinya menciptakan dua jalur pembuatan soal yang mudah menyimpang. Jalur tunggal dipertahankan di Penyusunan Soal.
+3. Di HP, mengetuk tombol meruntuhkan blok teks (selection) sebelum tombol bekerja. Blok harus ditangkap ke state saat dibuat, bukan dibaca saat tombol diketuk.
+4. Teks isi halaman berisi kepala halaman ("Hal. N", juz, urutan) di dalam elemen yang sama; tanpa `user-select: none` kepala itu ikut terblok.
+5. Kiriman ke Penyusunan Soal harus meniru pemilih perpustakaan: hanya kolom Rujukan Kitab (nama, juz, halaman, bab, teks, kitabId/halId/halIdAkhir) yang berubah; naskah soal tidak disentuh; sisa keadaan "teks dari foto" dibersihkan.
+
+**Perubahan.**
+- `web/lib/pilihanBaca.js` (baru, murni): `susunCakupan` (blok mengalahkan halaman; tanpa blok = halaman yang tampil, menghormati Matn/Syarah), `masalahCakupan` (kosong, di atas 6.000, bukan Arab, terlalu pendek), `urutanDariSimpul`, `kirimanDariCakupan` (rujukan menunjuk halaman tempat teks berada), `terapkanKiriman` (ganti atau tambah, batas 6.000, dua kitab berbeda melepas tautan tunggal), `campurKitab`.
+- `web/AlatTeksKitab.jsx` (baru): panel dengan penanda cakupan, tombol Terjemahkan, Analisis teks, Ekstrak fakta, Buat soal dari teks ini, dan Tambahkan ke teks di Susun Soal (bila form berisi). Hasil memakai `AssistView` dan `FaktaTeks`. Hasil untuk teks yang sama disimpan di memori dan tidak diminta ulang (tombol Ulangi untuk meminta lagi). Jenjang dan mapel diambil dari form Penyusunan Soal dan ditampilkan.
+- `web/PembacaKitab.jsx`: tombol "Alat AI" di bilah alat; blok ditangkap lewat `selectionchange` (ditunda 250 ms), bertahan sampai "Hapus pilihan", ganti halaman, atau ganti kitab; panel terbuka otomatis saat ada blok; `data-seq` pada tiap halaman untuk menentukan halaman yang disentuh blok; kepala halaman `select-none`; panel dinonaktifkan saat mode Koreksi teks atau Tandai hal. cetak aktif.
+- `web/App.jsx`: `kirimDariBaca` (konfirmasi bila teks Kitab di form akan diganti, atau mencampur dua kitab) dan state `kirimanBaca`; prop baru ke `PembacaKitab` dan `Compose`.
+- `web/Compose.jsx`: prop `kiriman`; saat dibuka memasang hasil ekstrak fakta/analisis, mengisi fokus dan level dari ide soal yang dipilih, dan membersihkan sisa keadaan foto.
+- `web/FaktaTeks.jsx`, `web/TinjauanView.jsx`: prop opsional `labelBuat`/`labelIde` dan `onOtomatis` opsional (bawaan tidak berubah).
+- Tes: `test/pilihanBaca.test.js` (11 tes: logika murni dan render panel).
+
+**Perilaku yang disengaja.** Soal TIDAK dibuat otomatis saat berpindah ke Penyusunan Soal: pengguna memilih bentuk dan level lalu menekan Generate. Alasannya kuota AI dan karena level ide/fakta perlu dicocokkan dengan bentuk soal.
+
+**Batas yang jujur dan belum dikerjakan.**
+- **Belum dicoba di perangkat.** Hanya ada build, lint, 1.146 tes lulus, dan render SSR panel. Blok teks sungguhan (gagang blok di Android/iOS), ketukan tombol saat blok aktif, dan alur klik sampai Penyusunan Soal belum dijalankan di aplikasi.
+- **Pemeriksaan batas ujian sisi klien tidak berlaku untuk kiriman dari pembaca.** `periksaRujukanDalamBatas` memakai `batasInfo` yang dihitung `PemilihKitab` saat kitab dipilih di Penyusunan Soal. Kiriman dari pembaca melewatinya, jadi teks di luar batas ujian tidak lagi ditolak PASTI sebelum kuota AI terpakai; ia tetap diperiksa AI lewat cakupan saat Generate (tidak sepasti kode). Perbaikan yang disarankan: hitung `selesaikanBatas` di Compose saat `kiriman` tiba dari `SIMPANAN.isi`.
+- Teks lebih dari 6.000 karakter tidak dipotong otomatis; pengguna diminta memblok sebagian.
+- `mapel`/`tingkat` AI mengikuti form Penyusunan Soal, bukan pilihan di pembaca. Bila form belum diatur, bawaan server (Aliyah/Fiqih) berlaku.
+- Terjemah/analisis/fakta hanya untuk teks Arab (sama dengan Penyusunan Soal); kitab Latin hanya bisa memakai Buat soal.
+- Ekstrak fakta di Paket Dauri, uji buta, dan telaah tidak diubah.

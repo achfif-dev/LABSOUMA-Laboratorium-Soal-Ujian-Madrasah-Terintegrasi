@@ -125,7 +125,7 @@ function PegonSoalInti({ form, toast, onUbah }) {
   );
 }
 
-export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ustadz = false }) {
+export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toast, ustadz = false, kiriman = null, onKirimanDipakai = () => {} }) {
   const cfg = useCfg();
   const babSaran = (React.useContext(SaranCtx).saran || { bab: [] }).bab.map((b) => b.nama);
   const [busy, setBusy] = useState(false);
@@ -368,6 +368,17 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
     } catch (e) { const er = apiErr(e); setAi(er ? { kind, error: er } : null); }
   };
   const useIdea = (x) => { set('level', x.level); setFokus(x.fokus); toast('Fokus dipilih. Tekan Generate untuk membuat soalnya.'); };
+  // Kiriman dari pembaca kitab (web/AlatTeksKitab.jsx, lewat App.kirimDariBaca): teks dan rujukan sudah ada di form. Di sini hanya keadaan lokal:
+  // sisa pembacaan foto dibersihkan (seperti memilih halaman dari perpustakaan), hasil ekstrak fakta/analisis ikut, dan fokus soal dipilih. Tidak membuat soal otomatis (hemat kuota).
+  useEffect(() => {
+    if (!kiriman) return;
+    if (!kiriman.tambah) { patchEx({ kFoto: false, kManual: false }); setFotoInfo(null); setKInfo(null); setKErr(null); }
+    if (kiriman.fk) { setFk(kiriman.fk); setTerpakai([]); }
+    if (kiriman.ai) setAi(kiriman.ai);
+    if (kiriman.ide) { set('level', kiriman.ide.level); patchEx({ fokus: kiriman.ide.fokus }); toast('Fokus dipilih. Tekan Generate untuk membuat soalnya.'); }
+    else if (kiriman.fakta) toast('Fakta dipilih. Tekan "Buat soal dari fakta ini" pada fakta tersebut di panel Fakta dari Teks.');
+    onKirimanDipakai();
+  }, [kiriman]);
 
   const runTelaah = async () => {
     const bad = arabicProblem(form.teks.trim());

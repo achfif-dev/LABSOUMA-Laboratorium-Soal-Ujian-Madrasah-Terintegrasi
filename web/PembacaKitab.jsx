@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, Hash, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, RefreshCw, Scissors, Search, SlidersHorizontal, X } from 'lucide-react';
+import { BadgeCheck, BookOpen, ChevronLeft, ChevronRight, Copy, Hash, List, Loader2, Maximize2, Minimize2, Minus, Pencil, Plus, RefreshCw, Scissors, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { buatPemuat, bagianTeks, labelEntri, rentangBab } from './lib/perpus.js';
 import { UKURAN_HURUF, LEBAR_BACA, pengaturanBaca, simpanPengaturanBaca, entriAktif, saringEntri, kursorSah, teksSalinan, labelSumberJenis } from './lib/pembaca.js';
 import { siapkanKueri, regexSorot, potongSorot, potongCuplikan, MODE_CARI } from './lib/cariKitab.js';
@@ -9,6 +9,8 @@ import PenyuntingHalaman from './PenyuntingHalaman.jsx';
 import DaftarIsiEditor from './DaftarIsiEditor.jsx';
 import PenyuntingNomor from './PenyuntingNomor.jsx';
 import PenandaBatasCetak, { TeksBertanda } from './PenandaBatasCetak.jsx';
+import AlatTeksKitab from './AlatTeksKitab.jsx';
+import { bersihkanPilihan, kirimanDariCakupan, susunCakupan, urutanDariSimpul } from './lib/pilihanBaca.js';
 import { adaTanda, tambahTanda, hapusTanda, usulHal, awalDi } from './lib/batasCetak.js';
 
 // Pembaca kitab penuh: dipakai untuk MEMBACA saja, tanpa membuat soal. Layar lebar (menutupi seluruh jendela), huruf Arab besar yang bisa diatur,
@@ -22,8 +24,10 @@ import { adaTanda, tambahTanda, hapusTanda, usulHal, awalDi } from './lib/batasC
 // Prop yang sama menampilkan tombol "Nomor hal." per halaman: menyamakan nomor halaman cetak dengan kitab cetak yang dipegang madrasah (web/PenyuntingNomor.jsx; server src/kitabNomor.js).
 // Tombol "Tandai hal. cetak": menandai kalimat tempat tiap halaman cetak dimulai (web/PenandaBatasCetak.jsx; server src/kitabBatas.js); admin menerapkannya menjadi halaman baru.
 // `bisaAdmin` hanya mengatur tampilan pilihan khusus admin di sana (server memeriksa peran sendiri).
+// Alat AI (web/AlatTeksKitab.jsx, tombol "Alat AI"): terjemah, analisis, ekstrak fakta, dan kirim ke Penyusunan Soal atas teks yang diblok di halaman (atau seluruh halaman yang tampil bila tidak ada blok).
+// Blok disimpan di state (selectionchange) supaya tidak hilang saat tombol diketuk (di HP, mengetuk tombol meruntuhkan blok). Tampil hanya bila `onKirimSoal` diberikan; `konteksSoal` = { tingkat, mapel, bentuk, level } dari form Penyusunan Soal; `katalog` = kitab di Konfigurasi.
 // Prop yang sama menampilkan "Sunting daftar isi" / "Buat daftar isi" di tab Daftar isi (web/DaftarIsiEditor.jsx; server src/kitabIsi.js).
-export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false, bisaAdmin = false, tabAktif = true }) {
+export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false, bisaAdmin = false, tabAktif = true, onKirimSoal = null, konteksSoal = {}, formTerisi = false, katalog = [] }) {
   const pem = useMemo(() => buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN), []);
   const [pref, setPref] = useState(pengaturanBaca);
   const [daftar, setDaftar] = useState(SIMPANAN.daftar);
@@ -52,6 +56,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   const [batas, setBatas] = useState(null);             // null = mode tandai batas halaman cetak tertutup; objek { tanda, rev, kotor, muat, usang, hal, juz }
   const [nomorBuka, setNomorBuka] = useState(false);   // true = penyunting nomor halaman cetak terbuka di atas halaman
   const [suntingIsi, setSuntingIsi] = useState(false);   // true = penyunting daftar isi terbuka (menggantikan panel samping; halaman kitab tetap tampil)
+  const [pilihan, setPilihan] = useState(null);         // { teks, seqs[] }: blok teks terakhir di halaman (bertahan sampai dihapus, berganti halaman, atau ganti kitab)
+  const [panelAi, setPanelAi] = useState(false);       // panel Alat AI terbuka
   const kursorRef = useRef(kursor); kursorRef.current = kursor;
   const kotorRef = useRef(false);                        // true = ada ketikan koreksi yang belum disimpan
   const kotorIsiRef = useRef(false);                     // true = ada suntingan daftar isi yang belum disimpan. Terpisah dari kotorRef: berpindah halaman TIDAK boleh menanyakan ini, karena penyunting daftar isi dipakai sambil membuka halaman kitab
@@ -81,7 +87,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   // Simpanan daftar bertahan selama halaman terbuka: selalu cocokkan ulang ke server saat layar dibuka (satu pembacaan murah), agar kitab yang dihapus atau diubah admin tidak tampil basi.
   useEffect(() => { pem.daftar(true).then(setDaftar).catch((e) => { if (!SIMPANAN.daftar) gagal(e); }); }, []);
   useEffect(() => {
-    setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false; kotorIsiRef.current = false;
+    setPilihan(null); setIsi(null); setHalaman([]); setKembar([]); setSaring(''); setSunting(null); setSuntingIsi(false); kotorRef.current = false; kotorIsiRef.current = false;
     urutCari.current++; setHasilCari(null); setKataSorot(null); setInfoCari(''); setCariBusy(false); // hasil kitab sebelumnya tidak berlaku
     if (!kitabId) return;
     setErr(null);
@@ -104,6 +110,23 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
   }, [isi, kursor, jumlah]);
 
   const kitab = isi && isi.kitab;
+  // Blok teks -> state (ditunda sebentar: saat gagang blok diseret, peristiwa datang berentet). Hanya blok di dalam isi halaman yang dihitung; blok yang runtuh TIDAK menghapus pilihan.
+  useEffect(() => {
+    if (!tabAktif || !onKirimSoal || !kitabId || sunting !== null || batas) return undefined;
+    let t = 0;
+    const baca = () => {
+      const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null; const area = areaRef.current;
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !area || !area.contains(sel.anchorNode) || !area.contains(sel.focusNode)) return;
+      const teks = bersihkanPilihan(sel.toString()); if (!teks) return;
+      const seq = (n) => { const el = n && (n.nodeType === 1 ? n : n.parentElement); const a = el && el.closest ? el.closest('[data-seq]') : null; return a ? a.getAttribute('data-seq') : null; };
+      setPilihan({ teks, seqs: urutanDariSimpul(seq(sel.anchorNode), seq(sel.focusNode)) }); setPanelAi(true);
+    };
+    const tunda = () => { clearTimeout(t); t = setTimeout(baca, 250); };
+    document.addEventListener('selectionchange', tunda);
+    return () => { clearTimeout(t); document.removeEventListener('selectionchange', tunda); };
+  }, [tabAktif, onKirimSoal, kitabId, sunting, batas]);
+  useEffect(() => { setPilihan(null); }, [kursor, jumlah, pref.bagian]); // pilihan berlaku untuk halaman yang tampil saat memblok
+  const cakupan = useMemo(() => susunCakupan({ pilihan, halaman, bagian: pref.bagian === 'matn' || pref.bagian === 'syarah' ? pref.bagian : 'semua' }), [pilihan, halaman, pref.bagian]);
   const arab = kitabArab(kitab); // kitab berhuruf Arab dibaca kanan ke kiri; buku berhuruf Latin kiri ke kanan (arah halaman, panah papan ketik, tombol)
   const tk = (ekstra) => tampilanTeks(kitab, ekstra);
   useEffect(() => { setBatas(null); }, [kitabId]);
@@ -251,6 +274,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
         {kitab && <p className="min-w-0 flex-1 truncate text-sm font-semibold sm:hidden" title={kitab.judulLatin}>{kitab.judulLatin}</p>}
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { if (panelIsi && tabSamping === 'isi') setPanelIsi(false); else { setPanelIsi(true); setTabSamping('isi'); } }} aria-pressed={panelIsi && tabSamping === 'isi'}><List size={16} /><span className="hidden sm:inline">Daftar isi</span></Btn>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={bukaCari} aria-pressed={panelIsi && tabSamping === 'cari'} aria-keyshortcuts="/" title="Cari teks di kitab ini (/)"><Search size={16} /><span className="hidden sm:inline">Cari teks</span></Btn>
+        {onKirimSoal && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => setPanelAi((v) => !v)} aria-pressed={panelAi} title="Terjemah, analisis, ekstrak fakta, dan buat soal dari teks yang diblok"><Sparkles size={16} /><span className="hidden sm:inline">Alat AI</span></Btn>}
         <Btn kind="ghost" className="!px-2.5 !py-1.5 !text-xs sm:!hidden" onClick={() => setAlatBuka((v) => !v)} aria-expanded={alatBuka} aria-label="Pengaturan tampilan" title="Pengaturan tampilan"><SlidersHorizontal size={16} /></Btn>
         <Btn kind="ghost" className="!px-2.5 !py-1.5 !text-xs sm:!hidden" onClick={() => setLebarLayar((v) => !v)} aria-pressed={lebarLayar} aria-label={lebarLayar ? 'Tutup layar lebar' : 'Layar lebar'} title={lebarLayar ? 'Tutup layar lebar' : 'Layar lebar'}>{lebarLayar ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</Btn>
         {/* Pengaturan: di HP berupa panel yang dibuka tombol di atas; di layar lebar (sm+) menyatu di baris yang sama (sm:contents). */}
@@ -410,8 +434,8 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
                 const disorot = sorot && p.seq >= sorot.dari && p.seq <= sorot.sampai;
                 const teks = bagianTeks(p, bagian);
                 return (
-                  <article key={p.seq} aria-label={`Halaman ${p.hal}`} className={`min-w-0 flex-1 rounded-xl px-2 py-2 sm:px-4 sm:py-3 ${disorot ? 'bg-soft ring-2 ring-brand' : ''}`}>
-                    <header dir="ltr" className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-1.5 text-xs text-mute">
+                  <article key={p.seq} data-seq={p.seq} aria-label={`Halaman ${p.hal}`} className={`min-w-0 flex-1 rounded-xl px-2 py-2 sm:px-4 sm:py-3 ${disorot ? 'bg-soft ring-2 ring-brand' : ''}`}>
+                    <header dir="ltr" className="mb-2 flex select-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-1.5 text-xs text-mute">
                       <b className="text-ink">Hal. {p.hal}</b><span>juz {p.juz}</span><span className="hidden sm:inline">urutan {p.seq}/{total}</span>
                       {p.potongan && <span>bagian {p.potongan.ke}/{p.potongan.dari}</span>}
                       {p.nomorAnomali && <span className="text-warn">nomor cetak {p.nomorAnomali}</span>}
@@ -441,7 +465,12 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
         </section>
       </div>
 
-      <div className={`flex items-center gap-2 rounded-2xl border border-line bg-surface px-2 py-1.5 shadow-sm sm:px-3 sm:py-2 ${lebarLayar ? 'm-2 mt-0' : 'sticky bottom-2 z-10 sm:static'}`}>
+      <div className={lebarLayar ? 'm-2 mt-0 space-y-2' : 'sticky bottom-2 z-10 space-y-2 sm:static'}>
+      {onKirimSoal && panelAi && kitab && !batas && sunting === null && (
+        <AlatTeksKitab Btn={Btn} callApi={callApi} apiErr={apiErr} kitab={kitab} kitabId={kitabId} cakupan={cakupan} arab={arab} konteks={konteksSoal} formTerisi={formTerisi}
+          onHapusPilihan={() => { setPilihan(null); try { window.getSelection().removeAllRanges(); } catch { /* tidak ada blok */ } }}
+          onKirim={(o) => { const k = kirimanDariCakupan({ kitab, kitabId, cakupan, katalog, babNama: babInfo && entri[aktif] ? entri[aktif].judul : '' }); if (!k) { setInfo('Belum ada teks untuk dikirim.'); return; } onKirimSoal({ ...o, kiriman: k }); }} />)}
+      <div className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-2 py-1.5 shadow-sm sm:px-3 sm:py-2">
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(-1)} disabled={busy || kursor <= 1} aria-label="Halaman sebelumnya" aria-keyshortcuts={arab ? 'ArrowRight' : 'ArrowLeft'} title={arab ? 'Halaman sebelumnya (→)' : 'Halaman sebelumnya (←)'}>{arab ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}<span className="hidden sm:inline">Sebelumnya</span></Btn>
         <div className="min-w-0 flex-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-soft" role="progressbar" aria-valuemin={1} aria-valuemax={total || 1} aria-valuenow={kursor} aria-label="Posisi baca">
@@ -449,6 +478,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
           <p className="mt-1 text-center text-xs text-mute">{halaman.length ? <>Hal. <b className="text-ink">{halaman.length > 1 ? `${halaman[0].hal}–${halaman[halaman.length - 1].hal}` : halaman[0].hal}</b> · urutan {kursor}/{total}</> : `Urutan ${kursor}/${total}`}{info ? ` · ${info}` : ''}</p>
         </div>
         <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => geser(1)} disabled={busy || kursor + jumlah - 1 >= total} aria-keyshortcuts={arab ? 'ArrowLeft' : 'ArrowRight'} aria-label="Halaman berikutnya" title={arab ? 'Halaman berikutnya (←, arah baca Arab)' : 'Halaman berikutnya (→)'}><span className="hidden sm:inline">Berikutnya</span>{arab ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</Btn>
+      </div>
       </div>
       {kembar.length > 0 && (
         <div className={`flex flex-wrap items-center gap-2 ${lebarLayar ? 'mx-2 mb-2' : ''}`} role="group" aria-label="Pilih halaman bernomor kembar">
