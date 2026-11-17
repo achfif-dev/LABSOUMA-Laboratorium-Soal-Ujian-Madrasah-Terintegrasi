@@ -50,9 +50,9 @@ export default function TampilanAdmin({ tampilan, onSaved, toast }) {
   const kanon = (x) => JSON.stringify(normalisasiTampilan(x));
   const dirty = kanon(d) !== kanon(tersimpan);
   const t = TEMPLAT[d.templat]; const e = efektif(d);
+  const [kat, setKat] = useState('semua');
   const pilihTemplat = (id) => setD({ templat: id, ganti: {} });
   const tampil = URUTAN_TEMPLAT.filter((id) => kat === 'semua' || TEMPLAT[id].kategori === kat);
-  const [kat, setKat] = useState('semua');
   // Sub-tab di kiri hidup di menu samping penuh: memilih menu lain mengembalikan sub-tab ke kepala; memilih sub-tab kiri otomatis memakai menu samping.
   const setOpsi = (k, v) => setD((x) => {
     const g = { ...x.ganti, [k]: v };
