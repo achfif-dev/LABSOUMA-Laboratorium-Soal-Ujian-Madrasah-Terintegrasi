@@ -54,46 +54,114 @@ const rgba = (hex, a) => `rgba(${keRgb(hex).join(',')},${a})`;
 const T = (o) => ({ ...STATUS_T, ...o, ring: rgba(o.brand, 0.28) });
 const G = (o) => ({ ...STATUS_G, ...o, ring: rgba(o.brand, 0.35) });
 
-const AWAL = { huruf: 'jakarta', hurufArab: 'amiri', sudut: 'sedang', kepadatan: 'normal', header: 'pola', kartu: 'bayangan', lebar: 'standar', nav: 'menu', mode: 'ikuti' };
+const AWAL = { huruf: 'jakarta', hurufArab: 'amiri', sudut: 'sedang', kepadatan: 'normal', header: 'pola', kartu: 'bayangan', lebar: 'standar', nav: 'menu', subtab: 'kapsul', mode: 'ikuti' };
+
+/**
+ * Palet lengkap (terang dan gelap) dari tiga warna: `brand` (merek), `tint` (rona netral untuk latar, garis, dan teks), `accent` (hiasan).
+ * Netral diturunkan dengan campuran, teks redup digeser sampai kontras >= 4,6:1, dan keluarga merek memakai turunkanWarna, jadi semua pasangan
+ * teks-latar memenuhi WCAG AA (diuji untuk setiap template).
+ */
+function paletTurunan({ brand, tint, accent, kertas = '#ffffff' }) {
+  const bgT = campur('#ffffff', tint, 0.06); const inkT = campur('#000000', tint, 0.14);
+  const bgG = campur('#000000', tint, 0.09); const surfG = campur('#000000', tint, 0.15); const inkG = campur('#ffffff', tint, 0.1);
+  const d = turunkanWarna(brand, { terang: { bg: bgT, surface: kertas }, gelap: { bg: bgG, surface: surfG } });
+  return {
+    terang: T({ bg: bgT, surface: kertas, ink: inkT, mute: pastikanKontras(campur(tint, '#000000', 0.45), bgT, 4.6, '#000000'), line: campur('#ffffff', tint, 0.2), ...d.terang, accent }),
+    gelap: G({ bg: bgG, surface: surfG, ink: inkG, mute: pastikanKontras(campur(inkG, bgG, 0.4), surfG, 4.6, '#ffffff'), line: campur('#000000', tint, 0.3), ...d.gelap, accent }),
+  };
+}
+
+export const KATEGORI = [
+  { id: 'bawaan', label: 'Bawaan', deskripsi: 'Tampilan asli aplikasi.' },
+  { id: 'minimalis', label: 'Minimalis', deskripsi: 'Sedikit hiasan, banyak ruang kosong, garis tipis.' },
+  { id: 'profesional', label: 'Profesional', deskripsi: 'Rapi dan padat untuk kerja harian dengan banyak data.' },
+  { id: 'modern', label: 'Modern', deskripsi: 'Warna segar, sudut membulat, kesan kekinian.' },
+  { id: 'klasik', label: 'Klasik', deskripsi: 'Huruf berkaki dan warna hangat bernuansa kitab.' },
+  { id: 'aksesibel', label: 'Nyaman dibaca', deskripsi: 'Dirancang agar nyaman dibaca lama dan oleh mata lelah.' },
+];
 
 export const TEMPLAT = {
   zamrud: {
-    label: 'Zamrud', deskripsi: 'Tampilan bawaan: hijau madrasah, menu buka-tutup di atas.', ...AWAL,
+    kategori: 'bawaan', label: 'Zamrud', deskripsi: 'Tampilan bawaan: hijau madrasah, menu buka-tutup di atas.', ...AWAL,
     terang: T({ bg: '#f4f7f5', surface: '#ffffff', ink: '#0f1f18', mute: '#53675d', line: '#dbe5df', brand: '#0d6b4e', 'brand-fg': '#ffffff', soft: '#e6f2ec', 'soft-ink': '#0a4d38', head: '#0a4535', 'head-ink': '#ecf7f1', accent: '#b8923a' }),
     gelap: G({ bg: '#0b130f', surface: '#121e18', ink: '#e6efe9', mute: '#98ada2', line: '#25382e', brand: '#3fbf8f', 'brand-fg': '#04231a', soft: '#173228', 'soft-ink': '#92e2c1', head: '#0a2a20', 'head-ink': '#e5f4ec', accent: '#d9b45f' }),
   },
   samudra: {
-    label: 'Samudra', deskripsi: 'Biru tenang dan bersih, menu di sisi kiri pada layar lebar.', ...AWAL, sudut: 'bulat', nav: 'samping',
+    kategori: 'profesional', label: 'Samudra', deskripsi: 'Biru tenang dan bersih; menu dan sub-tab berjajar ke bawah di sisi kiri pada layar lebar.', ...AWAL, sudut: 'bulat', nav: 'samping', subtab: 'kiri',
     terang: T({ bg: '#f3f6fb', surface: '#ffffff', ink: '#0f1a2b', mute: '#4f5e78', line: '#d9e1ee', brand: '#1d4ed8', 'brand-fg': '#ffffff', soft: '#e5ecfb', 'soft-ink': '#173a9c', head: '#14306b', 'head-ink': '#eaf0ff', accent: '#d99a14' }),
     gelap: G({ bg: '#0a1020', surface: '#111a2e', ink: '#e6ecf8', mute: '#9aa8c2', line: '#25324d', brand: '#6ea0ff', 'brand-fg': '#061230', soft: '#17243f', 'soft-ink': '#a9c6ff', head: '#0c1a3a', 'head-ink': '#e5eeff', accent: '#e8bd56' }),
   },
   tosca: {
-    label: 'Tosca', deskripsi: 'Hijau kebiruan yang segar, sudut membulat, tanpa pola di kepala.', ...AWAL, sudut: 'bulat', header: 'polos',
+    kategori: 'modern', label: 'Tosca', deskripsi: 'Hijau kebiruan yang segar, sudut membulat, tanpa pola di kepala.', ...AWAL, sudut: 'bulat', header: 'polos',
     terang: T({ bg: '#f2f8f8', surface: '#ffffff', ink: '#0c1f21', mute: '#4a6466', line: '#d6e6e7', brand: '#0f766e', 'brand-fg': '#ffffff', soft: '#e0f2f1', 'soft-ink': '#0a524c', head: '#0b4f4a', 'head-ink': '#e6f7f5', accent: '#c58a1f' }),
     gelap: G({ bg: '#081414', surface: '#0f1f1f', ink: '#e3f1f0', mute: '#92adab', line: '#213a3a', brand: '#3ccfc0', 'brand-fg': '#032420', soft: '#12312f', 'soft-ink': '#98ebe1', head: '#082826', 'head-ink': '#e0f5f3', accent: '#dcb257' }),
   },
   marun: {
-    label: 'Marun Klasik', deskripsi: 'Marun dan emas dengan huruf berkaki dan sudut tegas, kesan kitab klasik.', ...AWAL, huruf: 'serif', sudut: 'tajam',
+    kategori: 'klasik', label: 'Marun Klasik', deskripsi: 'Marun dan emas dengan huruf berkaki dan sudut tegas, kesan kitab klasik.', ...AWAL, huruf: 'serif', sudut: 'tajam',
     terang: T({ bg: '#f8f4f1', surface: '#fffdfb', ink: '#261512', mute: '#6a5650', line: '#e6dad3', brand: '#8a1f2d', 'brand-fg': '#ffffff', soft: '#f6e6e6', 'soft-ink': '#6b1521', head: '#5e1420', 'head-ink': '#fbeeee', accent: '#c9a24a' }),
     gelap: G({ bg: '#150d0c', surface: '#1f1413', ink: '#f2e8e5', mute: '#b9a39d', line: '#3a2623', brand: '#e58a96', 'brand-fg': '#2a0a10', soft: '#321b1d', 'soft-ink': '#f4b9c1', head: '#2a0d12', 'head-ink': '#f8e6e8', accent: '#d9b45f' }),
   },
   pasir: {
-    label: 'Pasir & Emas', deskripsi: 'Krem hangat dan cokelat emas, huruf berkaki, kartu bergaris.', ...AWAL, huruf: 'serif', kartu: 'garis',
+    kategori: 'klasik', label: 'Pasir & Emas', deskripsi: 'Krem hangat dan cokelat emas, huruf berkaki, kartu bergaris.', ...AWAL, huruf: 'serif', kartu: 'garis',
     terang: T({ bg: '#faf6ee', surface: '#fffefb', ink: '#231c0f', mute: '#625638', line: '#e8dec7', brand: '#8a5a00', 'brand-fg': '#ffffff', soft: '#f6ecd3', 'soft-ink': '#5e3d00', head: '#4a3300', 'head-ink': '#fbf1d9', accent: '#b8923a' }),
     gelap: G({ bg: '#14100a', surface: '#1e1810', ink: '#f2eadb', mute: '#b8a98a', line: '#3a2f1e', brand: '#e8b84a', 'brand-fg': '#2a1b00', soft: '#33280f', 'soft-ink': '#f5d98f', head: '#2a1f08', 'head-ink': '#f8ecd0', accent: '#e8bd56' }),
   },
   grafit: {
-    label: 'Grafit Netral', deskripsi: 'Abu-abu netral, rapat dan lebar untuk banyak data, menu di sisi kiri.', ...AWAL, huruf: 'sistem', kepadatan: 'ringkas', header: 'polos', kartu: 'garis', lebar: 'lebar', nav: 'samping',
+    kategori: 'profesional', label: 'Grafit Netral', deskripsi: 'Abu-abu netral, rapat dan lebar untuk banyak data; menu dan sub-tab di sisi kiri.', ...AWAL, huruf: 'sistem', kepadatan: 'ringkas', header: 'polos', kartu: 'garis', lebar: 'lebar', nav: 'samping', subtab: 'kiri',
     terang: T({ bg: '#f5f6f8', surface: '#ffffff', ink: '#12161c', mute: '#515b68', line: '#dcdfe5', brand: '#334155', 'brand-fg': '#ffffff', soft: '#e8ebf0', 'soft-ink': '#1f2937', head: '#1f2937', 'head-ink': '#f1f5f9', accent: '#b8923a' }),
     gelap: G({ bg: '#0d1015', surface: '#151a21', ink: '#e6e9ee', mute: '#9aa3b0', line: '#262d37', brand: '#9fb3cc', 'brand-fg': '#0b1320', soft: '#1c2430', 'soft-ink': '#c7d4e6', head: '#10151c', 'head-ink': '#e6e9ee', accent: '#d9b45f' }),
   },
   kontras: {
-    label: 'Kontras Tinggi', deskripsi: 'Hitam-putih dengan huruf besar dan lega; mudah dibaca di layar redup atau oleh mata lelah.', ...AWAL, huruf: 'sistem', kepadatan: 'lega', kartu: 'garis', header: 'polos',
+    kategori: 'aksesibel', label: 'Kontras Tinggi', deskripsi: 'Hitam-putih dengan huruf besar dan lega; mudah dibaca di layar redup atau oleh mata lelah.', ...AWAL, huruf: 'sistem', kepadatan: 'lega', kartu: 'garis', header: 'polos',
     terang: T({ bg: '#ffffff', surface: '#ffffff', ink: '#000000', mute: '#2b2b2b', line: '#6b6b6b', brand: '#0a3bd0', 'brand-fg': '#ffffff', soft: '#e8eeff', 'soft-ink': '#06279a', head: '#000000', 'head-ink': '#ffffff', accent: '#8a5a00', warn: '#5c3d00', bad: '#8a0f09', ok: '#064a2f' }),
     gelap: G({ bg: '#000000', surface: '#0b0b0b', ink: '#ffffff', mute: '#d0d0d0', line: '#8a8a8a', brand: '#8fb4ff', 'brand-fg': '#000000', soft: '#14213f', 'soft-ink': '#c9daff', head: '#000000', 'head-ink': '#ffffff', accent: '#ffd36b' }),
   },
+  putih: {
+    kategori: 'minimalis', label: 'Putih Bersih', deskripsi: 'Putih dan abu-abu tipis, kartu hanya bergaris, konten dipersempit agar fokus; sub-tab bergaris bawah.', ...AWAL, huruf: 'inter', header: 'polos', kartu: 'garis', lebar: 'sempit', subtab: 'garis',
+    ...paletTurunan({ brand: '#1f2937', tint: '#64748b', accent: '#94a3b8' }),
+  },
+  kertas: {
+    kategori: 'minimalis', label: 'Kertas', deskripsi: 'Krem pucat seperti halaman buku, huruf berkaki, tanpa bayangan; tenang untuk membaca soal.', ...AWAL, huruf: 'lora', sudut: 'tajam', header: 'polos', kartu: 'garis', lebar: 'sempit', subtab: 'garis',
+    ...paletTurunan({ brand: '#44403c', tint: '#8b7355', accent: '#a8a29e', kertas: '#fffdf8' }),
+  },
+  satuwarna: {
+    kategori: 'minimalis', label: 'Satu Warna', deskripsi: 'Netral dengan satu aksen biru; menu berupa rel ikon ramping di kiri agar layar lega.', ...AWAL, huruf: 'inter', header: 'polos', kartu: 'garis', nav: 'rel',
+    ...paletTurunan({ brand: '#2563eb', tint: '#475569', accent: '#93c5fd' }),
+  },
+  korporat: {
+    kategori: 'profesional', label: 'Korporat', deskripsi: 'Biru baja dan emas tipis, huruf teknis, rapat dan lebar; menu serta sub-tab ke bawah di kiri.', ...AWAL, huruf: 'ibmplex', kepadatan: 'ringkas', kartu: 'garis', lebar: 'lebar', nav: 'samping', subtab: 'kiri',
+    ...paletTurunan({ brand: '#0f4c81', tint: '#475569', accent: '#c9a227' }),
+  },
+  safir: {
+    kategori: 'klasik', label: 'Safir Klasik', deskripsi: 'Biru safir tua dan emas, huruf berkaki tegas, sudut tajam; kesan resmi dan berwibawa.', ...AWAL, huruf: 'merriweather', sudut: 'tajam',
+    ...paletTurunan({ brand: '#1e3a8a', tint: '#3b4a6b', accent: '#c9a24a' }),
+  },
+  zaitun: {
+    kategori: 'klasik', label: 'Zaitun', deskripsi: 'Hijau zaitun yang teduh dengan huruf berkaki; hangat dan tidak mencolok.', ...AWAL, huruf: 'lora',
+    ...paletTurunan({ brand: '#4d6b1f', tint: '#6b7a3a', accent: '#b8923a' }),
+  },
+  violet: {
+    kategori: 'modern', label: 'Violet', deskripsi: 'Ungu segar, sudut membulat, huruf geometris; menu dan sub-tab di kiri.', ...AWAL, huruf: 'poppins', sudut: 'bulat', header: 'polos', nav: 'samping', subtab: 'kiri',
+    ...paletTurunan({ brand: '#6d28d9', tint: '#7c6fb0', accent: '#f59e0b' }),
+  },
+  senja: {
+    kategori: 'modern', label: 'Senja', deskripsi: 'Jingga hangat dan huruf ramah, sudut membulat; rel ikon di kiri, sub-tab bergaris bawah.', ...AWAL, huruf: 'nunito', sudut: 'bulat', header: 'polos', nav: 'rel', subtab: 'garis',
+    ...paletTurunan({ brand: '#c2410c', tint: '#b08968', accent: '#fbbf24' }),
+  },
+  mawar: {
+    kategori: 'modern', label: 'Mawar', deskripsi: 'Merah muda tua yang tegas dan ceria, huruf geometris, sudut membulat.', ...AWAL, huruf: 'poppins', sudut: 'bulat',
+    ...paletTurunan({ brand: '#be123c', tint: '#b0708a', accent: '#fda4af' }),
+  },
+  malam: {
+    kategori: 'modern', label: 'Malam', deskripsi: 'Selalu gelap, biru langit di atas hitam kebiruan; nyaman di ruangan redup. Menu dan sub-tab di kiri.', ...AWAL, huruf: 'inter', sudut: 'bulat', header: 'polos', kartu: 'garis', nav: 'samping', subtab: 'kiri', mode: 'gelap',
+    ...paletTurunan({ brand: '#0284c7', tint: '#5b6b8c', accent: '#38bdf8' }),
+  },
+  nyaman: {
+    kategori: 'aksesibel', label: 'Nyaman Mata', deskripsi: 'Huruf Atkinson yang sangat jelas, lega, krem lembut tanpa silau; cocok untuk membaca lama.', ...AWAL, huruf: 'atkinson', kepadatan: 'lega', header: 'polos', kartu: 'garis',
+    ...paletTurunan({ brand: '#1f5f8b', tint: '#8a8366', accent: '#d4a017', kertas: '#fffef9' }),
+  },
 };
-export const URUTAN_TEMPLAT = ['zamrud', 'samudra', 'tosca', 'marun', 'pasir', 'grafit', 'kontras'];
+export const URUTAN_TEMPLAT = ['zamrud', 'putih', 'kertas', 'satuwarna', 'samudra', 'korporat', 'grafit', 'tosca', 'violet', 'senja', 'mawar', 'malam', 'marun', 'pasir', 'safir', 'zaitun', 'kontras', 'nyaman'];
 export const TEMPLAT_AWAL = 'zamrud';
 
 /* ------------------------------------------------------------- Huruf */
@@ -124,12 +192,13 @@ export const HURUF_ARAB = {
 export const OPSI = {
   huruf: { label: 'Huruf teks (Latin)', nilai: Object.fromEntries(Object.entries(HURUF_LATIN).map(([k, v]) => [k, v.label])) },
   hurufArab: { label: 'Huruf Arab', nilai: Object.fromEntries(Object.entries(HURUF_ARAB).map(([k, v]) => [k, v.label])) },
+  nav: { label: 'Letak menu utama', nilai: { menu: 'Menu buka-tutup di kepala (bawaan)', samping: 'Menu tetap di sisi kiri (layar lebar)', rel: 'Rel ikon ramping di sisi kiri (layar lebar)' } },
+  subtab: { label: 'Letak sub-tab', nilai: { kapsul: 'Kapsul di kepala (bawaan)', garis: 'Tab bergaris bawah di kepala', kiri: 'Daftar ke bawah di menu kiri (layar lebar)' } },
   sudut: { label: 'Sudut kartu dan tombol', nilai: { tajam: 'Tegas', sedang: 'Sedang (bawaan)', bulat: 'Membulat' } },
   kepadatan: { label: 'Kepadatan', nilai: { ringkas: 'Rapat', normal: 'Normal (bawaan)', lega: 'Lega (huruf lebih besar)' } },
   header: { label: 'Kepala halaman', nilai: { pola: 'Berpola dan bergaris emas (bawaan)', polos: 'Polos' } },
   kartu: { label: 'Panel isi', nilai: { bayangan: 'Berbayang (bawaan)', garis: 'Hanya garis tepi' } },
   lebar: { label: 'Lebar konten', nilai: { sempit: 'Sempit', standar: 'Standar (bawaan)', lebar: 'Lebar' } },
-  nav: { label: 'Letak menu', nilai: { menu: 'Menu buka-tutup di kepala (bawaan)', samping: 'Menu tetap di sisi kiri (layar lebar)' } },
   mode: { label: 'Mode warna', nilai: { ikuti: 'Ikuti pengaturan perangkat (bawaan)', terang: 'Selalu terang', gelap: 'Selalu gelap' } },
 };
 export const KUNCI_OPSI = Object.keys(OPSI);
@@ -151,6 +220,7 @@ export function efektif(m) {
   const n = normalisasiTampilan(m); const t = TEMPLAT[n.templat];
   const e = { templat: n.templat, warnaUtama: n.ganti.warnaUtama || '' };
   for (const k of KUNCI_OPSI) e[k] = n.ganti[k] || t[k];
+  if (e.subtab === 'kiri' && e.nav !== 'samping') e.nav = 'samping'; // sub-tab di kiri hidup di menu samping penuh (rel ikon terlalu sempit)
   let terang = t.terang; let gelap = t.gelap;
   if (e.warnaUtama) { const d = turunkanWarna(e.warnaUtama, t); terang = { ...terang, ...d.terang }; gelap = { ...gelap, ...d.gelap }; }
   return { ...e, terang, gelap };
@@ -197,7 +267,7 @@ export function cssTampilan(m) {
 /** Atribut data-* pada <html>: hanya yang perlu dibaca JavaScript atau CSS bentuk. */
 export function atributTampilan(m) {
   const e = efektif(m);
-  return { 'data-nav': e.nav, 'data-templat': e.templat, 'data-tema-paksa': e.mode === 'ikuti' ? null : (e.mode === 'terang' ? 'light' : 'dark') };
+  return { 'data-nav': e.nav, 'data-subtab': e.subtab, 'data-templat': e.templat, 'data-tema-paksa': e.mode === 'ikuti' ? null : (e.mode === 'terang' ? 'light' : 'dark') };
 }
 
 export const ID_STYLE = 'tampilan-kustom';
@@ -217,7 +287,7 @@ export function terapkanTampilan(m, doc = (typeof document !== 'undefined' ? doc
   const css = cssTampilan(m); const a = atributTampilan(m); const root = doc.documentElement;
   let el = doc.getElementById(ID_STYLE);
   if (css) { if (!el) { el = doc.createElement('style'); el.id = ID_STYLE; doc.head.appendChild(el); } if (el.textContent !== css) el.textContent = css; } else if (el) el.remove();
-  root.setAttribute('data-nav', a['data-nav']); root.setAttribute('data-templat', a['data-templat']);
+  root.setAttribute('data-nav', a['data-nav']); root.setAttribute('data-subtab', a['data-subtab']); root.setAttribute('data-templat', a['data-templat']);
   if (a['data-tema-paksa']) root.setAttribute('data-theme', a['data-tema-paksa']); else root.removeAttribute('data-theme');
   const href = urlHuruf(m); let ln = doc.getElementById(ID_FONT);
   if (href) { if (!ln) { ln = doc.createElement('link'); ln.id = ID_FONT; ln.rel = 'stylesheet'; doc.head.appendChild(ln); } if (ln.href !== href) ln.href = href; } else if (ln) ln.remove();

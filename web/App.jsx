@@ -498,15 +498,44 @@ function App({ user, profile }) {
   const NAV = NV.bangunNav(TABS);
   const grupAktif = NAV.find((g) => g.items.some((t) => t.id === tab)) || null;
   const tampilGrup = (g) => (g.items.length === 1 ? { label: g.items[0].label, Ikon: g.items[0].icon } : { label: g.label, Ikon: IKON_GRUP[g.id] || Menu });
-  const samping = TP.efektif(tampilan).nav === 'samping'; // menu tetap di sisi kiri pada layar lebar (template Samudra, Grafit, atau pilihan admin)
-  const daftarGrup = NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
-                  <button key={g.id} type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG ? 'page' : undefined}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
-                    <T.Ikon size={17} className="shrink-0" />
-                    <span className="min-w-0 flex-1">{T.label}{g.items.length > 1 && <span className="block truncate text-xs font-normal text-mute">{g.items.map((t) => NV.SUB_LABEL[t.id] || t.label).join(' · ')}</span>}</span>
-                    {g.lencana > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{g.lencana}</span>}
-                  </button>
-                ); });
+  // Letak menu dan sub-tab (diatur admin di Tampilan Aplikasi; web/lib/tampilan.js). Hanya berlaku di layar lebar (md ke atas); di HP tetap menu buka-tutup + sub-tab di kepala.
+  const TE = TP.efektif(tampilan);
+  const samping = TE.nav === 'samping'; const rel = TE.nav === 'rel'; const sisi = samping || rel;
+  const subKiri = samping && TE.subtab === 'kiri'; const subGaris = TE.subtab === 'garis';
+  const klsSubKepala = (aktif) => (subGaris
+    ? `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-semibold transition ${aktif ? 'border-current' : 'border-transparent opacity-75 hover:opacity-100'}`
+    : `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${aktif ? 'bg-white/25' : 'bg-white/10 hover:bg-white/15'}`);
+  // Daftar grup menu. `denganSub`: item sub-tab grup aktif ikut ditampilkan ke bawah (menu samping dengan sub-tab di kiri).
+  const buatDaftarGrup = (denganSub) => NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
+    <React.Fragment key={g.id}>
+      <button type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG && !(denganSub && g.items.length > 1) ? 'page' : undefined} aria-expanded={denganSub && g.items.length > 1 ? !!aktifG : undefined}
+        className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+        <T.Ikon size={17} className="shrink-0" />
+        <span className="min-w-0 flex-1">{T.label}{!denganSub && g.items.length > 1 && <span className="block truncate text-xs font-normal text-mute">{g.items.map((t) => NV.SUB_LABEL[t.id] || t.label).join(' · ')}</span>}</span>
+        {g.lencana > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{g.lencana}</span>}
+      </button>
+      {denganSub && aktifG && g.items.length > 1 && (
+        <div role="group" aria-label={'Sub-tab ' + g.label} className="mb-1 ml-5 mt-0.5 space-y-0.5 border-l border-line pl-2">
+          {g.items.map((t) => (
+            <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${tab === t.id ? 'bg-brand font-semibold text-brand-fg' : 'font-medium hover:bg-soft'}`}>
+              <t.icon size={15} className="shrink-0" /><span className="min-w-0 flex-1 truncate">{NV.SUB_LABEL[t.id] || t.label}</span>
+              {t.n > 0 && <span className={`rounded-full px-1.5 text-xs ${tab === t.id ? 'bg-white/25' : 'bg-soft text-soft-ink'}`}>{t.n}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </React.Fragment>
+  ); });
+  const daftarGrup = buatDaftarGrup(false);
+  // Rel ikon ramping: ikon di atas, label singkat di bawah.
+  const daftarRel = NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
+    <button key={g.id} type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG ? 'page' : undefined} title={T.label}
+      className={`relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2.5 text-center text-[11px] font-semibold leading-tight transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+      <T.Ikon size={20} className="shrink-0" /><span className="block w-full break-words">{T.label}</span>
+      {g.lencana > 0 && <span className="absolute right-1 top-1 rounded-full bg-brand px-1.5 py-px text-[10px] text-brand-fg">{g.lencana}</span>}
+    </button>
+  ); });
   const pendingBadge = canReview ? antrian.length : 0;
   const kuotaGenting = !!(isAdmin && kuotaRingkas && kuotaRingkas.peringatan > 0);
 
@@ -518,7 +547,7 @@ function App({ user, profile }) {
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
           <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hidden shrink-0 rounded-lg sm:block"><AppLogo size={36} /></button>
-          <div ref={menuRef} className={`relative min-w-0 flex-1${samping ? ' md:hidden' : ''}`}>
+          <div ref={menuRef} className={`relative min-w-0 flex-1${sisi ? ' md:hidden' : ''}`}>
             <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0">{menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
@@ -540,7 +569,7 @@ function App({ user, profile }) {
               </nav>
             )}
           </div>
-          {samping && <span className="hidden min-w-0 flex-1 truncate px-2 text-sm font-extrabold tracking-[.08em] md:block">{MEREK.nama}</span>}
+          {sisi && <span className="hidden min-w-0 flex-1 truncate px-2 text-sm font-extrabold tracking-[.08em] md:block">{MEREK.nama}</span>}
           <div className="flex shrink-0 items-center gap-2">
             {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
             <div className="hidden text-right text-xs md:block"><p className="font-semibold">{displayName}</p><p className="opacity-75">{ROLE_LABEL[profile.role]}</p></div>
@@ -548,10 +577,10 @@ function App({ user, profile }) {
           </div>
         </div>
         {grupAktif && grupAktif.items.length > 1 && (
-          <nav ref={subNavRef} aria-label={'Sub-tab ' + grupAktif.label} className="subtab-fade relative mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] max-sm:[&>*:first-child]:ml-auto max-sm:[&>*:last-child]:mr-auto">
+          <nav ref={subNavRef} aria-label={'Sub-tab ' + grupAktif.label} className={`subtab-fade relative mx-auto flex max-w-6xl ${subGaris ? 'gap-3 border-b border-white/15' : 'gap-1.5'}${subKiri ? ' md:hidden' : ''} overflow-x-auto pb-2 [scrollbar-width:none] max-sm:[&>*:first-child]:ml-auto max-sm:[&>*:last-child]:mr-auto`}>
             {grupAktif.items.map((t) => (
               <button key={t.id} type="button" onClick={() => pilihTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
-                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === t.id ? 'bg-white/25' : 'bg-white/10 hover:bg-white/15'}`}>
+                className={klsSubKepala(tab === t.id)}>
                 <t.icon size={14} className="shrink-0" />{NV.SUB_LABEL[t.id] || t.label}
                 {t.n > 0 && <span className="rounded-full bg-white/20 px-1.5 text-xs">{t.n}</span>}
               </button>
@@ -560,15 +589,17 @@ function App({ user, profile }) {
         )}
       </div>
 
-      <div className={samping ? 'mx-auto max-w-[88rem] md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:gap-6' : undefined}>
-      {samping && (
+      <div className={sisi ? `mx-auto max-w-[88rem] md:grid md:gap-6 ${rel ? 'md:grid-cols-[4.75rem_minmax(0,1fr)]' : 'md:grid-cols-[15rem_minmax(0,1fr)]'}` : undefined}>
+      {sisi && (
         <aside className="hidden md:block">
-          <nav aria-label="Navigasi utama (samping)" className="sticky mt-6 overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink" style={{ top: '7rem' }}>
-            {daftarGrup}
-            <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
-              <p className="truncate text-xs font-semibold">{displayName}</p>
-              <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
-            </div>
+          <nav aria-label="Navigasi utama (samping)" className="sticky mt-6 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 text-ink" style={{ top: '7rem' }}>
+            {rel ? daftarRel : buatDaftarGrup(subKiri)}
+            {!rel && (
+              <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
+                <p className="truncate text-xs font-semibold">{displayName}</p>
+                <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
+              </div>
+            )}
           </nav>
         </aside>
       )}
