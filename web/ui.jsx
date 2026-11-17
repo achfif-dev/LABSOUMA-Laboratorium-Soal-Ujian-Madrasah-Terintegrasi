@@ -70,22 +70,27 @@ const Select = ({ id, value, onChange, children, className = '', ...rest }) => (
 // `lipat`: di HP (lebar < 640px) seksi dimulai tertutup dan dibuka dengan mengetuk judulnya, supaya halaman panjang tidak perlu digulir jauh.
 // Isi tetap terpasang (hanya disembunyikan) agar isian di dalamnya tidak hilang; di layar lebar seksi selalu terbuka.
 const layarHp = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width: 639px)').matches;
-const Section = ({ title, icon: Icon, children, action, lipat = false }) => {
-  const [buka, setBuka] = useState(() => !(lipat && layarHp()));
+// `lipat`: bisa dilipat di HP saja (di desktop selalu terbuka). `lipatSemua`: bisa dilipat di semua layar dan tertutup saat pertama dibuka
+// (untuk panel besar yang jarang dipakai); isinya tetap terpasang saat tertutup, jadi isian yang sedang diedit tidak hilang.
+const Section = ({ title, icon: Icon, children, action, lipat = false, lipatSemua = false }) => {
+  const dapatLipat = lipat || lipatSemua;
+  const [buka, setBuka] = useState(() => (lipatSemua ? false : !(lipat && layarHp())));
+  const tutup = dapatLipat && !buka;
+  const sembunyi = tutup ? (lipatSemua ? 'hidden' : 'max-sm:hidden') : '';
   const judul = <>{Icon && <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-soft text-soft-ink"><Icon size={15} /></span>}{title}</>;
   return (
     <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
-      <div className={`flex flex-wrap items-center justify-between gap-2 ${lipat && !buka ? '' : 'mb-4'}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${tutup ? '' : 'mb-4'}`}>
         <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-bold text-ink">
-          {lipat ? (
-            <button type="button" aria-expanded={buka} onClick={() => setBuka((b) => !b)} className="flex min-h-[40px] w-full items-center gap-2.5 text-left sm:pointer-events-none sm:min-h-0">
-              {judul}<ChevronDown size={18} className={`ml-auto shrink-0 text-mute transition-transform sm:hidden ${buka ? 'rotate-180' : ''}`} aria-hidden="true" />
+          {dapatLipat ? (
+            <button type="button" aria-expanded={buka} onClick={() => setBuka((b) => !b)} className={`flex min-h-[40px] w-full items-center gap-2.5 text-left ${lipatSemua ? '' : 'sm:pointer-events-none sm:min-h-0'}`}>
+              {judul}<ChevronDown size={18} className={`ml-auto shrink-0 text-mute transition-transform ${lipatSemua ? '' : 'sm:hidden'} ${buka ? 'rotate-180' : ''}`} aria-hidden="true" />
             </button>
           ) : judul}
         </h2>
-        <div className={lipat && !buka ? 'max-sm:hidden' : ''}>{action}</div>
+        <div className={sembunyi}>{action}</div>
       </div>
-      <div className={lipat && !buka ? 'max-sm:hidden' : ''}>{children}</div>
+      <div className={sembunyi}>{children}</div>
     </section>
   );
 };

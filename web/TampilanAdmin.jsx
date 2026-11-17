@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Palette, RotateCcw, Save } from 'lucide-react';
 import { HEX, KATEGORI, KUNCI_OPSI, OPSI, TEMPLAT, URUTAN_TEMPLAT, TAMPILAN_BAWAAN, efektif, normalisasiTampilan, terapkanTampilan, turunkanWarna } from './lib/tampilan.js';
-import { Btn, Label, callApi, apiErr } from './ui.jsx';
+import { Btn, Label, Section, callApi, apiErr } from './ui.jsx';
 
 /** Kotak pratinjau mini satu template (selalu palet terang): kepala, tombol, kartu. Tidak bergantung pada tema aplikasi yang sedang aktif. */
 function Mini({ id }) {
@@ -75,10 +75,10 @@ export default function TampilanAdmin({ tampilan, onSaved, toast }) {
   };
 
   return (
-    <section className="space-y-5 rounded-2xl border border-line bg-surface p-4 sm:p-5" aria-label="Tampilan aplikasi">
+    <Section title={`Tampilan Aplikasi (${t.label}${dirty ? ', belum disimpan' : ''})`} icon={Palette} lipatSemua>
+      <div className="space-y-5">
       <div>
-        <h2 className="flex items-center gap-2 text-base font-bold"><Palette size={18} />Tampilan Aplikasi</h2>
-        <p className="mt-1 text-xs leading-relaxed text-mute">
+        <p className="text-xs leading-relaxed text-mute">
           Pilih template, lalu sesuaikan bila perlu. Perubahan langsung terlihat di layar ini sebagai pratinjau, dan baru berlaku untuk semua pengguna setelah <b className="text-ink">Simpan</b>.
           Setiap template sudah diuji agar teks tetap terbaca di mode terang maupun gelap.
         </p>
@@ -152,6 +152,7 @@ export default function TampilanAdmin({ tampilan, onSaved, toast }) {
         <Btn kind="ghost" onClick={() => setD(TAMPILAN_BAWAAN)} disabled={busy || kanon(d) === kanon(TAMPILAN_BAWAAN)}><RotateCcw size={16} />Kembali ke tampilan bawaan</Btn>
       </div>
       {dirty && <p role="status" className="text-xs text-warn">Ada perubahan yang belum disimpan; hanya Anda yang melihatnya sebagai pratinjau.</p>}
-    </section>
+      </div>
+    </Section>
   );
 }
