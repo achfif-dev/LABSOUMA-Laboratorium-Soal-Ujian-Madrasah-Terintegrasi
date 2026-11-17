@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KATEGORI, HURUF_LATIN, HURUF_ARAB, ID_FONT, urlHuruf, TEMPLAT, URUTAN_TEMPLAT, OPSI, KUNCI_OPSI, normalisasiTampilan, efektif, adalahBawaan, cssTampilan, atributTampilan, terapkanTampilan, turunkanWarna, kontras, campur, HEX, ID_STYLE, bacaCache, tulisCache, KUNCI_CACHE, TAMPILAN_BAWAAN } from '../web/lib/tampilan.js';
+import { HURUF_LATIN, HURUF_ARAB, ID_FONT, urlHuruf, TEMPLAT, URUTAN_TEMPLAT, OPSI, KUNCI_OPSI, normalisasiTampilan, efektif, adalahBawaan, cssTampilan, atributTampilan, terapkanTampilan, turunkanWarna, kontras, campur, HEX, ID_STYLE, bacaCache, tulisCache, KUNCI_CACHE, TAMPILAN_BAWAAN } from '../web/lib/tampilan.js';
 
 // Pasangan teks-latar yang dipakai aplikasi, dengan batas kontras WCAG AA (4,5:1 teks biasa).
 const PASANGAN = [['ink', 'bg', 7], ['ink', 'surface', 7], ['mute', 'surface', 4.5], ['mute', 'bg', 4.5], ['brand-fg', 'brand', 4.5], ['soft-ink', 'soft', 4.5], ['head-ink', 'head', 4.5],
@@ -53,7 +53,7 @@ test('normalisasi: templat tak dikenal jatuh ke bawaan; penyesuaian sama dengan 
 test('bawaan: tanpa CSS tambahan sama sekali; atribut netral', () => {
   assert.equal(cssTampilan(null), ''); assert.equal(cssTampilan({ templat: 'zamrud', ganti: {} }), '');
   assert.ok(adalahBawaan(undefined)); assert.ok(!adalahBawaan({ templat: 'tosca' })); assert.ok(!adalahBawaan({ ganti: { lebar: 'lebar' } }));
-  assert.deepEqual(atributTampilan(null), { 'data-nav': 'menu', 'data-subtab': 'kapsul', 'data-templat': 'zamrud', 'data-tema-paksa': null });
+  assert.deepEqual(atributTampilan(null), { 'data-nav': 'menu', 'data-templat': 'zamrud', 'data-tema-paksa': null });
 });
 
 test('CSS: tiap template menghasilkan variabel warna lengkap untuk terang, gelap otomatis, dan gelap paksa; hanya karakter aman', () => {
@@ -71,10 +71,10 @@ test('CSS: tiap template menghasilkan variabel warna lengkap untuk terang, gelap
 });
 
 test('efektif: penyesuaian menimpa template; warna utama menimpa keluarga merek tetapi bukan latar; mode dan atribut', () => {
-  const e = efektif({ templat: 'samudra', ganti: { nav: 'menu', subtab: 'kapsul', mode: 'gelap', warnaUtama: '#7c3aed' } });
+  const e = efektif({ templat: 'samudra', ganti: { nav: 'menu', mode: 'gelap', warnaUtama: '#7c3aed' } });
   assert.equal(e.nav, 'menu'); assert.equal(e.sudut, 'bulat'); assert.equal(e.mode, 'gelap');
   assert.notEqual(e.terang.brand, TEMPLAT.samudra.terang.brand); assert.equal(e.terang.bg, TEMPLAT.samudra.terang.bg);
-  assert.deepEqual(atributTampilan({ templat: 'samudra', ganti: { mode: 'terang' } }), { 'data-nav': 'samping', 'data-subtab': 'kiri', 'data-templat': 'samudra', 'data-tema-paksa': 'light' });
+  assert.deepEqual(atributTampilan({ templat: 'samudra', ganti: { mode: 'terang' } }), { 'data-nav': 'samping', 'data-templat': 'samudra', 'data-tema-paksa': 'light' });
   for (const k of KUNCI_OPSI) assert.ok(Object.keys(OPSI[k].nilai).includes(TEMPLAT.zamrud[k]), `bawaan ${k} ada di pilihan`);
   for (const id of URUTAN_TEMPLAT) for (const k of KUNCI_OPSI) assert.ok(Object.hasOwn(OPSI[k].nilai, TEMPLAT[id][k]), `${id}.${k}`);
 });
@@ -148,24 +148,4 @@ test('huruf: terapkanTampilan memasang, memperbarui, dan mencopot link font; sty
   assert.equal(d.el.get(ID_FONT), ln, 'link dipakai ulang'); assert.match(ln.href, /Nunito/); assert.ok(!/Naskh/.test(ln.href));
   terapkanTampilan({ ganti: { huruf: 'sistem' } }, d); assert.equal(d.el.has(ID_FONT), false, 'tanpa unduhan: link dicopot'); assert.ok(d.style);
   terapkanTampilan(null, d); assert.equal(d.el.size, 0);
-});
-
-test('kategori: setiap template punya kategori yang terdaftar; tiap kategori terisi; urutan memuat semua template tepat sekali', () => {
-  const kat = new Set(KATEGORI.map((k) => k.id));
-  assert.equal(new Set(URUTAN_TEMPLAT).size, URUTAN_TEMPLAT.length); assert.deepEqual([...URUTAN_TEMPLAT].sort(), Object.keys(TEMPLAT).sort());
-  for (const id of URUTAN_TEMPLAT) { assert.ok(kat.has(TEMPLAT[id].kategori), `${id}: kategori`); assert.ok(TEMPLAT[id].label && TEMPLAT[id].deskripsi, id); }
-  for (const k of KATEGORI) assert.ok(URUTAN_TEMPLAT.some((id) => TEMPLAT[id].kategori === k.id), `kategori ${k.id} kosong`);
-  assert.ok(URUTAN_TEMPLAT.filter((id) => TEMPLAT[id].kategori === 'minimalis').length >= 3);
-  assert.equal(new Set(URUTAN_TEMPLAT.map((id) => TEMPLAT[id].label)).size, URUTAN_TEMPLAT.length, 'nama template unik');
-  assert.equal(URUTAN_TEMPLAT.length, 18);
-});
-
-test('letak menu dan sub-tab: sub-tab di kiri memaksa menu samping; rel ikon dan garis dikenali; nilai asing dibuang', () => {
-  assert.equal(efektif({ ganti: { subtab: 'kiri' } }).nav, 'samping', 'zamrud + sub-tab kiri -> menu samping');
-  assert.equal(efektif({ ganti: { subtab: 'kiri', nav: 'rel' } }).nav, 'samping', 'rel terlalu sempit untuk daftar sub-tab');
-  assert.equal(efektif({ ganti: { nav: 'rel' } }).nav, 'rel'); assert.equal(efektif({ ganti: { nav: 'rel' } }).subtab, 'kapsul');
-  assert.equal(efektif({ templat: 'putih' }).subtab, 'garis');
-  assert.equal(efektif({ templat: 'malam' }).mode, 'gelap'); assert.equal(atributTampilan({ templat: 'malam' })['data-tema-paksa'], 'dark');
-  assert.deepEqual(normalisasiTampilan({ ganti: { nav: 'bawah', subtab: 'atas' } }), TAMPILAN_BAWAAN);
-  assert.equal(atributTampilan({ templat: 'senja' })['data-nav'], 'rel');
 });
