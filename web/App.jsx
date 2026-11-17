@@ -8,6 +8,7 @@ import { bacaHash } from './lib/rujukan.js';
 import * as NV from './lib/navigasi.js';
 import { Bt, FALLBACK_CFG, mapelUntuk } from './lib/dasar.js';
 import * as AL from './lib/alurSoal.js';
+import * as TP from './lib/tampilan.js';
 import { kamusBersamaMasuk } from './lib/muatPegon.js';
 import * as DUP from './lib/duplikat.js';
 import * as RW from './lib/riwayat.js';
@@ -43,6 +44,8 @@ const AiConfig = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({
 const AppCfgAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AppCfgAdmin })));
 
 const AlurEditorAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.AlurEditorAdmin })));
+
+const TampilanAdmin = lazyPanel(() => import('./TampilanAdmin.jsx'));
 
 const PemeliharaanAdmin = lazyPanel(() => import('./AdminKonfigurasi.jsx').then((m) => ({ default: m.PemeliharaanAdmin })));
 
@@ -114,8 +117,10 @@ function App({ user, profile }) {
   const [appCfg, setAppCfg] = useState(FALLBACK_CFG);
   const [alur, setAlur] = useState(AL.ALUR_BAWAAN);
   const [cfgInfo, setCfgInfo] = useState({ kustom: false });
+  const [tampilan, setTampilan] = useState(() => TP.bacaCache()); // template tampilan (diatur admin); salinan terakhir di perangkat dipakai dulu agar tidak berkedip
+  const gantiTampilan = (t) => { const n = TP.normalisasiTampilan(t); setTampilan(n); TP.tulisCache(n); TP.terapkanTampilan(n); };
   const [cfgReady, setCfgReady] = useState(false); // true setelah konfigurasi server terbaca (atau gagal dibaca): editor konfigurasi menunggu ini agar draf tidak dibandingkan dengan nilai cadangan
-  const terapkanCfg = (d) => { if (Object.hasOwn(d, 'alur')) setAlur(AL.normalisasiAlur(d.alur)); setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
+  const terapkanCfg = (d) => { if (Object.hasOwn(d, 'alur')) setAlur(AL.normalisasiAlur(d.alur)); if (Object.hasOwn(d, 'tampilan')) gantiTampilan(d.tampilan); setAppCfg(d.config); setCfgInfo({ kustom: !!d.kustom, diubahAt: d.diubahAt || null }); setCfgReady(true); };
   useEffect(() => { callApi('/api/app-config', { aksi: 'baca' }).then(terapkanCfg).catch(() => { setCfgReady(true); /* tetap memakai cadangan bawaan */ }); }, []);
   // Bank soal dimuat berhalaman agar hemat kuota baca Firestore (paket Spark: 50.000 baca/hari):
   //  - recent : HALAMAN soal terbaru (realtime), bisa dipersempit per tingkat (lingkup)
@@ -493,6 +498,15 @@ function App({ user, profile }) {
   const NAV = NV.bangunNav(TABS);
   const grupAktif = NAV.find((g) => g.items.some((t) => t.id === tab)) || null;
   const tampilGrup = (g) => (g.items.length === 1 ? { label: g.items[0].label, Ikon: g.items[0].icon } : { label: g.label, Ikon: IKON_GRUP[g.id] || Menu });
+  const samping = TP.efektif(tampilan).nav === 'samping'; // menu tetap di sisi kiri pada layar lebar (template Samudra, Grafit, atau pilihan admin)
+  const daftarGrup = NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
+                  <button key={g.id} type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG ? 'page' : undefined}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
+                    <T.Ikon size={17} className="shrink-0" />
+                    <span className="min-w-0 flex-1">{T.label}{g.items.length > 1 && <span className="block truncate text-xs font-normal text-mute">{g.items.map((t) => NV.SUB_LABEL[t.id] || t.label).join(' · ')}</span>}</span>
+                    {g.lencana > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{g.lencana}</span>}
+                  </button>
+                ); });
   const pendingBadge = canReview ? antrian.length : 0;
   const kuotaGenting = !!(isAdmin && kuotaRingkas && kuotaRingkas.peringatan > 0);
 
@@ -504,7 +518,7 @@ function App({ user, profile }) {
       <div className="sticky z-40 bg-head text-head-ink shadow-md sm:rounded-b-2xl" style={{ top: 'env(safe-area-inset-top, 0px)', marginLeft: 'calc(-1 * max(16px, env(safe-area-inset-left, 0px)))', marginRight: 'calc(-1 * max(16px, env(safe-area-inset-right, 0px)))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
         <div className="mx-auto flex max-w-6xl items-center gap-2 py-2">
           <button type="button" aria-label="Ke atas" title="Ke atas" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hidden shrink-0 rounded-lg sm:block"><AppLogo size={36} /></button>
-          <div ref={menuRef} className="relative min-w-0 flex-1">
+          <div ref={menuRef} className={`relative min-w-0 flex-1${samping ? ' md:hidden' : ''}`}>
             <button type="button" id="tombol-menu" aria-haspopup="true" aria-expanded={menuOpen} aria-controls="menu-tab" onClick={() => setMenuOpen((o) => !o)}
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-white/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0">{menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
@@ -517,14 +531,7 @@ function App({ user, profile }) {
             </button>
             {menuOpen && (
               <nav id="menu-tab" aria-label="Navigasi utama" className="fade-in absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink shadow-xl">
-                {NAV.map((g) => { const T = tampilGrup(g); const aktifG = grupAktif && grupAktif.id === g.id; return (
-                  <button key={g.id} type="button" onClick={() => pilihTab(NV.tujuanGrup(g, terakhirRef.current))} aria-current={aktifG ? 'page' : undefined}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${aktifG ? 'bg-soft text-soft-ink' : 'hover:bg-soft'}`}>
-                    <T.Ikon size={17} className="shrink-0" />
-                    <span className="min-w-0 flex-1">{T.label}{g.items.length > 1 && <span className="block truncate text-xs font-normal text-mute">{g.items.map((t) => NV.SUB_LABEL[t.id] || t.label).join(' · ')}</span>}</span>
-                    {g.lencana > 0 && <span className="rounded-full bg-soft px-2 py-px text-xs text-soft-ink">{g.lencana}</span>}
-                  </button>
-                ); })}
+                {daftarGrup}
                 <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
                   <p className="truncate text-xs font-semibold">{displayName}</p>
                   <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
@@ -533,6 +540,7 @@ function App({ user, profile }) {
               </nav>
             )}
           </div>
+          {samping && <span className="hidden min-w-0 flex-1 truncate px-2 text-sm font-extrabold tracking-[.08em] md:block">{MEREK.nama}</span>}
           <div className="flex shrink-0 items-center gap-2">
             {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
             <div className="hidden text-right text-xs md:block"><p className="font-semibold">{displayName}</p><p className="opacity-75">{ROLE_LABEL[profile.role]}</p></div>
@@ -552,7 +560,19 @@ function App({ user, profile }) {
         )}
       </div>
 
-      <main id="konten" tabIndex={-1} className="mx-auto max-w-6xl py-6 outline-none sm:py-8">
+      <div className={samping ? 'mx-auto max-w-[88rem] md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:gap-6' : undefined}>
+      {samping && (
+        <aside className="hidden md:block">
+          <nav aria-label="Navigasi utama (samping)" className="sticky mt-6 overflow-hidden rounded-2xl border border-line bg-surface p-1.5 text-ink" style={{ top: '7rem' }}>
+            {daftarGrup}
+            <div className="mt-1.5 border-t border-line px-3.5 pb-1 pt-2.5">
+              <p className="truncate text-xs font-semibold">{displayName}</p>
+              <p className="text-xs text-mute">{ROLE_LABEL[profile.role]}</p>
+            </div>
+          </nav>
+        </aside>
+      )}
+      <main id="konten" tabIndex={-1} className="mx-auto w-full max-w-6xl py-6 outline-none sm:py-8">
         <AppCfgCtx.Provider value={appCfg}><AlurCtx.Provider value={alur}>
         <KamusCtx.Provider value={kamusCtx}>
         <SaranCtx.Provider value={saranCtx}>
@@ -586,13 +606,14 @@ function App({ user, profile }) {
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}
         {tab === 'users' && isAdmin && <UserAdmin me={me} toast={toast} />}
-        {tab === 'cfg' && isAdmin && (cfgReady ? <div className="space-y-6"><AlurEditorAdmin alur={alur} mapel={appCfg.mapel} onSaved={setAlur} toast={toast} /><PemeliharaanAdmin toast={toast} /><AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /></div> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
+        {tab === 'cfg' && isAdmin && (cfgReady ? <div className="space-y-6"><TampilanAdmin tampilan={tampilan} onSaved={gantiTampilan} toast={toast} /><AlurEditorAdmin alur={alur} mapel={appCfg.mapel} onSaved={setAlur} toast={toast} /><PemeliharaanAdmin toast={toast} /><AppCfgAdmin cfg={appCfg} kustom={cfgInfo.kustom} diubahAt={cfgInfo.diubahAt} onSaved={terapkanCfg} toast={toast} /></div> : <div className="flex justify-center py-16 text-mute"><Loader2 className="spin" /></div>)}
         {tab === 'perpus' && isAdmin && <KitabImpor Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} toast={toast} />}
         {tab === 'ai' && isAdmin && <AiConfig toast={toast} />}
         </SaranCtx.Provider>
         </KamusCtx.Provider>
         </AlurCtx.Provider></AppCfgCtx.Provider>
       </main>
+      </div>
       <KreditKaki className="mx-auto max-w-6xl px-4 pt-2" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }} />
       <Toast t={msg} />
     </div>

@@ -7,8 +7,10 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 import { Root, ErrorBoundary, SetupError } from './App.jsx';
 import { muatPegon } from './lib/muatPegon.js';
+import { bacaCache, terapkanTampilan } from './lib/tampilan.js';
 
 (async function boot() {
+  try { terapkanTampilan(bacaCache()); } catch (e) { /* tampilan bawaan */ } // template terakhir di perangkat ini, sebelum apa pun dirender (layar masuk ikut bertema)
   const root = createRoot(document.getElementById('root'));
   try {
     const res = await fetch('/api/config');
