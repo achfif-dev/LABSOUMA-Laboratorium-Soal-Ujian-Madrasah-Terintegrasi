@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fakeDb } from './_fakeDb.js';
 import { DEFAULT_APP_CONFIG, simpanApp, resetApp, pulihkanApp, lihatApp, bacaAplikasi, invalidateAppConfig } from '../src/appConfig.js';
 import { simpanAi, pulihkanAi, lihatAi, statusAi, invalidateAiConfig } from '../src/aiConfig.js';
-import { dataDariDoc, ringkas, bandingkan, kanon, buatTitik, hapusTitik, daftarRiwayat, BATAS_RIWAYAT } from '../src/configBackup.js';
+import { dataDariDoc, ringkas, bandingkan, kanon, buatTitik, hapusRiwayat, bersihkanOtomatis, daftarRiwayat, BATAS_RIWAYAT } from '../src/configBackup.js';
 import { __setFirebaseForTest } from '../src/platform.js';
 import handler from '../src/rute/config-backup.js';
 
@@ -121,7 +121,7 @@ test('pemangkasan: cadangan otomatis dibatasi, titik pulih tidak pernah ikut ter
   assert.deepEqual((await pulihkanApp(ADM, t.id, { now })).config.mapel.map((m) => m.nama), ['Awal']); // titik masih bisa dipulihkan
 });
 
-test('titik pulih: wajib bernama, butuh konfigurasi tersimpan, dibatasi jumlahnya; hanya titik yang boleh dihapus manual', async () => {
+test('titik pulih: wajib bernama, butuh konfigurasi tersimpan, dibatasi jumlahnya; titik maupun cadangan otomatis bisa dihapus manual', async () => {
   const db = siap(); const now = jam();
   await assert.rejects(buatTitik(ADM, 'app', 'x', { now }), { code: 'RIWAYAT_INVALID', message: /Belum ada konfigurasi/ });
   await simpanApp(ADM, { config: cfg('A') }, { now });
@@ -130,12 +130,14 @@ test('titik pulih: wajib bernama, butuh konfigurasi tersimpan, dibatasi jumlahny
   await assert.rejects(buatTitik(ADM, 'app', 'kelebihan', { now }), { message: /maksimal/ });
   await simpanApp(ADM, { config: cfg('B') }, { now });
   const oto = riwayat(db).find((x) => x.tipe === 'otomatis');
-  await assert.rejects(hapusTitik('app', oto.id), { message: /Hanya titik pulih/ });
+  assert.deepEqual(await hapusRiwayat('app', oto.id), { ok: true, tipe: 'otomatis' }); // cadangan otomatis kini boleh dihapus satu per satu
+  assert.ok(!riwayat(db).some((x) => x.id === oto.id));
   const titik = riwayat(db).find((x) => x.tipe === 'titik');
-  assert.deepEqual(await hapusTitik('app', titik.id), { ok: true });
+  assert.deepEqual(await hapusRiwayat('app', titik.id), { ok: true, tipe: 'titik' });
   assert.equal(riwayat(db).filter((x) => x.tipe === 'titik').length, BATAS_RIWAYAT.titik - 1);
-  await assert.rejects(hapusTitik('app', 'tidak-ada'), { status: 404 });
-  await assert.rejects(hapusTitik('app', '../config/app'), { status: 400 }); // id berbentuk path ditolak
+  await assert.rejects(hapusRiwayat('app', 'tidak-ada'), { status: 404 });
+  await assert.rejects(hapusRiwayat('app', '../config/app'), { status: 400 }); // id berbentuk path ditolak
+  assert.ok(db.data['config/app']); // konfigurasi yang berlaku tidak tersentuh oleh penghapusan cadangan
 });
 
 test('cadangan yang rusak atau tak lagi sah ditolak saat dipulihkan dan tidak mengubah apa pun', async () => {
@@ -191,9 +193,39 @@ test('/api/config-backup: hanya admin; jenis dan id divalidasi; alur daftar, tit
   res = await jalan('adm', { jenis: 'app', aksi: 'titik', nama: 'Setelan benar' }); assert.equal(res.code, 200); assert.equal(res.body.tipe, 'titik');
   res = await jalan('adm', { jenis: 'app', aksi: 'lihat', id }); assert.equal(res.code, 200); assert.equal(res.body.dapatDipulihkan, true);
   res = await jalan('adm', { jenis: 'app', aksi: 'pulihkan', id }); assert.equal(res.code, 200); assert.deepEqual(res.body.config.mapel.map((m) => m.nama), ['A']);
-  res = await jalan('adm', { jenis: 'app', aksi: 'hapus', id }); assert.equal(res.code, 422); // cadangan otomatis tidak bisa dihapus manual
+  res = await jalan('adm', { jenis: 'app', aksi: 'hapus', id }); assert.equal(res.code, 200); // cadangan otomatis bisa dihapus manual
+  res = await jalan('adm', { jenis: 'app', aksi: 'hapus', id }); assert.equal(res.code, 404); // sudah tidak ada
+  res = await jalan('adm', { jenis: 'app', aksi: 'bersih', simpan: -1 }); assert.equal(res.code, 400);
+  res = await jalan('adm', { jenis: 'app', aksi: 'bersih', simpan: 'x' }); assert.equal(res.code, 400);
+  res = await jalan('adm', { jenis: 'app', aksi: 'bersih', simpan: BATAS_RIWAYAT.otomatis + 1 }); assert.equal(res.code, 400);
+  res = await jalan('adm', { jenis: 'app', aksi: 'bersih', simpan: 0 }); assert.equal(res.code, 200);
   res = await jalan('adm', { jenis: 'app', aksi: 'pulihkan', id: '../x' }); assert.equal(res.code, 400);
-  assert.ok((await daftarRiwayat('app')).length >= 3);
+  const sisa = await daftarRiwayat('app');
+  assert.deepEqual(sisa.map((x) => x.tipe), ['titik']); // pembersihan hanya membuang cadangan otomatis; titik pulih selamat
+});
+
+test('bersihkan cadangan otomatis: sisakan N terbaru, titik pulih dan konfigurasi berlaku tidak tersentuh, jenis lain tidak ikut', async () => {
+  const db = siap(); const now = jam();
+  process.env.CONFIG_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+  await simpanApp(ADM, { config: cfg('Awal') }, { now });
+  await buatTitik(ADM, 'app', 'Setelan benar', { now });
+  for (let i = 0; i < 6; i++) await simpanApp(ADM, { config: cfg('V' + i) }, { now });
+  await simpanAi(ADM, { provider: 'gemini', models: { gemini: 'm1' } }, { now }); await simpanAi(ADM, { models: { gemini: 'm2' } }, { now });
+  const otoApp = () => riwayat(db).filter((x) => x.tipe === 'otomatis');
+  const terbaru = otoApp().slice(-2).map((x) => x.id); // riwayat() terurut dari yang tertua
+  assert.equal(otoApp().length, 6);
+  assert.deepEqual(await bersihkanOtomatis('app', 2), { dihapus: 4, sisa: 2 });
+  assert.deepEqual(otoApp().map((x) => x.id).sort(), terbaru.sort()); // yang tersisa memang 2 yang terbaru
+  assert.equal(riwayat(db).filter((x) => x.tipe === 'titik').length, 1);
+  assert.deepEqual((await bacaAplikasi()).config.mapel.map((m) => m.nama), ['V5']); // konfigurasi berlaku utuh
+  assert.equal(riwayat(db, 'configRiwayatAi').length, 1); // cadangan Pengaturan AI tidak ikut terhapus
+  assert.deepEqual(await bersihkanOtomatis('app', 2), { dihapus: 0, sisa: 2 }); // tidak ada yang berlebih: aman diulang
+  assert.deepEqual(await bersihkanOtomatis('app', 0), { dihapus: 2, sisa: 0 });
+  assert.equal(riwayat(db).length, 1); // hanya titik pulih
+  await assert.rejects(bersihkanOtomatis('app', -1), { status: 400 });
+  await assert.rejects(bersihkanOtomatis('app', 1.5), { status: 400 });
+  await assert.rejects(bersihkanOtomatis('app', BATAS_RIWAYAT.otomatis + 1), { status: 400 });
+  delete process.env.CONFIG_ENCRYPTION_KEY;
 });
 
 test('firestore.rules: koleksi riwayat tertutup untuk klien; ada tes untuk kedua koleksi', () => {

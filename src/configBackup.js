@@ -6,6 +6,8 @@
 //   1. Setiap perubahan (simpan, reset, pulihkan) lebih dulu menyimpan KEADAAN SEBELUMNYA sebagai cadangan otomatis, dalam
 //      operasi atomik yang sama dengan perubahannya (transaksi): tidak ada perubahan tanpa cadangan.
 //   2. Admin bisa menandai konfigurasi yang sudah benar sebagai "titik pulih" bernama. Titik pulih tidak pernah dipangkas otomatis.
+//      Cadangan otomatis dibatasi (BATAS_RIWAYAT.otomatis), dan admin bisa menghapus cadangan mana pun satu per satu atau membersihkan
+//      cadangan otomatis sekaligus (titik pulih tidak ikut terhapus oleh pembersihan).
 //   3. Pemulihan mengembalikan konfigurasi buatan madrasah (bukan bawaan kode), dan pemulihan itu sendiri juga dicadangkan
 //      lebih dulu, jadi salah pulih pun bisa dibatalkan.
 //
@@ -18,7 +20,8 @@ export const JENIS = {
   app: { koleksi: 'configRiwayatApp', doc: 'config/app', nama: 'Konfigurasi aplikasi' },
   ai: { koleksi: 'configRiwayatAi', doc: 'config/ai', nama: 'Pengaturan AI' },
 };
-export const BATAS_RIWAYAT = { otomatis: 30, titik: 20, nama: 80, daftar: 100 };
+// otomatis: jumlah cadangan otomatis yang disimpan per jenis (lebih dari ini, yang tertua dibuang sendiri). Admin juga bisa menghapus satu per satu atau membersihkannya sekaligus.
+export const BATAS_RIWAYAT = { otomatis: 10, titik: 20, nama: 80, daftar: 100 };
 export const ALASAN = ['sebelum-simpan', 'sebelum-reset', 'sebelum-pulih', 'titik'];
 const ID_OK = /^[A-Za-z0-9_-]{1,80}$/;
 const MODEL_AI = ['gemini', 'anthropic'];
@@ -122,6 +125,13 @@ export async function siapkanRiwayat(db, { jenis, tipe = 'otomatis', nama = '', 
   return { ref: kol(db, jenis).doc(id), id, doc: rakitRiwayat({ jenis, tipe, alasan, nama, data, sumber: docSaatIni, oleh, now }) };
 }
 
+const UKURAN_BATCH = 400; // batas Firestore 500 operasi per batch; sisakan ruang
+async function hapusBanyak(db, docs) {
+  for (let i = 0; i < docs.length; i += UKURAN_BATCH) {
+    const batch = db.batch(); docs.slice(i, i + UKURAN_BATCH).forEach((d) => batch.delete(d.ref)); await batch.commit();
+  }
+}
+
 /** Buang cadangan OTOMATIS yang melewati batas (yang tertua dulu). Titik pulih tidak disentuh. Gagal tidak membatalkan apa pun. */
 export async function pangkasRiwayat(jenis, { db: dbIn } = {}) {
   try {
@@ -130,9 +140,24 @@ export async function pangkasRiwayat(jenis, { db: dbIn } = {}) {
     const otomatis = semua.docs.filter((d) => d.data().tipe === 'otomatis');
     const lebih = otomatis.slice(BATAS_RIWAYAT.otomatis);
     if (!lebih.length) return 0;
-    const batch = db.batch(); lebih.forEach((d) => batch.delete(d.ref)); await batch.commit();
+    await hapusBanyak(db, lebih);
     return lebih.length;
   } catch (e) { console.error('[configBackup] gagal memangkas riwayat:', e?.code ?? e?.message); return 0; }
+}
+
+/**
+ * Pembersihan manual oleh admin: hapus cadangan OTOMATIS, sisakan `simpan` yang terbaru (0 = hapus semuanya).
+ * Titik pulih tidak pernah ikut terhapus. Berbeda dengan pangkasRiwayat, galat di sini dilaporkan ke admin.
+ */
+export async function bersihkanOtomatis(jenis, simpanMasuk) {
+  const simpan = Number(simpanMasuk);
+  if (!Number.isInteger(simpan) || simpan < 0 || simpan > BATAS_RIWAYAT.otomatis) throw bad(`Jumlah yang disisakan harus bilangan bulat 0 sampai ${BATAS_RIWAYAT.otomatis}.`, 'BAD_REQUEST', 400);
+  const { db } = await firestoreAdmin();
+  const semua = await kol(db, jenis).orderBy('dibuatAt', 'desc').select('tipe').get();
+  const otomatis = semua.docs.filter((d) => d.data().tipe === 'otomatis');
+  const buang = otomatis.slice(simpan);
+  if (buang.length) await hapusBanyak(db, buang);
+  return { dihapus: buang.length, sisa: otomatis.length - buang.length };
 }
 
 /** Daftar riwayat terbaru dulu, tanpa isi besar. */
@@ -164,13 +189,13 @@ export async function buatTitik(user, jenis, namaMasuk, { now = () => new Date()
   return { id: r.id, ...r.doc };
 }
 
-/** Hanya titik pulih yang boleh dihapus manual; cadangan otomatis dipangkas sendiri menurut batas. */
-export async function hapusTitik(jenis, id) {
+/** Hapus satu cadangan (otomatis atau titik pulih) atas permintaan admin. Isi konfigurasi yang sedang berlaku tidak tersentuh. */
+export async function hapusRiwayat(jenis, id) {
   const { db } = await firestoreAdmin();
   const ref = kol(db, jenis).doc(cekId(id));
   const s = await ref.get();
-  if (!s.exists) throw bad('Cadangan tidak ditemukan.', 'RIWAYAT_NOT_FOUND', 404);
-  if (s.data().tipe !== 'titik') throw bad('Hanya titik pulih yang bisa dihapus. Cadangan otomatis dipangkas sendiri bila melewati batas.');
+  if (!s.exists) throw bad('Cadangan tidak ditemukan. Mungkin sudah dipangkas atau dihapus.', 'RIWAYAT_NOT_FOUND', 404);
+  const tipe = s.data().tipe; // dibaca sebelum dihapus
   await ref.delete();
-  return { ok: true };
+  return { ok: true, tipe };
 }

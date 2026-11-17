@@ -169,8 +169,9 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
   const [busy, setBusy] = useState('');
   const [nama, setNama] = useState('');
   const [lihat, setLihat] = useState(null);
+  const [batas, setBatas] = useState(10); // jumlah cadangan otomatis yang disimpan; nilai sebenarnya dari server
   const muat = async () => {
-    try { const r = await callApi('/api/config-backup', { aksi: 'daftar', jenis }); setList(r.riwayat); setErr(null); }
+    try { const r = await callApi('/api/config-backup', { aksi: 'daftar', jenis }); setList(r.riwayat); if (r.batas && r.batas.otomatis) setBatas(r.batas.otomatis); setErr(null); }
     catch (e) { setErr(apiErr(e)); setList((x) => x || []); }
   };
   useEffect(() => { muat(); }, [versi]); // versi berubah (disimpan, dikembalikan ke bawaan, atau dipulihkan): daftar riwayat ikut disegarkan
@@ -189,8 +190,18 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
     jalan('pulih-' + r.id, async () => { onRestored(await callApi('/api/config-backup', { aksi: 'pulihkan', jenis, id: r.id })); setLihat(null); toast(`${label[0].toUpperCase() + label.slice(1)} dipulihkan.`); });
   };
   const hapus = (r) => {
-    if (!window.confirm(`Hapus titik pulih "${r.nama}"? Ini tidak bisa dibatalkan.`)) return;
-    jalan('hapus-' + r.id, async () => { await callApi('/api/config-backup', { aksi: 'hapus', jenis, id: r.id }); if (lihat && lihat.id === r.id) setLihat(null); toast('Titik pulih dihapus.'); await muat(); });
+    const titikPulih = r.tipe === 'titik';
+    const judul = titikPulih ? `titik pulih "${r.nama}"` : `cadangan otomatis ${tglWaktu(r.dibuatAt)}`;
+    if (!window.confirm(`Hapus ${judul}? Ini tidak bisa dibatalkan.\n\n${label[0].toUpperCase() + label.slice(1)} yang sedang berlaku tidak berubah; hanya salinan cadangan ini yang hilang.`)) return;
+    jalan('hapus-' + r.id, async () => { await callApi('/api/config-backup', { aksi: 'hapus', jenis, id: r.id }); if (lihat && lihat.id === r.id) setLihat(null); toast(titikPulih ? 'Titik pulih dihapus.' : 'Cadangan dihapus.'); await muat(); });
+  };
+  // Bersihkan cadangan otomatis sekaligus; titik pulih tidak pernah ikut terhapus.
+  const bersih = (simpan) => {
+    const buang = Math.max(0, (list || []).filter((r) => r.tipe !== 'titik').length - simpan);
+    if (!buang) return;
+    const apa = simpan ? `${buang} cadangan otomatis paling lama (${simpan} yang terbaru disisakan)` : `semua ${buang} cadangan otomatis`;
+    if (!window.confirm(`Hapus ${apa}? Ini tidak bisa dibatalkan.\n\nTitik pulih tidak ikut terhapus, dan ${label} yang sedang berlaku tidak berubah.`)) return;
+    jalan('bersih', async () => { const r = await callApi('/api/config-backup', { aksi: 'bersih', jenis, simpan }); setLihat(null); toast(`${r.dihapus} cadangan otomatis dihapus.`); await muat(); });
   };
   const titik = (list || []).filter((r) => r.tipe === 'titik'); const otomatis = (list || []).filter((r) => r.tipe !== 'titik');
   const ringkasan = (r) => (jenis === 'app'
@@ -208,7 +219,7 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
         <div className="flex flex-wrap gap-1.5">
           <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => bukaLihat(r)} disabled={!!busy}>{busy === 'lihat-' + r.id ? <Loader2 size={14} className="spin" /> : null}{lihat && lihat.id === r.id ? 'Tutup' : 'Lihat perubahan'}</Btn>
           <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => pulihkan(r)} disabled={!!busy}>{busy === 'pulih-' + r.id ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}Pulihkan</Btn>
-          {r.tipe === 'titik' && <button type="button" aria-label={'Hapus titik pulih ' + r.nama} className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={!!busy} onClick={() => hapus(r)}><Trash2 size={15} /></button>}
+          <button type="button" aria-label={r.tipe === 'titik' ? 'Hapus titik pulih ' + r.nama : 'Hapus cadangan otomatis ' + tglWaktu(r.dibuatAt)} title="Hapus" className="rounded-lg p-2 text-bad hover:bg-bad-bg disabled:opacity-30" disabled={!!busy} onClick={() => hapus(r)}>{busy === 'hapus-' + r.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}</button>
         </div>
       </div>
       {lihat && lihat.id === r.id && (
@@ -224,11 +235,11 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
     <Section title="Cadangan & Riwayat" lipat icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
       <div className="space-y-4">
         <p className="text-xs leading-relaxed text-mute">
-          Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal 30 terakhir). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
+          Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal {batas} terakhir; yang lebih lama dibuang sendiri, dan Anda bisa menghapusnya kapan saja dengan ikon tong sampah atau tombol pembersih di bawah). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
           {jenis === 'ai' && ' Kunci API tidak pernah ikut dicadangkan; bila terhapus, tempel ulang kuncinya.'}
         </p>
         <div className="rounded-xl border border-dashed border-line p-3">
-          <Label htmlFor={'titik-' + jenis} hint="(dari yang tersimpan di server sekarang; tidak ikut terhapus otomatis)">Tandai setelan yang sudah benar sebagai titik pulih</Label>
+          <Label htmlFor={'titik-' + jenis} hint="(dari yang tersimpan di server sekarang; tidak ikut terhapus otomatis maupun oleh pembersihan cadangan)">Tandai setelan yang sudah benar sebagai titik pulih</Label>
           <div className="flex flex-wrap gap-2">
             <input id={'titik-' + jenis} className="field min-w-[200px] flex-1" maxLength={80} placeholder="mis. Setelan awal tahun ajaran 2026/2027" value={nama} onChange={(e) => setNama(e.target.value)} />
             <Btn kind="primary" onClick={tandai} disabled={!!busy || !nama.trim()}>{busy === 'titik' ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Simpan titik pulih</Btn>
@@ -241,7 +252,16 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
             <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Titik pulih ({titik.length})</h3>
               {titik.length ? <ul className="space-y-2">{titik.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Tandai setelan yang sudah benar agar mudah dikembalikan.</p>}
             </div>
-            <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Cadangan otomatis ({otomatis.length})</h3>
+            <div>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-mute">Cadangan otomatis ({otomatis.length})</h3>
+                {otomatis.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {otomatis.length > 3 && <Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => bersih(3)} disabled={!!busy}>{busy === 'bersih' ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}Hapus yang lama (sisakan 3)</Btn>}
+                    <Btn kind="danger" className="!px-3 !py-1.5 !text-xs" onClick={() => bersih(0)} disabled={!!busy}>{busy === 'bersih' ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}Hapus semua</Btn>
+                  </div>
+                )}
+              </div>
               {otomatis.length ? <ul className="space-y-2">{otomatis.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Cadangan pertama dibuat saat {label} yang sudah tersimpan diubah.</p>}
             </div>
           </>
