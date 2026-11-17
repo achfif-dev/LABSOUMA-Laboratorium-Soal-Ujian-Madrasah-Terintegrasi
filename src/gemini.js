@@ -62,12 +62,13 @@ const RETRY_WINDOW_MS = 20_000;
 export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_000, budgetMs = 45_000, retries = 2, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   return {
     messages: {
-      async create({ model, max_tokens, system, tools = [], messages }) {
+      async create({ model, max_tokens, system, tools = [], messages, cariWeb = false }) {
         const body = {
           systemInstruction: { parts: [{ text: String(system || '') }] },
           contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: toParts(m.content) })),
-          tools: [{ functionDeclarations: tools.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.input_schema) })) }],
-          toolConfig: { functionCallingConfig: { mode: 'ANY' } }, // wajib memanggil salah satu alat
+          // cariWeb: balasan teks bebas dengan pencarian Google (grounding); tidak digabung dengan alat fungsi, jadi tanpa mode ANY.
+          tools: cariWeb ? [{ google_search: {} }] : [{ functionDeclarations: tools.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.input_schema) })) }],
+          ...(cariWeb ? {} : { toolConfig: { functionCallingConfig: { mode: 'ANY' } } }), // wajib memanggil salah satu alat
           // Model Gemini 3 "berpikir" dulu dan token berpikir ikut dihitung, jadi beri ruang lebih besar.
           generationConfig: { maxOutputTokens: Math.min(16384, Math.max(Number(max_tokens) || 0, 8192)) },
         };
@@ -115,7 +116,9 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_0
           const calls = parts.filter((p) => p.functionCall).map((p) => ({ type: 'tool_use', name: p.functionCall.name, input: p.functionCall.args || {} }));
           const stop_reason = cand?.finishReason === 'MAX_TOKENS' ? 'max_tokens' : calls.length ? 'tool_use' : 'end_turn';
           const content = calls.length ? calls : parts.filter((p) => p.text && !p.thought).map((p) => ({ type: 'text', text: p.text }));
-          return { stop_reason, content };
+          if (!cariWeb) return { stop_reason, content };
+          const gm = cand?.groundingMetadata || {}; // sumber dari penyedia (bukan klaim model): { url, title }
+          return { stop_reason, content, sumber: (gm.groundingChunks || []).map((c) => c && c.web).filter(Boolean).map((w) => ({ url: w.uri, title: w.title })), kueri: Array.isArray(gm.webSearchQueries) ? gm.webSearchQueries : [] };
         }
       },
     },

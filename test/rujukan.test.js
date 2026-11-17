@@ -100,6 +100,9 @@ test('App.jsx: form membawa tautan, rujukan kosong tidak dikirim, kartu punya ta
   assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\];/);
   assert.match(APP, /'rubrik', 'kitabId', 'halId', 'halIdAkhir', 'dasar'\]\) if \(!c\[k\] && !\(k in lama\)\) delete c\[k\]/);
   assert.equal((APP.match(/<TautKitab q=\{q\} \/>/g) || []).length, 3);
-  assert.match(APP, /tab === 'baca' && <PembacaKitab/);
+  // Tab Baca Kitab tetap terpasang (hanya disembunyikan) setelah pertama dibuka: kitab terbuka dan percakapan Tanya Kitab tidak hilang saat pindah tab.
+  assert.match(APP, /bacaPernah\.current && \(\s*<div hidden=\{tab !== 'baca'\}>\s*<PembacaKitab/);
+  assert.match(APP, /if \(tab === 'baca'\) bacaPernah\.current = true/);
+  assert.doesNotMatch(APP, /tab === 'baca' && <(?:PembacaKitab|TanyaKitab)/, 'tidak dibongkar-pasang lagi');
   assert.match(APP, /bacaHash\(window\.location\.hash\)\) return 'baca'/);
 });

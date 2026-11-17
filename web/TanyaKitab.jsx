@@ -49,11 +49,34 @@ function HasilJawaban({ hasil }) {
   );
 }
 
+const URUT_STATUS = ['rujukan', 'muktamad', 'pembanding', 'luar_rumpun', 'belum_dinilai'];
+const KELAS_STATUS = { muktamad: 'bg-ok-bg text-ok', rujukan: 'bg-ok-bg text-ok', pembanding: 'bg-warn-bg text-warn', luar_rumpun: 'bg-bad-bg text-bad', belum_dinilai: 'bg-soft text-soft-ink' };
+
 function JawabanBebas({ hasil }) {
+  const sumber = [...(hasil.sumber || [])].sort((a, b) => URUT_STATUS.indexOf(a.status) - URUT_STATUS.indexOf(b.status));
   return (
     <div className="space-y-2" role="region">
-      <p className="flex items-start gap-2 rounded-xl bg-warn-bg px-3 py-2 text-xs font-semibold text-warn"><AlertTriangle size={14} className="mt-0.5 shrink-0" />Jawaban bebas dari AI: tidak dicari dan tidak diverifikasi dari kitab. Bukan fatwa.</p>
+      <p className="flex items-start gap-2 rounded-xl bg-warn-bg px-3 py-2 text-xs font-semibold text-warn"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{hasil.web ? 'Jawaban AI dengan penelusuran internet: tidak diverifikasi ke kitab. Bukan fatwa.' : 'Jawaban bebas dari AI: tidak dicari dan tidak diverifikasi dari kitab. Bukan fatwa.'}</p>
+      {hasil.adaLuarAswaja && <p className="flex items-start gap-2 rounded-xl bg-bad-bg px-3 py-2 text-xs text-bad"><AlertTriangle size={14} className="mt-0.5 shrink-0" />Ada sumber di luar rumpun Aswaja atau berstatus pembanding menurut penetapan admin. Bagian itu adalah pendapat sumbernya, bukan ketentuan madrasah.</p>}
       <p className="whitespace-pre-wrap text-sm text-ink">{hasil.jawaban}</p>
+      {hasil.web && (
+        <div className="space-y-1">
+          {sumber.length === 0 && <p className="text-xs text-mute">AI tidak menampilkan sumber web untuk jawaban ini. Perlakukan sebagai jawaban bebas biasa.</p>}
+          {sumber.length > 0 && <p className="text-xs font-semibold text-ink">Sumber web ({sumber.length}), dikelompokkan menurut kategori yang ditetapkan admin:</p>}
+          <ul className="space-y-1">
+            {sumber.map((s) => (
+              <li key={s.url} className="rounded-xl border border-line bg-bg px-3 py-2 text-xs">
+                <a className="break-words font-medium underline" target="_blank" rel="noreferrer noopener" href={s.url}>{s.judul}</a>
+                <p className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${KELAS_STATUS[s.status] || KELAS_STATUS.belum_dinilai}`}>{s.labelStatus}</span>
+                  {s.aliran && <span className="text-ink">{s.aliran}{s.akidah ? `, akidah ${s.akidah}` : ''}</span>}
+                  {!s.ditetapkan && <span className="text-mute">belum dikategorikan admin; periksa sendiri</span>}
+                  {s.domain && <span className="text-mute">{s.domain}</span>}
+                </p>
+              </li>))}
+          </ul>
+          {(hasil.kueriWeb || []).length > 0 && <p className="text-xs text-mute">Kata kunci pencarian: {hasil.kueriWeb.join(' | ')}</p>}
+        </div>)}
       {hasil.perluCek && <p className="text-xs text-mute">Memuat klaim hukum atau dalil. Periksa ke kitab: ajukan pertanyaan yang sama di mode Bersumber, atau tanyakan kepada kiai/ustadz.</p>}
     </div>
   );
@@ -63,6 +86,7 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
   const [daftar, setDaftar] = useState([]);
   const [terpilih, setTerpilih] = useState([]);        // [] = semua kitab aktif (server membatasi 4 kitab pertama menurut abjad); selain itu 1-4 kitab pilihan
   const [pertanyaan, setPertanyaan] = useState('');
+  const [web, setWeb] = useState(false);              // mode bebas: telusuri internet (pendalaman); lebih lambat dan lebih mahal, jadi mati secara bawaan
   const [mode, setMode] = useState('sumber');         // 'sumber' = Tanya Kitab (diverifikasi, gagal-tertutup); 'bebas' = chat bebas (tidak diverifikasi)
   const [busy, setBusy] = useState(false);
   const [pesan, setPesan] = useState([]);              // percakapan: { id, role: 'user', teks } | { id, role: 'ai', hasil }
@@ -79,7 +103,7 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
     setBusy(true); setErr(null); setPertanyaan('');
     setPesan((p) => [...p, { id: ++nomor.current, role: 'user', teks }]);
     try {
-      const d = await callApi('/api/assist', { aksi: bebas ? 'chatbebas' : 'tanyakitab', pertanyaan: teks, ...(riwayat.length ? { riwayat } : {}), ...(!bebas && terpilih.length ? { kitabIds: terpilih } : {}) });
+      const d = await callApi('/api/assist', { aksi: bebas ? 'chatbebas' : 'tanyakitab', pertanyaan: teks, ...(bebas && web ? { web: true } : {}), ...(riwayat.length ? { riwayat } : {}), ...(!bebas && terpilih.length ? { kitabIds: terpilih } : {}) });
       setPesan((p) => [...p, { id: ++nomor.current, role: 'ai', mode, hasil: d.hasil }]);
     } catch (e) {
       // Gagal: pertanyaan dikembalikan ke kotak tulis dan dilepas dari percakapan supaya bisa dikirim ulang tanpa mengetik lagi.
@@ -98,6 +122,7 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
           <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`rounded-lg px-3 py-2 font-medium ${mode === k ? 'bg-brand text-brand-fg' : 'text-ink'}`}>{label}</button>))}
       </div>
       {mode === 'bebas' && <p className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">Mode bebas: AI menjawab dari pengetahuannya sendiri, tanpa membaca atau mengutip kitab. Jawaban tidak diverifikasi. Untuk hukum atau dalil, pakai mode Bersumber.</p>}
+      {mode === 'bebas' && <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 accent-[var(--brand)]" checked={web} onChange={(e) => setWeb(e.target.checked)} /><span>Telusuri internet (pendalaman)<span className="block text-xs text-mute">AI mencari beberapa situs dan menampilkan sumbernya, dikategorikan menurut aliran yang ditetapkan admin. Lebih lambat.</span></span></label>}
       {mode === 'sumber' && <details open={pesan.length === 0} className="space-y-2 rounded-xl border border-line px-3 py-2 text-sm">
         <summary className="cursor-pointer font-medium">Kitab yang dicari: {terpilih.length ? `${terpilih.length} dipilih` : 'semua kitab aktif'}</summary>
       <fieldset className="mt-2 space-y-2 text-sm">
@@ -133,7 +158,7 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
           {pesan.map((m) => m.role === 'user'
             ? <div key={m.id} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand px-3 py-2 text-sm text-brand-fg">{m.teks}</p></div>
             : <div key={m.id} className="rounded-2xl rounded-bl-md border border-line bg-bg p-3">{m.mode === 'bebas' ? <JawabanBebas hasil={m.hasil} /> : <HasilJawaban hasil={m.hasil} />}</div>)}
-          {busy && <p className="text-xs text-mute">{mode === 'bebas' ? 'Menulis balasan…' : 'Mencari dan membaca kitab…'}</p>}
+          {busy && <p className="text-xs text-mute">{mode === 'bebas' ? (web ? 'Menelusuri internet…' : 'Menulis balasan…') : 'Mencari dan membaca kitab…'}</p>}
           <div ref={akhir} />
         </div>)}
       {err && <ErrorBox e={err} />}

@@ -74,12 +74,17 @@ function App({ user, profile }) {
   const terakhirRef = useRef({}); // sub-tab terakhir dipakai per grup navigasi (sesi ini)
   // Tab Baca Kitab: halaman awal dari tautan balik soal (#baca/<kitab>/<urutan>[-<akhir>]). Tautan di kartu soal hanya mengubah hash, jadi didengarkan di sini.
   const [bacaAwal, setBacaAwal] = useState(() => bacaHash(window.location.hash));
+  const [bacaKunci, setBacaKunci] = useState(0); // naik tiap tautan rujukan diikuti: pembaca dimuat ulang ke halaman yang dituju meski nilainya sama dengan sebelumnya
   useEffect(() => {
-    const h = () => { const b = bacaHash(window.location.hash); if (b) { setBacaAwal(b); setTabRaw('baca'); window.scrollTo({ top: 0 }); } };
+    const h = () => { const b = bacaHash(window.location.hash); if (b) { setBacaAwal(b); setBacaKunci((k) => k + 1); setTabRaw('baca'); window.scrollTo({ top: 0 }); } };
     window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h);
   }, []);
-  const posisiBaca = ({ kitabId, seq }) => { try { window.history.replaceState(null, '', kitabId ? `#baca/${kitabId}/${seq}` : '#baca'); } catch (e) { /* alamat tidak bisa diubah: pembaca tetap jalan */ } };
-  const setTab = (id) => { setTabRaw(id); { const g = NV.grupDariTab(id); if (g) terakhirRef.current[g.id] = id; } try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
+  // Tab Baca Kitab tetap terpasang (hanya disembunyikan) setelah pertama dibuka, supaya kitab yang dibuka dan percakapan Tanya Kitab tidak hilang saat pindah tab.
+  const bacaPernah = useRef(false); if (tab === 'baca') bacaPernah.current = true;
+  const tabRef = useRef(tab); tabRef.current = tab;
+  const posBaca = useRef({ kitabId: '', seq: 0 });
+  const posisiBaca = ({ kitabId, seq }) => { posBaca.current = { kitabId, seq }; if (tabRef.current !== 'baca') return; try { window.history.replaceState(null, '', kitabId ? `#baca/${kitabId}/${seq}` : '#baca'); } catch (e) { /* alamat tidak bisa diubah: pembaca tetap jalan */ } };
+  const setTab = (id) => { setTabRaw(id); { const g = NV.grupDariTab(id); if (g) terakhirRef.current[g.id] = id; } try { window.history.replaceState(null, '', '#' + (id === 'baca' && posBaca.current.kitabId ? `baca/${posBaca.current.kitabId}/${posBaca.current.seq}` : id)); } catch (e) { /* URL tidak bisa diubah: tab tetap berganti, hanya tidak diingat */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [saran, setSaran] = useState(null); // hasil saran bab terakhir (tidak dipulihkan setelah refresh: memakai kuota AI)
@@ -631,8 +636,11 @@ function App({ user, profile }) {
         {tab === 'luar' && <BankLuar me={user} canReview={canReview} isAdmin={isAdmin} toast={toast} />}
         {loaded && tab === 'fokus' && <FokusUjian all={qs} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
-        {tab === 'baca' && <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} />}
-        {tab === 'baca' && <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>}
+        {bacaPernah.current && (
+          <div hidden={tab !== 'baca'}>
+            <PembacaKitab key={bacaKunci} Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} awal={bacaAwal} onPosisi={posisiBaca} bisaKoreksi={canReview} bisaAdmin={isAdmin} tabAktif={tab === 'baca'} />
+            <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>
+          </div>)}
         {tab === 'analisis' && <AnalisisButir Btn={Btn} unduh={simpanBerkas} paketList={loaded ? PK.kelompokPaket(qs).paket : []} onEdit={edit} canEdit={canEdit} />}
         {tab === 'backup' && canReview && <BackupTab user={user} isAdmin={isAdmin} toast={toast} onCfg={terapkanCfg} />}
         {tab === 'dasbor' && isAdmin && <Dasbor pending={pending} onBukaReview={() => pilihTab('review')} />}

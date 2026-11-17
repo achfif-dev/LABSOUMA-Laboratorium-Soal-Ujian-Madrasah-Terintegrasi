@@ -23,7 +23,7 @@ import { adaTanda, tambahTanda, hapusTanda, usulHal, awalDi } from './lib/batasC
 // Tombol "Tandai hal. cetak": menandai kalimat tempat tiap halaman cetak dimulai (web/PenandaBatasCetak.jsx; server src/kitabBatas.js); admin menerapkannya menjadi halaman baru.
 // `bisaAdmin` hanya mengatur tampilan pilihan khusus admin di sana (server memeriksa peran sendiri).
 // Prop yang sama menampilkan "Sunting daftar isi" / "Buat daftar isi" di tab Daftar isi (web/DaftarIsiEditor.jsx; server src/kitabIsi.js).
-export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false, bisaAdmin = false }) {
+export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = null, onPosisi = () => {}, bisaKoreksi = false, bisaAdmin = false, tabAktif = true }) {
   const pem = useMemo(() => buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN), []);
   const [pref, setPref] = useState(pengaturanBaca);
   const [daftar, setDaftar] = useState(SIMPANAN.daftar);
@@ -138,6 +138,7 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
 
   // Pintasan papan ketik. Arah baca Arab: halaman berikutnya ada di KIRI; buku Latin: di KANAN. Tidak aktif saat mengetik di kolom isian.
   useEffect(() => {
+    if (!tabAktif) return undefined; // tab disembunyikan (tetap terpasang): pintasan papan ketik tidak boleh jalan di tab lain
     const tekan = (e) => {
       const t = e.target; if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
@@ -149,13 +150,13 @@ export default function PembacaKitab({ Btn, ErrorBox, callApi, apiErr, awal = nu
       else if (e.key === '-') ubahPref({ ukuran: Math.max(0, pref.ukuran - 1) });
     };
     window.addEventListener('keydown', tekan); return () => window.removeEventListener('keydown', tekan);
-  }, [geser, lebarLayar, pref.ukuran, kitabId, arab]);
+  }, [geser, lebarLayar, pref.ukuran, kitabId, arab, tabAktif]);
   // Layar lebar menutupi halaman: kunci gulir badan dokumen selama aktif.
   useEffect(() => {
-    if (!lebarLayar) return undefined;
+    if (!lebarLayar || !tabAktif) return undefined;
     const lama = document.body.style.overflow; document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = lama; };
-  }, [lebarLayar]);
+  }, [lebarLayar, tabAktif]);
 
   const cari = async () => {
     const n = parseInt(halInput, 10); setInfo(''); setKembar([]);

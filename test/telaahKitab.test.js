@@ -8,6 +8,7 @@ import { bersihkanRencana, verifikasiPoin, ringkasVerifikasi, pertanyaanArab, al
 import { periksaSoalDenganTeks } from '../web/lib/periksaRujukan.js';
 import { tanyaKitab, validasiTanya } from '../src/telaahKitab.js';
 import { chatBebas } from '../src/chatBebas.js';
+import { domainDari, kategorikan, olahSumber, ringkasSumber } from '../src/situsRujukan.js';
 import { bersihkanRiwayat, susunRiwayat, MAKS_RIWAYAT, MAKS_TEKS_RIWAYAT } from '../web/lib/telaahKitab.js';
 import { periksaRujukan } from '../src/periksaRujukan.js';
 import { __setFirebaseForTest } from '../src/platform.js';
@@ -329,3 +330,35 @@ test('/api/assist: chatbebas menolak masukan cacat sebelum kuota; aksi tak diken
   const a = await lewat({ aksi: 'chatbebas', pertanyaan: 'ab' }); assert.equal(a.code, 422); assert.equal(a.body.error.code, 'TANYA_INVALID');
   assert.equal((await lewat({ aksi: 'ngawur' })).code, 400);
 }));
+
+/* ---------- chat bebas + telusuri internet ---------- */
+test('situsRujukan: domain dari tautan pengalih Gemini, subdomain cocok, kategori dari daftar admin, tak dikenal = belum_dinilai, url non-http dibuang', () => {
+  assert.equal(domainDari({ url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc', title: 'islam.nu.or.id' }), 'islam.nu.or.id');
+  assert.equal(domainDari({ url: 'https://www.Rumaysho.com/x', title: 'judul' }), 'rumaysho.com');
+  assert.deepEqual([kategorikan('islam.nu.or.id').status, kategorikan('islam.nu.or.id').aliran], ['rujukan', 'Aswaja (NU)']);
+  assert.equal(kategorikan('rumaysho.com').status, 'luar_rumpun'); assert.equal(kategorikan('muhammadiyah.or.id').status, 'pembanding');
+  assert.equal(kategorikan('bukannu.or.id.example.com').status, 'belum_dinilai'); assert.equal(kategorikan('anu.or.id').status, 'belum_dinilai', 'akhiran domain harus utuh');
+  const s = olahSumber([{ url: 'javascript:alert(1)', title: 'x' }, { url: 'https://nu.or.id/a', title: 'A <b>' }, { url: 'https://nu.or.id/a', title: 'dobel' }, { url: 'https://blogku.example/p', title: 'B' }]);
+  assert.deepEqual(s.map((x) => x.status), ['rujukan', 'belum_dinilai']); assert.doesNotMatch(s[0].judul, /[<>]/);
+  assert.deepEqual(ringkasSumber(s), { adaLuarAswaja: false, adaBelumDinilai: true });
+  assert.equal(ringkasSumber(olahSumber([{ url: 'https://almanhaj.or.id/1', title: 't' }])).adaLuarAswaja, true);
+});
+
+test('chatBebas web: Gemini memakai cariWeb dan membaca sumber dari penyedia; Claude memakai alat web_search dan blok hasilnya; kategori dari kode', async () => {
+  const lama = process.env.AI_PROVIDER;
+  try {
+    process.env.AI_PROVIDER = 'gemini';
+    const log = []; const g = { messages: { create: async (p) => { log.push(p); return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Menurut situs NU ... dan situs lain ...' }], sumber: [{ url: 'https://vertexaisearch.cloud.google.com/r/1', title: 'nu.or.id' }, { url: 'https://vertexaisearch.cloud.google.com/r/2', title: 'rumaysho.com' }], kueri: ['hukum qunut subuh'] }; } } };
+    const r = await chatBebas({ pertanyaan: 'Bagaimana hukum qunut subuh?', web: true }, { client: g });
+    assert.equal(log[0].cariWeb, true); assert.match(log[0].system, /MODE TELUSURI INTERNET/); assert.doesNotMatch(log[0].system, /perlu_cek|balas_bebas/);
+    assert.deepEqual([r.web, r.diverifikasi, r.adaLuarAswaja, r.sumber.map((s) => s.status), r.kueriWeb], [true, false, true, ['rujukan', 'luar_rumpun'], ['hukum qunut subuh']]);
+    process.env.AI_PROVIDER = 'anthropic';
+    const logA = []; const a = { messages: { create: async (p) => { logA.push(p); return { stop_reason: 'end_turn', content: [{ type: 'server_tool_use', name: 'web_search', input: { query: 'qunut subuh' } }, { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://muhammadiyah.or.id/q', title: 'Qunut' }] }, { type: 'text', text: 'Ringkasan.' }] }; } } };
+    const r2 = await chatBebas({ pertanyaan: 'Bagaimana hukum qunut subuh?', web: true }, { client: a });
+    assert.equal(logA[0].tools[0].type, 'web_search_20250305'); assert.equal(logA[0].cariWeb, undefined); assert.equal(logA[0].tool_choice, undefined);
+    assert.deepEqual([r2.jawaban, r2.sumber[0].status, r2.kueriWeb], ['Ringkasan.', 'pembanding', ['qunut subuh']]);
+    const kosong = { messages: { create: async () => ({ stop_reason: 'end_turn', content: [] }) } };
+    await assert.rejects(() => chatBebas({ pertanyaan: 'Bagaimana hukum qunut subuh?', web: true }, { client: kosong }), (e) => e.status === 502);
+    process.env.CHAT_WEB = '0'; await assert.rejects(() => chatBebas({ pertanyaan: 'Bagaimana hukum qunut subuh?', web: true }, { client: a }), (e) => e.status === 403);
+  } finally { delete process.env.CHAT_WEB; if (lama === undefined) delete process.env.AI_PROVIDER; else process.env.AI_PROVIDER = lama; }
+});

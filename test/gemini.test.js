@@ -120,3 +120,11 @@ test('toGeminiSchema: enum pada integer/number dibuang (Gemini menolaknya) dan n
   assert.match(g.properties.level.description, /Level\. Nilai yang diizinkan: 1, 2, 3, 4\./);
   assert.deepEqual(g.properties.kunci.enum, ['A', 'B']);
 });
+
+test('create cariWeb: memakai google_search tanpa alat fungsi/mode ANY, dan mengembalikan sumber + kueri dari groundingMetadata', async () => {
+  let seen;
+  const c = createGeminiClient({ apiKey: 'K', fetchImpl: async (url, init) => { seen = JSON.parse(init.body); return reply({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Jawaban.' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: 'https://x.example/a', title: 'x.example' } }, {}], webSearchQueries: ['q1'] } }] }); } });
+  const r = await c.messages.create({ model: 'm', max_tokens: 100, system: 'S', messages: [{ role: 'user', content: 'h' }], cariWeb: true });
+  assert.deepEqual(seen.tools, [{ google_search: {} }]); assert.equal(seen.toolConfig, undefined);
+  assert.deepEqual(r, { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Jawaban.' }], sumber: [{ url: 'https://x.example/a', title: 'x.example' }], kueri: ['q1'] });
+});
