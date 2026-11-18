@@ -233,7 +233,8 @@ function usePegon() {
     muatPegon().then((m) => { if (hidup) setP(m); }).catch(() => { if (hidup) setGagal(true); });
     return () => { hidup = false; };
   }, [P, coba]);
-  const ulang = useCallback(() => setCoba((n) => n + 1), []);
+  // Percobaan pertama mengulang unduhan; bila masih gagal (mis. potongan lama sudah tidak ada setelah deploy), muat ulang halaman setelah menyimpan draf.
+  const ulang = useCallback(() => { if (coba >= 1) { try { Draft.flush(); } catch (e) { /* abaikan */ } window.location.reload(); } else setCoba((n) => n + 1); }, [coba]);
   return { P, gagal, ulang };
 }
 const denganPegon = (Komp) => function DenganPegon(props) {
