@@ -3,6 +3,7 @@ import { Btn, ErrorBox, Section, apiErr, callApi } from './ui.jsx';
 import * as DB from './lib/dasbor.js';
 import { ClipboardCheck, Loader2, RefreshCw, Sparkles, Users } from 'lucide-react';
 import { ROLE_LABEL } from './bersama.jsx';
+import { getPersistensi } from './lib/persistensi.js';
 
 /* ---------- Dasbor admin: kuota AI per pengguna, sisa kuota harian, antrean review ---------- */
 // Kuota dibaca di server (/api/admin-stats) dari dokumen rate/{id}; hitungan hanya untuk HARI INI (WIB), tanpa riwayat. Antrean review dihitung dari
@@ -50,10 +51,15 @@ export function DasborView({ d, err, busy, semua, setSemua, waktu, onMuat, antre
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
         <p className="mr-auto text-mute">
           {d ? <>Kuota direset otomatis pukul 00.00 WIB, <b className="text-ink">{DB.teksSisaWaktu(d.resetDalamDetik)}</b> lagi. </> : null}
-          {waktu ? `Diperbarui ${new Date(waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}; otomatis tiap 2 menit.` : 'Memuat...'}
+          {waktu ? `Diperbarui ${new Date(waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}; otomatis tiap 5 menit saat tab terlihat.` : 'Memuat...'}
         </p>
         <Btn kind="ghost" onClick={onMuat} disabled={busy}>{busy ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}Segarkan</Btn>
       </div>
+      {getPersistensi().ok === false && (
+        <p role="alert" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+          <b>Cache baca di perangkat ini mati{getPersistensi().kode ? ` (${getPersistensi().kode})` : ''}.</b> Tiap muat ulang atau tab baru membaca ulang semua data dari server dan menghabiskan kuota baca. Tutup tab lain yang terbuka, atau pakai satu peramban saja.
+        </p>
+      )}
       {err && <ErrorBox e={err} />}
       {kolamBermasalah.map((k) => (
         <p key={k.id} role="alert" className={`rounded-xl px-4 py-3 text-sm ${k.status === 'habis' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}`}>

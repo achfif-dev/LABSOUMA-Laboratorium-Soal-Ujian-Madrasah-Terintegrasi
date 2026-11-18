@@ -8,6 +8,7 @@ import 'firebase/compat/firestore';
 import { Root, ErrorBoundary, SetupError } from './App.jsx';
 import { muatPegon } from './lib/muatPegon.js';
 import { bacaCache, terapkanTampilan } from './lib/tampilan.js';
+import { setPersistensi } from './lib/persistensi.js';
 
 (async function boot() {
   try { terapkanTampilan(bacaCache()); } catch (e) { /* tampilan bawaan */ } // template terakhir di perangkat ini, sebelum apa pun dirender (layar masuk ikut bertema)
@@ -17,7 +18,7 @@ import { bacaCache, terapkanTampilan } from './lib/tampilan.js';
     if (!res.ok) throw new Error('config ' + res.status);
     firebase.initializeApp(await res.json());
     // Simpan salinan data di browser agar muat ulang halaman tidak menghabiskan kuota baca Firestore gratis.
-    try { await firebase.firestore().enablePersistence({ synchronizeTabs: true }); } catch (e) { /* tidak didukung: lanjut tanpa cache */ }
+    try { await firebase.firestore().enablePersistence({ synchronizeTabs: true }); setPersistensi(true); } catch (e) { setPersistensi(false, e && e.code); /* tidak didukung: lanjut tanpa cache; statusnya tampil di Dasbor admin */ }
   } catch (e) { root.render(<SetupError />); return; }
   root.render(<ErrorBoundary><Root /></ErrorBoundary>);
   // Mesin Pegon (±250 KB) diunduh di latar belakang setelah tampilan pertama, saat browser menganggur, agar tidak memperlambat layar awal.
