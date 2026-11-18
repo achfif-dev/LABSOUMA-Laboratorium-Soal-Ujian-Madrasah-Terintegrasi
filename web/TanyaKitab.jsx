@@ -27,6 +27,7 @@ function HasilJawaban({ hasil }) {
         <div className="space-y-1">
           <p className="whitespace-pre-wrap text-sm text-ink">{hasil.jawaban}</p>
           {hasil.khilaf && <p className="text-xs text-mute">Perbedaan pendapat yang disebut kitab: {hasil.khilaf}</p>}
+          {hasil.tarjih && <p className="text-xs text-mute">Penanda tarjih di halaman: <span dir="rtl" lang="ar" className="font-sans">{hasil.tarjih}</span></p>}
           {hasil.status !== 'tidak_ditemukan' && <p className="text-xs text-mute">{hasil.dasarMadrasah ? 'Seluruh dasar berasal dari kitab pegangan atau rujukan yang ditetapkan admin.' : 'Belum semua dasar berasal dari kitab pegangan/rujukan madrasah; ini pendapat kitab yang tertera, bukan ketentuan madrasah.'}</p>}
         </div>)}
       {hasil.catatan && <p className="text-xs text-mute">{hasil.catatan}</p>}
@@ -34,7 +35,7 @@ function HasilJawaban({ hasil }) {
         <ol className="space-y-2">
           {hasil.poin.map((p, i) => (
             <li key={i} className="space-y-1 rounded-xl border border-line bg-bg p-3 text-sm">
-              <p className="text-ink">{p.pernyataan}</p>
+              <p className="text-ink">{p.pernyataan}{(p.lapisan || p.sifat) && <span className="ml-1 text-xs text-mute">[{[p.lapisan, p.sifat && ({ pendapat_kitab: 'pendapat kitab', pendapat_lain: 'pendapat lain (dinukil)', syarat_pengecualian: 'syarat/pengecualian', keterangan: 'keterangan' })[p.sifat]].filter(Boolean).join(' · ')}]</span>}</p>
               <p dir="rtl" lang="ar" className="font-sans text-base leading-loose text-ink">{p.kutipan}</p>
               <p className="flex flex-wrap items-center gap-2 text-xs">
                 <span className={`rounded-full px-2 py-0.5 font-semibold ${kelasPoin[p.status] || 'bg-bad-bg text-bad'}`}>{LABEL_VERIFIKASI[p.status] || p.status}</span>

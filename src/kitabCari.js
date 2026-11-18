@@ -6,6 +6,7 @@
 //    (fungsi Vercel Hobby dibatasi 10 detik), menyimpan kemajuan di meta, lalu menjawab { siap:false, kemajuan }. Klien mengulang sampai siap.
 //    Menulis potongan yang sama dua kali aman (id deterministik), jadi dua pemakai yang membangun bersamaan tidak merusak apa pun.
 // Hasil pembacaan potongan disimpan di memori proses (maks 2 kitab) supaya pencarian berikutnya tidak membaca Firestore lagi.
+import { peringkatBeragam } from '../web/lib/penelaahan.js';
 import { ApiError } from './soalService.js';
 import { firestoreAdmin } from './platform.js';
 import { idHalaman, koleksiHalaman, koleksiCari } from './kitabImpor.js';
@@ -92,12 +93,14 @@ export async function aksiCari(b, kid, m, opsi = {}) {
  * Halaman paling relevan untuk beberapa kueri (agen telaah). Memakai indeks yang sama dengan perpus-cari.
  * @returns {{siap:true, halaman:{seq,hal,juz,skor}[]} | {siap:false, kemajuan:{selesai,total}}}
  */
-export async function cariTerbaik(kid, m, kuerian, { k = 6, opsi = {} } = {}) {
+export async function cariTerbaik(kid, m, kuerian, { k = 6, opsi = {}, varian = [], beragam = false } = {}) {
   const { db } = await firestoreAdmin();
   let cm = simpanan.has(kunci(kid, m)) ? { status: 'siap', versi: VERSI_INDEKS, revisi: m.revisi || 1 } : (await metaRef(db, kid, m).get()).data();
   if (!metaSiap(cm, m)) {
     cm = await bangunBertahap(db, kid, m, cm, opsi);
     if (!metaSiap(cm, m)) return { siap: false, kemajuan: { selesai: (cm && cm.berikutnya) || 0, total: Math.ceil(m.jumlahHalaman / GRUP_HALAMAN) } };
   }
-  return { siap: true, halaman: peringkatHalaman(await muatIndeks(db, kid, m), kuerian, { k }) };
+  const indeks = await muatIndeks(db, kid, m);
+  // beragam: tiap kueri dijamin punya wakil dan varian istilah ikut (Tanya Kitab); bawaan tetap peringkat lama.
+  return { siap: true, halaman: beragam ? peringkatBeragam(indeks, kuerian, { k, varian }) : peringkatHalaman(indeks, kuerian, { k }) };
 }

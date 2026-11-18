@@ -64,6 +64,7 @@ export function AssistView({ state, onIdea, labelIde = 'Buat soal dari fokus ini
       <div className="space-y-4 text-sm">
         <p className="whitespace-pre-wrap leading-relaxed">{d.terjemah}</p>
         {d.poin_inti.length > 0 && <div><H3>Poin inti</H3><ul className="list-disc space-y-1 pl-5">{d.poin_inti.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+        {d.catatan_baca && d.catatan_baca.length > 0 && <div><H3>Catatan baca</H3><ul className="list-disc space-y-1 pl-5">{d.catatan_baca.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
         {d.istilah.length > 0 && (
           <div><H3>Istilah</H3>
             <ul className="space-y-1">{d.istilah.map((x, i) => (
@@ -86,6 +87,10 @@ export function AssistView({ state, onIdea, labelIde = 'Buat soal dari fokus ini
           </li>))}</ul></div>
       {d.potensi_pengecoh.length > 0 && <div><H3>Calon pengecoh</H3><ul className="list-disc space-y-1 pl-5">{d.potensi_pengecoh.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
       {d.catatan_khilaf && <div><H3>Perbedaan pendapat dalam teks</H3><p className="leading-relaxed">{d.catatan_khilaf}</p></div>}
+      {d.lapisan_teks && <div><H3>Lapisan teks</H3><p className="leading-relaxed">{d.lapisan_teks}</p></div>}
+      {d.struktur && d.struktur.length > 0 && <div><H3>Alur teks</H3><ol className="list-decimal space-y-1 pl-5">{d.struktur.map((x, i) => <li key={i}>{x}</li>)}</ol></div>}
+      {d.istilah_kunci && d.istilah_kunci.length > 0 && <div><H3>Istilah kunci</H3><ul className="space-y-1">{d.istilah_kunci.map((x, i) => <li key={i}><span dir="rtl" lang="ar" className="font-sans">{x.arab}</span>: {x.arti}</li>)}</ul></div>}
+      {d.peringatan_baca && d.peringatan_baca.length > 0 && <div><H3>Peringatan baca</H3><ul className="list-disc space-y-1 pl-5">{d.peringatan_baca.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
     </div>
   );
 }

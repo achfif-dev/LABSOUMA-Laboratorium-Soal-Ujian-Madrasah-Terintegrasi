@@ -6,6 +6,7 @@ import { HALUAN_RINGKAS } from './aswaja.js';
 import { barisOtoritas } from '../web/lib/otoritas.js';
 import { denganBidangCakupan, blokBatasMateri, blokDaftarIsi, periksaCakupan, CATATAN_DILUAR } from './cakupan.js';
 import { periksaKutipan } from '../web/lib/kutipan.js';
+import { sistemBaca, blokPemahaman } from './pemahamanKitab.js';
 
 export class ApiError extends Error {
   constructor(status, code, message, { retryAfter } = {}) {
@@ -128,7 +129,7 @@ export const LEVEL = { l1: 'L1', l2: 'L2', l3: 'L3', hots: 'L3' };
 export const resolveLevel = (raw) => { const k = String(raw || '').trim().toLowerCase(); return Object.hasOwn(LEVEL, k) ? LEVEL[k] : undefined; };
 
 // Semua pembatas blok data yang dipakai prompt. <soal> dipakai uji jawab buta (cekButa.js).
-const TAG_PEMBATAS = /<\/?\s*(teks_kitab|soal_draft|soal|metadata|daftar_isi|fakta_terikat)\s*>/gi;
+const TAG_PEMBATAS = /<\/?\s*(teks_kitab|soal_draft|soal|metadata|daftar_isi|fakta_terikat|peta_teks|panduan_disiplin)\s*>/gi;
 /** Buang tag pembatas sampai tuntas. Satu kali replace tidak cukup: "<</teks_kitab>/teks_kitab>" menyisakan "</teks_kitab>" setelah satu putaran. */
 const buangPembatas = (t) => {
   let x = t;
@@ -285,7 +286,7 @@ export function denganAlasanPengecoh(tool) {
   return salin;
 }
 
-export const systemPromptFor = (bentuk, bahasa = 'ar', terikat = false) => sesuaikanPromptBahasa(SYSTEM_PROMPT + (ATURAN_BENTUK[bentukDari(bentuk)] || '') + (terikat ? ATURAN_FAKTA : ''), bahasa);
+export const systemPromptFor = (bentuk, bahasa = 'ar', terikat = false) => sesuaikanPromptBahasa(SYSTEM_PROMPT + (ATURAN_BENTUK[bentukDari(bentuk)] || '') + (terikat ? ATURAN_FAKTA : ''), bahasa) + sistemBaca(bahasa);
 
 const LEVEL_NAME = { L1: 'L1 (Ingatan)', L2: 'L2 (Aplikasi)', L3: 'L3 (HOTS)' };
 
@@ -320,10 +321,13 @@ Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa tek
 </metadata>
 ${petunjukTarget(bentuk, targetKey)}${blokFaktaTerikat(input.faktaTerikat)}${input.cakupan ? `\n\n${blokBatasMateri(input.cakupan)}${blokDaftarIsi(input.isi)}` : ''}
 
-<teks_kitab>
+${petaBlok(input)}<teks_kitab>
 ${input.teks}
 </teks_kitab>${input.cakupan ? '\n\nIngat: soal harus berasal dari bagian teks yang masuk <batas_materi>.' : ''}`;
 }
+
+/** Peta teks dan panduan disiplin (dihitung kode) untuk prompt pengguna; '' bila bukan teks Arab. Diakhiri baris kosong agar menempel rapi di atas <teks_kitab>. */
+const petaBlok = (input) => { const b = blokPemahaman(input.teks, { mapel: input.mapel, bahasa: input.bahasa }); return b ? `${b}\n\n` : ''; };
 
 /* ------------------------------------------------------------ Skema alat */
 

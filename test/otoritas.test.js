@@ -1,4 +1,5 @@
 // Otoritas kitab + haluan Aswaja bersama: kode murni (web/lib/otoritas.js), arahan ke prompt, aksi admin impor-otoritas, dan ketahanannya.
+import { sistemBaca } from '../src/pemahamanKitab.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __setFirebaseForTest } from '../src/platform.js';
@@ -92,7 +93,7 @@ test('peringatanOtoritas dan bolehJadiDasar mengikuti status', () => {
 /* ------------------------------------------------------------ Haluan satu sumber */
 test('haluan Aswaja satu sumber: generate memakai HALUAN_RINGKAS, pilgan tetap identik dengan SYSTEM_PROMPT, kerangka panjang tetap utuh', () => {
   assert.ok(SYSTEM_PROMPT.includes(HALUAN_RINGKAS));
-  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT);
+  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT + sistemBaca('ar'));
   for (const kata of ["Asy'ari", 'Maturidi', 'empat mazhab', 'mengkafirkan', 'Status otoritas kitab']) assert.ok(HALUAN_RINGKAS.includes(kata), kata);
   assert.ok(KERANGKA_ASWAJA.includes('Dilarang menambah dalil'));
 });

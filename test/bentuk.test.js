@@ -1,4 +1,5 @@
 // Bentuk soal baru: pilihan ganda (bawaan), melanjutkan (pilihan), benar-salah, melanjutkan (isian), uraian.
+import { sistemBaca } from '../src/pemahamanKitab.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -87,8 +88,8 @@ test('validateInput: bentuk kosong = pilihan ganda; bentuk asing ditolak 400', (
 });
 
 test('pilgan: prompt dan skema TIDAK berubah dari sebelum fitur bentuk; keluaran tanpa field baru', async () => {
-  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT);
-  assert.equal(systemPromptFor(undefined), SYSTEM_PROMPT);
+  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT + sistemBaca('ar'));
+  assert.equal(systemPromptFor(undefined), SYSTEM_PROMPT + sistemBaca('ar'));
   assert.equal(toolSoalFor('pilgan'), TOOL_SOAL);
   const c = fakeClient(pg);
   const r = await generateSoal(base, { client: c, random: () => 0.5 });

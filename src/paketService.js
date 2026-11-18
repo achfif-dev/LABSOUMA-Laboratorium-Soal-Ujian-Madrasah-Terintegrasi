@@ -8,6 +8,7 @@
 //     dan butirnya ditandai, jadi naskah kunci tidak pernah memuat "kutipan" karangan model.
 import { ApiError, getClient, getModel, clean, cleanLine, teksProblem, resolveBahasa, resolveTingkat, resolveLevel, toApiError, periksaPenolakan, TOOL_TOLAK, MAX_TEKS, bersihkanFakta, periksaFaktaTerikat } from './soalService.js';
 import { KERANGKA_ASWAJA } from './aswaja.js';
+import { sistemBaca, blokPemahaman } from './pemahamanKitab.js';
 import { barisOtoritas } from '../web/lib/otoritas.js';
 import { periksaKutipan } from './kutipan.js';
 import { periksaSikap } from './sikap.js';
@@ -42,7 +43,7 @@ export function toolPaketDenganFakta(tool) {
 /** Prompt paket untuk teks sumber berbahasa lain (bahasa Arab: prompt asli tanpa perubahan). */
 export function sistemPaketFor(bahasa = 'ar', terikat = false) {
   const dasar = sistemPaketBahasa(bahasa);
-  return terikat ? dasar + ATURAN_FAKTA_PAKET : dasar;
+  return (terikat ? dasar + ATURAN_FAKTA_PAKET : dasar) + sistemBaca(bahasa);
 }
 function sistemPaketBahasa(bahasa = 'ar') {
   if (!bahasa || bahasa === 'ar') return SISTEM_PAKET;
@@ -68,7 +69,7 @@ ATURAN KETAT (tidak boleh dilanggar):
    - lanjutan: kalimat pokok menggantung yang diakhiri titik-titik (.....), bukan kalimat tanya, satu tempat kosong di akhir. Tiga opsi kelanjutan yang menyambung benar secara tata bahasa; tepat satu benar menurut teks, di huruf yang diminta.
    - isian: kalimat dengan SATU tempat kosong berupa titik-titik (.....). "jawaban" berisi satu kata, bilangan, atau frasa pendek (maksimal 8 kata). Konteks harus cukup sehingga hanya satu jawaban yang mungkin benar. Tanpa opsi.
    - uraian: pertanyaan atau perintah terbuka singkat (jelaskan, sebutkan, apa, mengapa). "jawaban" berisi jawaban model ringkas, 1 sampai 3 kalimat atau daftar poin pendek. Tanpa opsi.
-5. KUTIPAN KITAB. "kutipan_kitab" wajib diisi: salinan PERSIS 3 sampai 25 kata Arab yang berurutan dari <teks_kitab> (lengkap dengan harakat dan ejaan seperti di teks) yang menjadi dasar jawaban. Dilarang mengubah, menyambung dua tempat, atau menambah kata.
+5. KUTIPAN KITAB. "kutipan_kitab" wajib diisi: salinan PERSIS 3 sampai 25 kata Arab yang berurutan dari <teks_kitab> (lengkap dengan harakat dan ejaan seperti di teks) yang menjadi dasar jawaban. Dilarang mengubah, menyambung dua tempat, atau menambah kata. Pilih kutipan yang memuat pembatas atau pengecualian penentu jawaban (mis. إلا، غير، لا) dan jangan memotongnya tepat setelah kata negasi.
 6. KERAGAMAN. Setiap butir menguji hal yang berbeda, tersebar di seluruh teks. Dilarang dua butir kembar atau saling membocorkan jawaban.
 7. BAHASA. Soal, opsi, dan jawaban ditulis dalam Bahasa Indonesia yang baku dan sesuai jenjang; teks Arab hanya pada "kutipan_kitab".
 8. PEMBAHASAN. Satu sampai dua kalimat Bahasa Indonesia yang menjelaskan mengapa jawaban benar menurut teks. Jangan menyebut huruf opsi dan jangan mengutip Arab di sini (kutipan sudah ada di kolomnya).
@@ -167,6 +168,9 @@ export function blokFaktaButir(f) {
   return `\n   FAKTA WAJIB DIUJI (data): ${f.fakta}\n   Dasar di teks (salin persis ke kutipan_kitab): ${f.kutipan}${f.pengecoh && f.pengecoh.length ? `\n   Pengecoh yang boleh dipakai: ${f.pengecoh.join(' | ')}` : ''}`;
 }
 
+/** Peta teks dan panduan disiplin (dihitung kode); '' bila bukan teks Arab. */
+const petaPaket = (input) => { const b = blokPemahaman(input.teks, { mapel: input.mapel, bahasa: input.bahasa }); return b ? `\n\n${b}` : ''; };
+
 export function buildPaketPrompt(input, target) {
   const rujukan = [input.nama || 'tidak disebutkan', input.juz && `juz ${input.juz}`, input.hal && `halaman ${input.hal}`].filter(Boolean).join(', ');
   const daftar = input.spek.map((s, i) => `${i + 1}. bentuk=${s.bentuk}; level=${LEVEL_NAMA[s.level]}${target[i] ? `; jawaban benar di opsi ${target[i]}` : ''}${blokFaktaButir(s.fakta)}`).join('\n');
@@ -179,7 +183,7 @@ Rujukan kitab: ${rujukan}${input.bahasa && input.bahasa !== 'ar' ? `\nBahasa tek
 </metadata>
 
 Daftar permintaan:
-${daftar}${blokHindari(input.hindari)}${input.cakupan ? `\n\n${blokBatasMateri(input.cakupan, { jamak: true })}${blokDaftarIsi(input.isi)}` : ''}
+${daftar}${blokHindari(input.hindari)}${input.cakupan ? `\n\n${blokBatasMateri(input.cakupan, { jamak: true })}${blokDaftarIsi(input.isi)}` : ''}${petaPaket(input)}
 
 <teks_kitab>
 ${input.teks}

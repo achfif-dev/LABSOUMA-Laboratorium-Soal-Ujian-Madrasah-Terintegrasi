@@ -1,4 +1,5 @@
 // Paket Dauri terikat fakta (src/paketService.js): kutipan dari fakta terverifikasi, alasan pengecoh wajib, prompt lama utuh bila tanpa fakta.
+import { sistemBaca } from '../src/pemahamanKitab.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generatePaket, validatePaket, sistemPaketFor, SISTEM_PAKET, TOOL_PAKET, toolPaketDenganFakta, blokFaktaButir, ATURAN_FAKTA_PAKET } from '../src/paketService.js';
@@ -23,9 +24,9 @@ test('validatePaket: kutipan dasar karangan ditolak SEBELUM memanggil AI (FAKTA_
 });
 
 test('prompt sistem: tanpa fakta persis seperti sebelumnya; dengan fakta ditambah aturan butir terikat', () => {
-  assert.equal(sistemPaketFor('ar'), SISTEM_PAKET);
-  assert.equal(sistemPaketFor('ar', false), SISTEM_PAKET);
-  assert.equal(sistemPaketFor('ar', true), SISTEM_PAKET + ATURAN_FAKTA_PAKET);
+  assert.equal(sistemPaketFor('ar'), SISTEM_PAKET + sistemBaca('ar'));
+  assert.equal(sistemPaketFor('ar', false), SISTEM_PAKET + sistemBaca('ar'));
+  assert.equal(sistemPaketFor('ar', true), SISTEM_PAKET + ATURAN_FAKTA_PAKET + sistemBaca('ar'));
   assert.match(sistemPaketFor('id', true), /BUTIR TERIKAT SATU FAKTA/);
   assert.equal(blokFaktaButir(undefined), '');
   assert.match(blokFaktaButir(FAKTA), /FAKTA WAJIB DIUJI[\s\S]*Dasar di teks[\s\S]*Pengecoh yang boleh dipakai: Wajib bagi anak kecil/);
@@ -64,7 +65,7 @@ test('generatePaket terikat fakta: pilgan terikat tanpa alasan pengecoh masuk ga
 test('generatePaket tanpa fakta: prompt, skema alat, dan hasil sama seperti sebelumnya', async () => {
   const c = fake([butirPilgan({ no: '1', kutipan_kitab: 'واجبة على كل مسلم بالغ عاقل' })]);
   const r = await generatePaket({ ...dasar, spek: [{ bentuk: 'pilgan', level: 'L1' }] }, { client: c, random: () => 0 });
-  assert.equal(c.calls[0].system, SISTEM_PAKET);
+  assert.equal(c.calls[0].system, SISTEM_PAKET + sistemBaca('ar'));
   assert.equal('alasan_pengecoh' in c.calls[0].tools[0].input_schema.properties.butir.items.properties, false);
   assert.equal(c.calls[0].messages[0].content.includes('FAKTA WAJIB DIUJI'), false);
   assert.equal('faktaDasar' in r.butir[0], false); assert.equal('alasanPengecoh' in r.butir[0], false);

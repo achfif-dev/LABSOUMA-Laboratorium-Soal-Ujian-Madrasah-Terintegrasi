@@ -1,5 +1,6 @@
 // Impor dan pemakaian kitab/buku NON-ARAB: deteksi bahasa, mutu teks, penanda halaman Latin, bab Latin, validasi server,
 // alur impor lewat handler asli, pemeriksa kutipan mode Latin, serta bahasa pada penyusunan soal dan paket.
+import { sistemBaca } from '../src/pemahamanKitab.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { aksaraDominan, tebakBahasa, tampilanTeks, bahasaKitab, aksaraKitab, bahasaOtomatis, nisbahArab } from '../web/lib/bahasa.js';
@@ -166,7 +167,7 @@ test('validateInput: teks Latin diterima hanya bila bahasa bukan Arab (klien lam
   assert.throws(() => validateInput({ ...BODY, teks: hal(1), bahasa: 'zz' }), (e) => e.status === 400);
 });
 test('prompt: Arab tidak berubah sama sekali; bahasa lain tidak lagi menyebut Arab', () => {
-  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT); assert.equal(systemPromptFor('pilgan', 'ar'), SYSTEM_PROMPT);
+  assert.equal(systemPromptFor('pilgan'), SYSTEM_PROMPT + sistemBaca('ar')); assert.equal(systemPromptFor('pilgan', 'ar'), SYSTEM_PROMPT + sistemBaca('ar'));
   const p = systemPromptFor('pilgan', 'id');
   for (const frasa of ['berbahasa Arab', 'kutipan Arab', 'bagian Arab', 'harakat', 'bukan bahasa Arab']) assert.ok(!p.includes(frasa), frasa);
   assert.match(p, /berbahasa Indonesia/); assert.match(p, /tanda petik ganda/); assert.match(p, /tanpa terjemahan/);
@@ -178,7 +179,7 @@ test('paket: bahasa diteruskan, prompt disesuaikan, Arab tidak berubah', () => {
   const spek = [{ bentuk: 'pilgan', level: 'L1' }];
   assert.equal(validatePaket({ teks: hal(1), tingkat: 'MA', spek, bahasa: 'id' }).bahasa, 'id');
   assert.throws(() => validatePaket({ teks: hal(1), tingkat: 'MA', spek }), (e) => e.code === 'INVALID_ARABIC');
-  assert.equal(sistemPaketFor('ar'), SISTEM_PAKET);
+  assert.equal(sistemPaketFor('ar'), SISTEM_PAKET + sistemBaca('ar'));
   const p = sistemPaketFor('id'); for (const f of ['berbahasa Arab', 'kata Arab', 'mengutip Arab', 'bahasa Arab yang']) assert.ok(!p.includes(f), f);
 });
 
