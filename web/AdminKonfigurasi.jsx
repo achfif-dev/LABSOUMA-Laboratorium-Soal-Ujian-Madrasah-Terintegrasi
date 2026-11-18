@@ -170,11 +170,12 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
   const [nama, setNama] = useState('');
   const [lihat, setLihat] = useState(null);
   const [batas, setBatas] = useState(10); // jumlah cadangan otomatis yang disimpan; nilai sebenarnya dari server
+  const [diminta, setDiminta] = useState(false); // daftar riwayat (±20 baca Firestore) baru dimuat setelah admin memintanya, bukan tiap tab konfigurasi dibuka
   const muat = async () => {
     try { const r = await callApi('/api/config-backup', { aksi: 'daftar', jenis }); setList(r.riwayat); if (r.batas && r.batas.otomatis) setBatas(r.batas.otomatis); setErr(null); }
     catch (e) { setErr(apiErr(e)); setList((x) => x || []); }
   };
-  useEffect(() => { muat(); }, [versi]); // versi berubah (disimpan, dikembalikan ke bawaan, atau dipulihkan): daftar riwayat ikut disegarkan
+  useEffect(() => { if (diminta) muat(); }, [versi, diminta]); // versi berubah (disimpan, dikembalikan ke bawaan, atau dipulihkan): daftar yang sudah dimuat ikut disegarkan
   const jalan = async (kunci, fn) => { setBusy(kunci); setErr(null); try { await fn(); } catch (e) { setErr(apiErr(e)); } finally { setBusy(''); } };
   const tandai = () => jalan('titik', async () => {
     await callApi('/api/config-backup', { aksi: 'titik', jenis, nama });
@@ -232,7 +233,7 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
     </li>
   );
   return (
-    <Section title="Cadangan & Riwayat" lipat icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={muat} disabled={!!busy}>Muat ulang daftar</Btn>}>
+    <Section title="Cadangan & Riwayat" lipat icon={ShieldCheck} action={<Btn kind="ghost" className="!px-3 !py-1.5 !text-xs" onClick={() => { setDiminta(true); if (diminta) muat(); }} disabled={!!busy}>{diminta ? 'Muat ulang daftar' : 'Tampilkan daftar'}</Btn>}>
       <div className="space-y-4">
         <p className="text-xs leading-relaxed text-mute">
           Setiap kali {label} disimpan, dikembalikan ke bawaan, atau dipulihkan, keadaan <b>sebelumnya</b> otomatis dicadangkan (disimpan maksimal {batas} terakhir; yang lebih lama dibuang sendiri, dan Anda bisa menghapusnya kapan saja dengan ikon tong sampah atau tombol pembersih di bawah). Bila terjadi salah ubah atau salah hapus, pulihkan dari sini: yang kembali adalah setelan buatan madrasah, bukan bawaan aplikasi.
@@ -247,7 +248,7 @@ function RiwayatCfg({ jenis, versi, dirty, onRestored, toast }) {
           {dirty && <p className="mt-1 text-xs text-warn">Ada perubahan di layar yang belum disimpan; yang ditandai adalah versi yang sudah tersimpan di server.</p>}
         </div>
         {err && <ErrorBox e={err} />}
-        {!list ? <div className="flex justify-center py-6 text-mute"><Loader2 className="spin" /></div> : (
+        {!list ? (diminta ? <div className="flex justify-center py-6 text-mute"><Loader2 className="spin" /></div> : <p className="text-sm text-mute">Daftar cadangan belum dimuat agar hemat kuota baca. Tekan &quot;Tampilkan daftar&quot; bila perlu melihat atau memulihkan cadangan.</p>) : (
           <>
             <div><h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-mute">Titik pulih ({titik.length})</h3>
               {titik.length ? <ul className="space-y-2">{titik.map(baris)}</ul> : <p className="text-sm text-mute">Belum ada. Tandai setelan yang sudah benar agar mudah dikembalikan.</p>}
