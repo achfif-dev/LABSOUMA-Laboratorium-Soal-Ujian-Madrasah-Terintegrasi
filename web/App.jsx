@@ -89,14 +89,14 @@ function App({ user, profile }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [saran, setSaran] = useState(null); // hasil saran bab terakhir (tidak dipulihkan setelah refresh: memakai kuota AI)
-  // Penanda kuota AI di menu (admin): hanya dua dokumen plafon (2 baca Firestore) tiap 3 menit selama halaman terlihat; rincian per pengguna hanya dimuat di tab Dasbor.
+  // Penanda kuota AI di menu (admin): hanya dua dokumen plafon (2 baca Firestore) tiap 10 menit selama halaman terlihat; rincian per pengguna hanya dimuat di tab Dasbor.
   const [kuotaRingkas, setKuotaRingkas] = useState(null);
   useEffect(() => {
     if (!isAdmin) return undefined;
     let mati = false;
     const ambil = () => { if (document.visibilityState === 'hidden') return; callApi('/api/admin-stats', { ringkas: true }).then((d) => { if (!mati) setKuotaRingkas(d); }).catch(() => { /* penanda saja: gagal dibaca tidak mengganggu */ }); };
     ambil();
-    const t = setInterval(ambil, 180000);
+    const t = setInterval(ambil, 600000); // 10 menit: tiap panggilan memakai beberapa baca Firestore
     return () => { mati = true; clearInterval(t); };
   }, [isAdmin]);
   const keluar = () => {
@@ -133,7 +133,7 @@ function App({ user, profile }) {
   //  - pendingQs : semua soal berstatus pending (realtime; hanya editor/admin) agar antrean review tidak terlewat walau soalnya lama
   //  - milik : draf dan soal revisi milik pengguna sendiri (realtime), agar tetap bisa diedit walau lama
   //  - extra : halaman tambahan yang dimuat lewat tombol "Muat lagi" (sekali baca, tidak realtime)
-  const HALAMAN = 100;
+  const HALAMAN = 40; // halaman pertama bank soal; sisanya lewat tombol Muat lagi (tiap dokumen = 1 baca Firestore, tiap pemuatan halaman)
   const [recent, setRecent] = useState([]);
   const [pendingQs, setPendingQs] = useState([]);
   const [milik, setMilik] = useState([]);
@@ -190,9 +190,9 @@ function App({ user, profile }) {
     );
   }, [lingkup]);
   useEffect(() => (canReview
-    ? col.where('status', '==', 'pending').limit(300).onSnapshot((snap) => setPendingQs(snap.docs.map(dariDoc)), () => setPendingQs([]))
+    ? col.where('status', '==', 'pending').limit(150).onSnapshot((snap) => setPendingQs(snap.docs.map(dariDoc)), () => setPendingQs([]))
     : undefined), [canReview]);
-  useEffect(() => col.where('authorUid', '==', user.uid).where('status', 'in', ['draft', 'revision']).limit(200)
+  useEffect(() => col.where('authorUid', '==', user.uid).where('status', 'in', ['draft', 'revision']).limit(100)
     .onSnapshot((snap) => setMilik(snap.docs.map(dariDoc)), () => setMilik([])), [user.uid]);
   const muatLagi = async () => {
     if (memuat || !kursor.current) return;

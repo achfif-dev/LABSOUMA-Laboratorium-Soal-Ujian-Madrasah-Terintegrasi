@@ -27,19 +27,19 @@ export function Dasbor({ pending, onBukaReview }) {
   const [busy, setBusy] = useState(false);
   const [semua, setSemua] = useState(false);
   const [waktu, setWaktu] = useState(0);
-  const muat = async () => {
+  const muat = async (segarkan = false) => {
     setBusy(true);
-    try { setD(await callApi('/api/admin-stats', { semua })); setWaktu(Date.now()); setErr(null); }
+    try { setD(await callApi('/api/admin-stats', { semua, ...(segarkan === true ? { segarkan: true } : {}) })); setWaktu(Date.now()); setErr(null); }
     catch (e) { setErr(apiErr(e)); }
     finally { setBusy(false); }
   };
   useEffect(() => {
     muat();
-    const t = setInterval(() => { if (document.visibilityState !== 'hidden') muat(); }, 120000);
+    const t = setInterval(() => { if (document.visibilityState !== 'hidden') muat(); }, 300000); // 5 menit (server juga menyimpan hasil 90 detik)
     return () => clearInterval(t);
   }, [semua]);
   const antrean = useMemo(() => DB.ringkasAntrean(pending, Date.now()), [pending, waktu]);
-  return <DasborView d={d} err={err} busy={busy} semua={semua} setSemua={setSemua} waktu={waktu} onMuat={muat} antrean={antrean} onBukaReview={onBukaReview} />;
+  return <DasborView d={d} err={err} busy={busy} semua={semua} setSemua={setSemua} waktu={waktu} onMuat={() => muat(true)} antrean={antrean} onBukaReview={onBukaReview} />;
 }
 
 // Tampilan murni (tanpa pengambilan data): dirender langsung di tes dengan data contoh.

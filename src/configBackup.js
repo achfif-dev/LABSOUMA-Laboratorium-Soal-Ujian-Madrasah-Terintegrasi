@@ -122,6 +122,7 @@ export async function siapkanRiwayat(db, { jenis, tipe = 'otomatis', nama = '', 
     if (t && t.tipe === 'otomatis' && kanon(t.data) === kanon(data)) return null;
   }
   const id = idBaru(now);
+  cacheDaftar.delete(jenis); // cadangan baru akan ditulis pemanggil
   return { ref: kol(db, jenis).doc(id), id, doc: rakitRiwayat({ jenis, tipe, alasan, nama, data, sumber: docSaatIni, oleh, now }) };
 }
 
@@ -139,6 +140,7 @@ export async function pangkasRiwayat(jenis, { db: dbIn } = {}) {
     const semua = await kol(db, jenis).orderBy('dibuatAt', 'desc').select('tipe').get();
     const otomatis = semua.docs.filter((d) => d.data().tipe === 'otomatis');
     const lebih = otomatis.slice(BATAS_RIWAYAT.otomatis);
+    cacheDaftar.delete(jenis);
     if (!lebih.length) return 0;
     await hapusBanyak(db, lebih);
     return lebih.length;
@@ -156,15 +158,26 @@ export async function bersihkanOtomatis(jenis, simpanMasuk) {
   const semua = await kol(db, jenis).orderBy('dibuatAt', 'desc').select('tipe').get();
   const otomatis = semua.docs.filter((d) => d.data().tipe === 'otomatis');
   const buang = otomatis.slice(simpan);
+  cacheDaftar.delete(jenis);
   if (buang.length) await hapusBanyak(db, buang);
   return { dihapus: buang.length, sisa: otomatis.length - buang.length };
 }
 
-/** Daftar riwayat terbaru dulu, tanpa isi besar. */
-export async function daftarRiwayat(jenis) {
+// Daftar riwayat dibaca admin tiap membuka tab konfigurasi (sampai ~30 dokumen per jenis). Disimpan di memori beberapa saat;
+// setiap perubahan (cadangan baru, pangkas, hapus, titik) membuangnya, jadi admin tetap melihat data terbaru di instance ini.
+const TTL_DAFTAR_MS = 5 * 60 * 1000;
+const cacheDaftar = new Map(); // jenis -> { at, value }
+export const kosongkanCacheRiwayat = () => cacheDaftar.clear();
+
+/** Daftar riwayat terbaru dulu, tanpa isi besar. `segarkan: true` melewati cache. */
+export async function daftarRiwayat(jenis, { segarkan = false, now = Date.now() } = {}) {
+  const c = cacheDaftar.get(jenis);
+  if (!segarkan && c && now - c.at < TTL_DAFTAR_MS) return c.value;
   const { db } = await firestoreAdmin();
   const snap = await kol(db, jenis).orderBy('dibuatAt', 'desc').limit(BATAS_RIWAYAT.daftar).select('tipe', 'alasan', 'nama', 'ringkas', 'sumberOleh', 'sumberAt', 'dibuatOleh', 'dibuatAt').get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const value = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  cacheDaftar.set(jenis, { at: now, value });
+  return value;
 }
 
 export async function bacaRiwayat(jenis, id) {
@@ -186,6 +199,7 @@ export async function buatTitik(user, jenis, namaMasuk, { now = () => new Date()
   if (ada.docs.filter((d) => d.data().tipe === 'titik').length >= BATAS_RIWAYAT.titik) throw bad(`Titik pulih maksimal ${BATAS_RIWAYAT.titik}. Hapus yang tidak dipakai dulu.`);
   const r = await siapkanRiwayat(db, { jenis, tipe: 'titik', nama, alasan: 'titik', docSaatIni, oleh: user.email || user.uid, now: now() });
   await r.ref.set(r.doc);
+  cacheDaftar.delete(jenis);
   return { id: r.id, ...r.doc };
 }
 
@@ -197,5 +211,6 @@ export async function hapusRiwayat(jenis, id) {
   if (!s.exists) throw bad('Cadangan tidak ditemukan. Mungkin sudah dipangkas atau dihapus.', 'RIWAYAT_NOT_FOUND', 404);
   const tipe = s.data().tipe; // dibaca sebelum dihapus
   await ref.delete();
+  cacheDaftar.delete(jenis);
   return { ok: true, tipe };
 }

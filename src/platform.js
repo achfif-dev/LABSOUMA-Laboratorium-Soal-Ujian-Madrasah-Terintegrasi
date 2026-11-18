@@ -24,7 +24,7 @@ export const kitabLimits = () => ({ perMinute: num('LIMIT_KITAB_PER_MINUTE', 10)
 
 /* ------------------------------------------------------------- Firebase Admin */
 let fb = null;
-export const __setFirebaseForTest = (x) => { fb = x; };
+export const __setFirebaseForTest = (x) => { fb = x; peranCache.clear(); };
 
 function serviceAccount() {
   const raw = String(process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
@@ -49,6 +49,44 @@ async function firebase() {
 /** Akses Firebase Admin untuk modul lain (mis. src/aiConfig.js). */
 export const firestoreAdmin = () => firebase();
 
+
+/* ------------------------------------------------- Cache peran + galat kuota */
+// Setiap permintaan API dulu membaca users/{uid} (1 baca). Peran jarang berubah, jadi disimpan di memori instance sebentar
+// (ROLE_CACHE_SECONDS, bawaan 60 detik; 0 = nonaktif). Konsekuensi: perubahan peran admin berlaku paling lambat sekitar satu menit.
+// Bila Firestore gagal (mis. kuota baca harian habis), peran terakhir yang diketahui tetap dipakai sampai 10 menit supaya aplikasi tidak macet.
+const peranCache = new Map(); // uid -> { at, data }
+const TTL_PERAN_USANG_MS = 10 * 60 * 1000;
+const MAKS_PERAN = 500;
+const ttlPeran = () => { const n = Number(process.env.ROLE_CACHE_SECONDS); return (Number.isFinite(n) && n >= 0 ? n : 60) * 1000; };
+export const kosongkanCachePeran = (uid) => { if (uid) peranCache.delete(uid); else peranCache.clear(); };
+export const BATAS_WAKTU_FIRESTORE_MS = 9000; // di bawah batas fungsi Vercel: lebih baik galat 503 yang jelas daripada 504 tanpa pesan
+
+/** Jalankan janji Firestore dengan batas waktu; lewat batas -> galat 503 yang menjelaskan kemungkinan penyebabnya. */
+export function denganBatasWaktu(janji, ms = BATAS_WAKTU_FIRESTORE_MS) {
+  let t;
+  const habis = new Promise((_, tolak) => { t = setTimeout(() => tolak(new ApiError(503, 'FIRESTORE_LAMBAT', 'Database tidak menjawab tepat waktu. Kemungkinan kuota baca harian Firestore habis (reset sekitar pukul 15.00 WIB) atau jaringan sedang bermasalah. Coba lagi nanti.')), ms); });
+  return Promise.race([janji, habis]).finally(() => clearTimeout(t));
+}
+
+/** Kuota Firestore habis (gRPC RESOURCE_EXHAUSTED = 8). */
+export const kuotaHabis = (e) => e?.code === 8 || e?.code === 'resource-exhausted' || /RESOURCE_EXHAUSTED|Quota exceeded/i.test(String(e?.message || ''));
+
+/** Dokumen users/{uid} dengan cache; mengembalikan data (atau null bila tidak ada). */
+async function bacaPeran(uid, { now = Date.now() } = {}) {
+  const c = peranCache.get(uid); const ttl = ttlPeran();
+  if (c && now - c.at < ttl) return c.data;
+  const { db } = await firebase();
+  try {
+    const snap = await denganBatasWaktu(db.doc(`users/${uid}`).get());
+    const data = snap.exists ? snap.data() : null;
+    if (ttl > 0) { peranCache.set(uid, { at: now, data }); if (peranCache.size > MAKS_PERAN) peranCache.delete(peranCache.keys().next().value); }
+    return data;
+  } catch (e) {
+    if (c && now - c.at < TTL_PERAN_USANG_MS) { console.error('[auth] gagal membaca peran, memakai cache lama:', e?.code ?? e?.message); return c.data; }
+    throw e;
+  }
+}
+
 /* ------------------------------------------------------------- Autentikasi */
 const AUTH_MSG = 'Sesi berakhir. Masuk lagi dengan akun Google Anda.';
 
@@ -66,9 +104,8 @@ export async function authenticate(req) {
 /** Login valid DAN peran aktif (penyusun, editor, admin). */
 export async function authenticateStaff(req) {
   const u = await authenticate(req);
-  const { db } = await firebase();
-  const snap = await db.doc(`users/${u.uid}`).get();
-  if (!snap.exists || !STAFF.includes(snap.data().role)) {
+  const d = await bacaPeran(u.uid);
+  if (!d || !STAFF.includes(d.role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Akun Anda belum disetujui admin untuk memakai fitur ini.');
   }
   return u;
@@ -77,9 +114,8 @@ export async function authenticateStaff(req) {
 /** Login valid DAN peran pemakai alat AI (penyusun, editor, admin, ustadz). Mengembalikan token + `role`. */
 export async function authenticateAuthor(req) {
   const u = await authenticate(req);
-  const { db } = await firebase();
-  const snap = await db.doc(`users/${u.uid}`).get();
-  const role = snap.exists ? snap.data().role : null;
+  const d = await bacaPeran(u.uid);
+  const role = d ? d.role : null;
   if (!AUTHORS.includes(role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Akun Anda belum disetujui admin untuk memakai fitur ini.');
   }
@@ -89,9 +125,8 @@ export async function authenticateAuthor(req) {
 /** Login valid DAN peran admin. */
 export async function authenticateAdmin(req) {
   const u = await authenticate(req);
-  const { db } = await firebase();
-  const snap = await db.doc(`users/${u.uid}`).get();
-  if (!snap.exists || snap.data().role !== 'admin') {
+  const d = await bacaPeran(u.uid);
+  if (!d || d.role !== 'admin') {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk admin.');
   }
   return u;
@@ -100,12 +135,11 @@ export async function authenticateAdmin(req) {
 /** Login valid DAN peran editor atau admin (peninjau). */
 export async function authenticateReviewer(req) {
   const u = await authenticate(req);
-  const { db } = await firebase();
-  const snap = await db.doc(`users/${u.uid}`).get();
-  if (!snap.exists || !['editor', 'admin'].includes(snap.data().role)) {
+  const d = await bacaPeran(u.uid);
+  if (!d || !['editor', 'admin'].includes(d.role)) {
     throw new ApiError(403, 'FORBIDDEN_ROLE', 'Fitur ini hanya untuk editor dan admin.');
   }
-  return { ...u, role: snap.data().role, tahapEditor: tahapDitugaskan(snap.data()) };
+  return { ...u, role: d.role, tahapEditor: tahapDitugaskan(d) };
 }
 
 /** Membuat/menyegarkan dokumen users/{uid}. Admin pertama berasal dari ADMIN_EMAILS. */
@@ -118,19 +152,20 @@ export async function ensureProfile(u) {
   const wanted = initialRole(u.email, u.email_verified, parseList(process.env.ADMIN_EMAILS));
   const { db, FieldValue } = await firebase();
   const ref = db.doc(`users/${u.uid}`);
-  await db.runTransaction(async (tx) => {
+  await denganBatasWaktu(db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const profile = { email: u.email, name: u.name || u.email, photoURL: u.picture || '', lastLoginAt: FieldValue.serverTimestamp() };
     if (!snap.exists) tx.set(ref, { ...profile, role: wanted, createdAt: FieldValue.serverTimestamp() });
     else tx.update(ref, shouldPromote(snap.data().role, wanted) ? { ...profile, role: 'admin' } : profile);
-  });
+  }));
+  kosongkanCachePeran(u.uid);
 }
 
 /** Batas per pengguna di semua instance (Firestore: rate/{docId}). */
 export async function enforceRate(docId, limits, { pesanHarian } = {}) {
   const { db } = await firebase();
   const ref = db.doc(`rate/${docId}`);
-  await db.runTransaction(async (tx) => {
+  await denganBatasWaktu(db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const d = rateDecision(snap.data(), Date.now(), limits);
     if (!d.ok) {
@@ -140,7 +175,7 @@ export async function enforceRate(docId, limits, { pesanHarian } = {}) {
       throw new ApiError(429, d.code, msg, { retryAfter: d.retryAfter });
     }
     tx.set(ref, d.state);
-  });
+  }));
 }
 
 /** Kuota AI: batas per pengguna lalu plafon harian kolam peran (tim atau ustadz). Bila plafon penuh, hitungan pengguna dikembalikan. */
@@ -177,6 +212,9 @@ export async function withRefund(docId, fn, extraIds = []) {
 export function firebaseError(e) {
   const code = e?.code;
   const msg = String(e?.message || '');
+  if (kuotaHabis(e)) {
+    return new ApiError(503, 'FIRESTORE_QUOTA', 'Kuota baca/tulis harian Firestore (paket gratis) sudah habis. Aplikasi pulih otomatis setelah kuota direset (sekitar pukul 15.00 WIB), atau admin dapat beralih ke paket Blaze dengan batas anggaran.', { retryAfter: 900 });
+  }
   if (code === 5 || code === 'not-found' || /NOT_FOUND/.test(msg)) {
     return new ApiError(500, 'FIRESTORE_NOT_FOUND', 'Database Firestore belum dibuat atau berada di proyek lain. Buat Firestore di Firebase Console (Build > Firestore Database > Create database) dan pastikan kunci akun layanan berasal dari proyek yang sama.');
   }
