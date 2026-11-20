@@ -1,5 +1,6 @@
 import './globals.js'; // harus pertama: memasang window.Ujian, window.Bentuk, dst. sebelum App dievaluasi (Pegon dimuat malas, lihat bawah)
 import './styles.css';
+import './pwa.js'; // ajakan pasang aplikasi (PWA) dan pemberitahuan versi baru
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import firebase from 'firebase/compat/app';

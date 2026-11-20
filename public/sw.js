@@ -1,7 +1,7 @@
 /* Service worker LABSOUMA: hanya cangkang aplikasi (halaman dan berkas statis sama-origin) agar aplikasi terbuka saat sinyal buruk.
  * TIDAK menyentuh /api/*, Firebase/Google, atau permintaan selain GET: data soal tetap dari Firestore (yang punya cache sendiri)
  * dan tidak pernah disajikan dari cache di sini. Naikkan VERSI bila logika berkas ini berubah. */
-const VERSI = 'labsouma-v1';
+const VERSI = 'labsouma-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -14,7 +14,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const r = e.request; const u = new URL(r.url);
-  if (r.method !== 'GET' || u.origin !== self.location.origin || u.pathname.startsWith('/api/') || u.pathname === '/sw.js') return;
+  if (r.method !== 'GET' || u.origin !== self.location.origin || u.pathname.startsWith('/api/') || u.pathname === '/sw.js' || r.cache === 'no-store') return; // no-store: sengaja minta yang terbaru (pengecekan versi di web/pwa.js)
 
   // Halaman: jaringan dulu (selalu versi terbaru), cadangan dari cache bila offline.
   if (r.mode === 'navigate') {
