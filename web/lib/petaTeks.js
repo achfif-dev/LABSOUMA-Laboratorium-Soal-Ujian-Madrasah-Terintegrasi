@@ -25,6 +25,8 @@ export const DISIPLIN = {
   akidah: 'Akidah/Tauhid',
   hadits: 'Hadits dan ilmunya',
   nahwu_sharaf: 'Nahwu/Sharaf',
+  balaghah: 'Balaghah (ma\'ani, bayan, badi\')',
+  mustalah: 'Mushthalah hadits',
   ushul: 'Ushul fiqih dan kaidah',
   tasawuf_akhlak: 'Akhlak/Tasawuf',
   tafsir_quran: 'Tafsir, Ulumul Qur\'an, dan Tajwid',
@@ -34,7 +36,9 @@ export const DISIPLIN = {
 
 // Mata pelajaran (teks bebas dari form) -> disiplin. Urutan penting: yang lebih spesifik lebih dulu.
 const POLA_MAPEL = [
-  ['nahwu_sharaf', /nahw|shorof|sharaf|sorof|tashrif|tasrif|jurumiyah|jurumiah|amtsilati|imrithi|alfiyah|bahasa arab|balaghah/i],
+  ['balaghah', /balaghah|balagoh|bayan\b|ma'?ani\b|badi'?\b|jauhar maknun|uqudul juman|balaghoh/i],
+  ['mustalah', /mus?thalah|mustalah|baiquniyah|nukhbatul fikar|ilmu hadi[st]|ulumul hadi[st]/i],
+  ['nahwu_sharaf', /nahw|shorof|sharaf|sorof|tashrif|tasrif|jurumiyah|jurumiah|amtsilati|imrithi|alfiyah|bahasa arab/i],
   ['ushul', /ushul|usul|qawa'?id|qowaid|kaidah|waraqat|mantiq/i],
   ['hadits', /hadi[st]|musthalah|mushthalah|arbain|riyadhus|bulugh|mustalah/i],
   ['tafsir_quran', /tafsir|qur'?an|quran|tajwid|ulumul|jalalain|tahfidz|tahfiz/i],
@@ -53,6 +57,8 @@ const PETUNJUK = {
   ushul: ['دليل', 'ادله', 'عام', 'خاص', 'مطلق', 'مقيد', 'قياس', 'اجماع', 'علت', 'علة', 'علي', 'قاعده', 'استصحاب', 'مفهوم', 'منطوق', 'نهي', 'امر', 'مجمل', 'مبين', 'تخصيص'],
   tasawuf_akhlak: ['قلب', 'نفس', 'اخلاص', 'رياء', 'توبه', 'صبر', 'شكر', 'زهد', 'تواضع', 'كبر', 'حسد', 'عجب', 'محبه', 'خوف', 'رجاء', 'مجاهده', 'سالك', 'طريق', 'ورع', 'تقوي'],
   tafsir_quran: ['ايه', 'ايات', 'سوره', 'نزلت', 'تفسير', 'تجويد', 'غنه', 'ادغام', 'اخفاء', 'اظهار', 'مخرج', 'قراءه', 'مكيه', 'مدنيه', 'ناسخ', 'منسوخ'],
+  balaghah: ['تشبيه', 'استعاره', 'مجاز', 'كنايه', 'طباق', 'جناس', 'بلاغه', 'معاني', 'بيان', 'بديع', 'فصاحه', 'اطناب', 'ايجاز', 'مشبه', 'شبه', 'قرينه', 'توريه', 'مقابله', 'التفات', 'سجع'],
+  mustalah: ['مصطلح', 'اسناد', 'متن', 'مرسل', 'منقطع', 'معضل', 'متواتر', 'احاد', 'مشهور', 'غريب', 'عزيز', 'موضوع', 'متروك', 'تدليس', 'مدلس', 'جرح', 'تعديل', 'ثقه', 'ضبط', 'عداله', 'شاذ', 'منكر', 'معلل', 'مضطرب', 'سند', 'راوي', 'صحيح', 'ضعيف', 'حسن'],
   sirah_tarikh: ['غزوه', 'هجره', 'مكه', 'مدينه', 'خليفه', 'ولد', 'توفي', 'معركه', 'فتح', 'بعثه', 'سريه', 'عام'],
 };
 const PETUNJUK_N = Object.fromEntries(Object.entries(PETUNJUK).map(([k, v]) => [k, new Set(v.map(n))]));
@@ -68,7 +74,7 @@ export function kenaliDisiplin(teks, mapel = '') {
   if (tok.length < 8) return { id: 'umum', label: DISIPLIN.umum, sumber: 'tidak_jelas' };
   const skor = Object.entries(PETUNJUK_N).map(([id, set]) => {
     let hit = 0; const beda = new Set();
-    for (const t of tok) { const inti = t.startsWith('ال') && t.length > 4 ? t.slice(2) : t; if (set.has(t) || set.has(inti)) { hit++; beda.add(inti); } }
+    for (const t of tok) { const dasar = /^[وف]/.test(t) && t.length > 3 ? t.slice(1) : t; const inti = dasar.startsWith('ال') && dasar.length > 4 ? dasar.slice(2) : dasar; if (set.has(t) || set.has(inti)) { hit++; beda.add(inti); } }
     return { id, s: hit + beda.size * 2 };
   }).sort((a, b) => b.s - a.s);
   const [a, b] = skor;

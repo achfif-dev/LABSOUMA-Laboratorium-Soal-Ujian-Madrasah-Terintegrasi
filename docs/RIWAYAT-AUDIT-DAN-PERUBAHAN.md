@@ -1833,3 +1833,6 @@ Tiga cara: satu halaman, geser (selisih dari satu nomor acuan), urutkan (nomori 
 - `mapel`/`tingkat` AI mengikuti form Penyusunan Soal, bukan pilihan di pembaca. Bila form belum diatur, bawaan server (Aliyah/Fiqih) berlaku.
 - Terjemah/analisis/fakta hanya untuk teks Arab (sama dengan Penyusunan Soal); kitab Latin hanya bisa memakai Buat soal.
 - Ekstrak fakta di Paket Dauri, uji buta, dan telaah tidak diubah.
+
+## 21 Nov 2026: kamus istilah keilmuan Islam dan analisis pertanyaan
+Kamus 752 istilah (16 fan), analisis pertanyaan deterministik, disiplin baru balaghah dan mushthalah, jenis pertanyaan baru (pembagian, hikmah, contoh, derajat), dan jawaban Tanya Kitab yang lebih terjabar. Rincian: `docs/PENGUATAN-AI-ISTILAH-2026-11-21.md`.

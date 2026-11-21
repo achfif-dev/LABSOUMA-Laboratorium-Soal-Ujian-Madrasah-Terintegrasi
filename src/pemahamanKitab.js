@@ -7,6 +7,7 @@
 //
 // Teks di sini adalah ALAT MEMAHAMI, bukan sumber isi. Setiap prompt tetap memuat aturan sumber tunggal: semua yang disimpulkan harus tertulis di teks.
 import { petaTeks, blokPetaTeks, kenaliDisiplin, DISIPLIN } from '../web/lib/petaTeks.js';
+import { blokIstilahTeks } from '../web/lib/kamusIlmu.js';
 
 export { petaTeks, blokPetaTeks, kenaliDisiplin, DISIPLIN };
 
@@ -30,13 +31,15 @@ export const PANDUAN_BACA_RINGKAS = `BACA DENGAN TELITI: perhatikan pembatas dan
 
 /** Panduan khusus per disiplin: apa yang dipetakan, apa yang boleh diuji, dan jebakan khasnya. */
 export const PANDUAN_DISIPLIN = {
-  fiqh: 'FIQIH: petakan rukun, syarat (syarat sah atau syarat wajib), sunnah (hai\'ah dan ab\'adh), pembatal, makruh, rukhshah atau udzur, dan perbedaan mazhab. Bedakan syarat dari rukun, dan sah dari wajib. Pada soal kasus, tokoh dan situasi boleh dikarang tetapi hukum penentunya harus tertulis di teks.',
-  akidah: 'AKIDAH/TAUHID: perhatikan pembagian (wajib, mustahil, jaiz), sifat Allah dan para rasul, dalil naqli versus aqli, dan lawan tiap istilah. Rumusan definisi harus dijaga persis: satu kata berbeda (mis. قديم vs باق) mengubah maknanya.',
-  hadits: 'HADITS: pisahkan sanad, matan, sahabat perawi, mukharrij, dan derajat. Derajat atau mukharrij hanya boleh disebut bila teks menyebutnya. Jangan menukar sahabat perawi dengan pengucap sabda.',
+  fiqh: 'FIQIH: petakan rukun, syarat (syarat sah atau syarat wajib), sunnah (hai\'ah dan ab\'adh), pembatal, makruh, rukhshah atau udzur, dan perbedaan mazhab. Bedakan syarat dari rukun, dan sah dari wajib. Bab muamalah: rukun akad (dua pihak, shighat ijab-qabul, objek akad), syarat, dan sebab batal atau fasid. Bab waris: bedakan ashhabul furudh, ashabah, hajb, dan pokok masalah. Bab jinayat: bedakan hadd, qishash, diyat, dan ta\'zir. Pada soal kasus, tokoh dan situasi boleh dikarang tetapi hukum penentunya harus tertulis di teks.',
+  akidah: 'AKIDAH/TAUHID: perhatikan pembagian (wajib, mustahil, jaiz), sifat Allah (nafsiyah, salbiyah, ma\'ani, ma\'nawiyah) beserta lawannya, sifat rasul, dalil naqli versus aqli, dan lawan tiap istilah. Rumusan definisi harus dijaga persis: satu kata berbeda (mis. قديم vs باق) mengubah maknanya. Pada nash sifat khabariyah, sebut metode (tafwidh atau takwil) hanya bila tertulis di teks. Aliran lain disebut sebagaimana ditulis kitab, tanpa menghakimi.',
+  hadits: 'HADITS: pisahkan sanad, matan, sahabat perawi, mukharrij, dan derajat. Derajat atau mukharrij hanya boleh disebut bila teks menyebutnya. Jangan menukar sahabat perawi dengan pengucap sabda. Untuk kitab syarah hadits, bedakan matan hadits dari penjelasan pensyarah, dan fiqh al-hadits (hukum yang diambil) dari bunyi hadits.',
   nahwu_sharaf: 'NAHWU/SHARAF: contoh dan i\'rab harus mengikuti kaidah yang tertulis di teks. Tentukan dulu babnya (marfu\'at, manshubat, majrurat, tashrif, wazan, dll.). Soal yang sah: kedudukan kata (i\'rab), tanda i\'rab, jenis kata, wazan, atau penerapan kaidah pada contoh BARU yang kaidahnya ada di teks. Harakat contoh menentukan jawaban: jangan diubah. Pengecoh: tanda i\'rab atau kedudukan lain yang masuk akal.',
-  ushul: 'USHUL FIQIH/KAIDAH: perhatikan definisi istilah (amr, nahy, \'amm, khash, mutlaq, muqayyad, mujmal, mubayyan), daftar dalil, dan kaidah beserta contoh penerapannya. Jangan melebarkan cakupan kaidah melebihi contoh dan pengecualian yang tertulis.',
-  tasawuf_akhlak: 'AKHLAK/TASAWUF: perhatikan pembagian sifat terpuji dan tercela, tingkatan (maqam atau hal), definisi tiap istilah, dan adab. Jangan menjadikan nasihat (targhib/tarhib) sebagai hukum wajib atau haram bila teks tidak menyatakannya.',
-  tafsir_quran: 'TAFSIR/ULUMUL QUR\'AN/TAJWID: bedakan ayat, tafsirnya, asbabun nuzul, dan hukum tajwid beserta contoh bacaan. Ayat hanya boleh dikutip bila tertulis di teks; jangan menulis ayat dari ingatan.',
+  ushul: 'USHUL FIQIH/KAIDAH: perhatikan definisi istilah (amr, nahy, \'amm, khash, mutlaq, muqayyad, mujmal, mubayyan), daftar dalil, dan kaidah beserta contoh penerapannya. Bedakan dalil (nash, ijma\', qiyas) dari metode (istishhab, istihsan, maslahah mursalah) dan dari qawaid fiqhiyyah; status tiap sumber bisa berbeda antarmazhab, ikuti yang ditulis teks. Pada qiyas sebut ashl, far\', \'illat, dan hukum. Jangan melebarkan cakupan kaidah melebihi contoh dan pengecualian yang tertulis.',
+  tasawuf_akhlak: 'AKHLAK/TASAWUF: perhatikan pembagian sifat terpuji dan tercela, tingkatan (maqam atau hal), definisi tiap istilah, dan adab. Bedakan maqam (diusahakan, menetap) dari hal (anugerah, tidak menetap), dan istilah sufi dari makna bahasanya. Untuk istilah yang diperdebatkan (mis. wahdatul wujud, hulul, syathahat) sampaikan sebagaimana uraian kitab tanpa menghakimi. Jangan menjadikan nasihat (targhib/tarhib) sebagai hukum wajib atau haram bila teks tidak menyatakannya.',
+  tafsir_quran: 'TAFSIR/ULUMUL QUR\'AN/TAJWID: pisahkan tiga lapis. (1) Tafsir: makna ayat dan sumbernya (bil ma\'tsur atau bir ra\'yi), serta pendapat mufassir yang dinukil. (2) Ulumul Qur\'an: asbabun nuzul, makki-madani, nasikh-mansukh, muhkam-mutasyabih, qira\'at. (3) Tajwid: makhraj, sifat huruf, dan hukum bacaan beserta contohnya. Ayat, sebab turun, qira\'at, dan nama mufassir hanya boleh disebut bila tertulis di teks; jangan menulis ayat dari ingatan.',
+  balaghah: 'BALAGHAH: tentukan dulu cabangnya (ma\'ani, bayan, badi\'). Tasybih: sebut musyabbah, musyabbah bih, adat, wajh syibh, dan jenisnya (mursal, muakkad, mujmal, mufashshal, baligh, tamtsil). Isti\'arah: sebut jenisnya (tashrihiyyah atau makniyyah; ashliyyah atau tabaiyyah) dan qarinahnya. Majaz: bedakan mursal dan \'aqli beserta \'alaqah-nya; kinayah dibedakan dari majaz oleh bolehnya makna asal ikut dimaksud. Kesimpulan harus dibuktikan oleh contoh yang tertulis; jangan mengubah kata atau harakat contoh.',
+  mustalah: 'MUSHTHALAH HADITS: bedakan syarat shahih (sanad bersambung, perawi \'adil dan dhabith, tanpa syudzudz dan \'illat), tingkat hasan dan dha\'if, sebab dha\'if (gugurnya sanad atau cacat perawi), pembagian menurut jumlah jalur (mutawatir; ahad: masyhur, \'aziz, gharib) dan sandaran (marfu\', mauquf, maqthu\'). Derajat hadits tertentu hanya boleh disebut bila teks menyebutnya; jangan menilai sendiri.',
   sirah_tarikh: 'SIRAH/TARIKH: perhatikan tokoh, tempat, urutan, tahun, dan sebab-akibat sebagaimana tertulis. Nama dan angka tahun diambil persis; jangan menambah peristiwa.',
   umum: 'Tentukan dulu jenis materi (definisi, klasifikasi, kaidah, contoh, kisah) lalu uji atau jelaskan sesuai jenisnya.',
 };
@@ -58,8 +61,9 @@ export function blokPemahaman(teks, { mapel = '', bahasa = 'ar' } = {}) {
   const peta = petaTeks(teks, { mapel });
   const blok = blokPetaTeks(peta);
   if (!blok) return '';
-  return `${blok}\n<panduan_disiplin>\n${panduanDisiplin(peta.disiplin)}\n</panduan_disiplin>`;
+  const istilah = blokIstilahTeks(teks, { disiplin: peta.disiplin });
+  return `${blok}\n<panduan_disiplin>\n${panduanDisiplin(peta.disiplin)}\n</panduan_disiplin>${istilah ? `\n${istilah}` : ''}`;
 }
 
 /** Tambahan system prompt untuk teks Arab. Bahasa lain: ''. */
-export const sistemBaca = (bahasa = 'ar') => (!bahasa || bahasa === 'ar' ? `\n\n${PANDUAN_BACA}\nBlok <peta_teks> dan <panduan_disiplin> di pesan pengguna (bila ada) hanya alat bantu baca yang dihitung kode; isinya bisa keliru dan tidak boleh dikutip sebagai isi kitab.` : '');
+export const sistemBaca = (bahasa = 'ar') => (!bahasa || bahasa === 'ar' ? `\n\n${PANDUAN_BACA}\nBlok <peta_teks>, <panduan_disiplin>, dan <istilah_teks> di pesan pengguna (bila ada) hanya alat bantu baca yang dihitung kode; isinya bisa keliru dan tidak boleh dikutip sebagai isi kitab.` : '');

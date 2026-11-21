@@ -11,16 +11,20 @@ const n = (s) => normalCari(s);
 
 /* ------------------------------------------------------------------ 1. jenis pertanyaan */
 
-export const JENIS_PERTANYAAN = ['hukum', 'definisi', 'dalil', 'syarat_rukun', 'perbandingan', 'bilangan', 'tata_cara', 'khilaf', 'irab', 'umum'];
+export const JENIS_PERTANYAAN = ['hukum', 'definisi', 'dalil', 'syarat_rukun', 'perbandingan', 'bilangan', 'tata_cara', 'khilaf', 'irab', 'pembagian', 'hikmah', 'contoh', 'derajat', 'umum'];
 
 const POLA_JENIS = [
   ['irab', /i'?rab|kedudukan kata|tanda i'?rab|marfu|manshub|majrur|tashrif|wazan|jenis kata|إعراب|اعراب|محل/i],
-  ['perbandingan', /bandingkan|perbedaan antara|beda(?:nya)?\b|bedanya|dibanding|versus|\bvs\b|persamaan|الفرق|الفرق بين|قارن/i],
+  ['perbandingan', /bandingkan|perbedaan(?! pendapat)|beda(?:nya)?\b|bedanya|dibanding|versus|\bvs\b|persamaan|الفرق|الفرق بين|قارن/i],
   ['khilaf', /khilaf|perbedaan pendapat|pendapat (?:lain|ulama|mazhab)|menurut (?:mazhab|imam|hanafi|maliki|syafi|hanbali)|ikhtilaf|اختلاف|خلاف|مذهب/i],
+  ['derajat', /derajat|kualitas hadi|status hadi|(?:shahih|sahih|dhaif|daif|maudhu|palsu) atau|apakah (?:hadi[st]|riwayat)[^?]*(?:shahih|sahih|dhaif|daif|maudhu|palsu)|درجة الحديث/i],
   ['dalil', /dalil|hujjah|landasan|nash|ayat|hadits|hadis|sumber hukum|دليل|حجة/i],
   ['syarat_rukun', /syarat|rukun|sunnah[- ]sunnah|sunah[- ]sunah|pembatal|yang membatalkan|fardhu|fardu|شرط|شروط|ركن|أركان|اركان|مبطلات|نواقض/i],
+  ['hikmah', /hikmah|mengapa|kenapa|alasan(?:nya)?\b|illat|'illat|latar belakang hukum|حكمة|لماذا|علة/i],
+  ['pembagian', /macam(?:-macam)?|jenis(?:-jenis)?\b|pembagian|klasifikasi|bagian-bagian|tingkatan|golongan|أقسام|أنواع|ضروب/i],
   ['tata_cara', /tata cara|cara (?:me|ber)|bagaimana (?:cara|melakukan|mengerjakan)|langkah|urutan|kaifiyat|كيفية|صفة/i],
   ['bilangan', /berapa|jumlah|banyaknya|hitungan|nisab|kadar|ukuran|(?:^|\s)كم\s|عدد|مقدار|نصاب/i],
+  ['contoh', /contoh|misal(?:nya)?\b|ilustrasi|مثال|أمثلة/i],
   ['definisi', /apa (?:itu|yang dimaksud|arti|pengertian)|pengertian|definisi|makna|arti(?:nya)?\b|maksud|yang dimaksud|تعريف|معنى|ما هو|ما هي/i],
   ['hukum', /hukum|boleh|bolehkah|haram|halal|wajib|sunnah|sunah|makruh|sah(?:kah)?\b|batal|apakah (?:boleh|sah|wajib)|حكم|يجوز|يجب|يحرم|يكره|يصح/i],
 ];
@@ -44,6 +48,10 @@ export const PANDUAN_JENIS = {
   bilangan: 'Jenis: BILANGAN. Tulis angka persis seperti di halaman beserta satuan dan hal yang dihitung; jangan menghitung ulang atau membulatkan.',
   tata_cara: 'Jenis: TATA CARA. Urutkan langkah sesuai urutan di halaman; jangan menambah langkah yang tidak tertulis.',
   khilaf: 'Jenis: KHILAF. Sebut tiap pendapat beserta pemiliknya sebagaimana disebut halaman, dan penanda tarjih bila ada (الأصح، المعتمد، قيل). Jangan menyimpulkan mana yang benar bila halaman tidak menyatakannya.',
+  pembagian: 'Jenis: PEMBAGIAN. Sebut tiap macam beserta dasar pembagiannya dan jumlahnya sebagaimana ditulis halaman; beri definisi singkat tiap macam bila halaman memberinya, dan contoh bila tertulis. Bila daftar tampak terpotong, katakan mungkin belum lengkap.',
+  hikmah: 'Jenis: HIKMAH/ALASAN. Sebut alasan, \'illat, atau hikmah HANYA yang tertulis di halaman; bedakan \'illat (dasar hukum) dari hikmah (tujuan). Bila halaman hanya menyebut hukumnya tanpa alasan, katakan itu di "catatan" dan jangan mengarang alasan.',
+  contoh: 'Jenis: CONTOH. Pakai contoh yang tertulis di halaman beserta kesimpulan yang ditarik halaman darinya; jangan membuat contoh baru yang hukumnya tidak tertulis.',
+  derajat: 'Jenis: DERAJAT HADITS. Sebut derajat, mukharrij, dan penilaian ulama HANYA bila halaman menyebutnya, lengkap dengan siapa yang menilai. Jangan menilai sendiri shahih atau dha\'if-nya; bila halaman tidak menyebut derajat, katakan itu.',
   irab: 'Jenis: I\'RAB/KAIDAH BAHASA. Jawab hanya dari kaidah dan contoh yang tertulis di halaman; jangan mengubah harakat contoh.',
   umum: '',
 };
