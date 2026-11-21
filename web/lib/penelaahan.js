@@ -6,6 +6,7 @@
 //   5. perluTetangga       : apakah halaman tampak terpotong di awal/akhir sehingga halaman sebelum/sesudahnya perlu dibaca.
 //   6. ringkasHalaman      : halaman yang lebih panjang dari batas prompt dipotong di SEKITAR kata kunci, bukan di kepala halaman.
 import { normalCari, siapkanKueri, adaFrasa } from './cariKitab.js';
+import { KELUARGA_TOPIK } from './kamusTopik.js';
 
 const n = (s) => normalCari(s);
 
@@ -60,7 +61,7 @@ export const PANDUAN_JENIS = {
 
 // Tiap baris = satu keluarga kata yang di kitab sering saling menggantikan (bentuk kerja, kata benda, sinonim). Ditulis tanpa harakat.
 // Dipakai HANYA untuk menambah varian kueri; varian berbobot lebih rendah daripada kueri asli.
-export const KELUARGA_ISTILAH = [
+const KELUARGA_DASAR = [
   ['وجب', 'واجب', 'يجب', 'فرض', 'فريضة', 'يلزم', 'لازم', 'وجوب', 'تجب'],
   ['سنة', 'يسن', 'مسنون', 'مستحب', 'يستحب', 'مندوب', 'يندب', 'استحباب', 'تسن'],
   ['كره', 'مكروه', 'يكره', 'كراهة'],
@@ -98,6 +99,9 @@ export const KELUARGA_ISTILAH = [
 ];
 
 // "ك" sengaja tidak ada: كتاب -> تاب (keluarga توبة) menghasilkan varian sampah (توبة الصلاة) pada kueri "كتاب الصلاة".
+// Keluarga dasar + keluarga kata dari kamus topik (web/lib/kamusTopikFiqh.js dan kamusTopikIlmu.js). Kata yang sudah ada di keluarga lebih awal tetap memakai keluarga itu.
+export const KELUARGA_ISTILAH = [...KELUARGA_DASAR, ...KELUARGA_TOPIK];
+
 const AWALAN = ['بال', 'وال', 'فال', 'لل', 'ال', 'و', 'ف', 'ب', 'ل'];
 // Bentuk inti kata (awalan dibuang) untuk dicocokkan dengan keluarga istilah.
 function inti(w) {
@@ -160,6 +164,23 @@ export function varianDefinisi(kuerian) {
   if (!hitungKata.size) return [];
   const istilah = [...hitungKata.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0];
   return [[istilah, n('لغة')], [istilah, n('شرعا')]];
+}
+
+/* ------------------------------------------------------------------ 2b. kueri umum */
+
+// Kata yang ada di hampir setiap halaman kitab (judul bab, penanda isi). Kueri yang HANYA berisi kata-kata ini tidak membedakan halaman.
+const KATA_UMUM = new Set(['باب', 'فصل', 'كتاب', 'مسألة', 'مسئلة', 'حكم', 'أحكام', 'الله', 'فرع', 'تنبيه', 'خاتمة', 'تتمة', 'مطلب', 'قوله', 'أي', 'قال'].map((w) => akarUmum(n(w))));
+function akarUmum(w) { return w.startsWith('ال') && w.length > 4 ? w.slice(2) : w; }
+
+/**
+ * Buang kueri yang seluruh katanya umum (mis. "باب" saja): kueri begitu menyedot slot halaman dengan halaman acak.
+ * Bila semua kueri umum, kembalikan apa adanya agar pencarian tetap berjalan.
+ * @param {string[][]} kuerian
+ */
+export function saringKueriUmum(kuerian) {
+  const asli = kuerian || [];
+  const sisa = asli.filter((q) => (q || []).some((w) => !KATA_UMUM.has(akarUmum(w))));
+  return sisa.length ? sisa : asli;
 }
 
 /* ------------------------------------------------------------------ 3-4. peringkat beragam */

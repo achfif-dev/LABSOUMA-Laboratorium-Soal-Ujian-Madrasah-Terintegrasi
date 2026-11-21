@@ -46,14 +46,14 @@ const jawab = (o) => ({ name: 'hasil_tanya', input: { cukup: true, jawaban: 'Jaw
 test('tanyaKitab: halaman yang terpotong di akhir ditemani halaman sambungan; label lapisan/sifat, jenis, dan varian ikut ke hasil', () => dengan(dasar(), async () => {
   await impor();
   const c = klien(
-    { name: 'rencana_cari', input: { kueri: ['أبعاض'], jenis: 'hukum' } },
+    { name: 'rencana_cari', input: { kueri: ['يفوت'], jenis: 'hukum' } },
     jawab({ jawaban: 'Sujud sahwi sunnah.', tarjih: 'والأصح أنه لا يسجد', poin: [
       { pernyataan: 'Sunnah sujud sahwi.', halaman_id: 'H1', kutipan: 'يسن سجود السهو لترك بعض من أبعاض الصلاة', lapisan: 'matan', sifat: 'pendapat_kitab' },
       { pernyataan: 'Tidak berulang.', halaman_id: 'H2', kutipan: 'سجود السهو لا يتكرر بتكرر السهو في الصلاة الواحدة', lapisan: 'tidak_jelas', sifat: 'ngawur' },
     ] }),
   );
-  // Pertanyaan memakai istilah (abadh) yang kueri AI-nya sama persis, sehingga tidak ada varian istilah tambahan yang menarik halaman 2 sebagai hasil langsung.
-  const r = await tanyaKitab({ pertanyaan: 'Apa hukum meninggalkan abadh?' }, { client: c });
+  // Kueri dan pertanyaan sengaja tidak memuat istilah yang dikenali kamus istilah maupun kamus topik, sehingga tidak ada varian tambahan yang menarik halaman 2 sebagai hasil langsung.
+  const r = await tanyaKitab({ pertanyaan: 'Apa hukum meninggalkan perkara tertentu?' }, { client: c });
   const prompt = c.log[1].messages[0].content;
   assert.match(prompt, /<halaman id="H2"[^>]*sambungan="sesudah"/, 'halaman 2 dibacakan sebagai sambungan');
   assert.match(prompt, /<jenis_pertanyaan>[\s\S]*HUKUM/); assert.match(prompt, /<peta_halaman>/); assert.match(prompt, /<panduan_disiplin>/);

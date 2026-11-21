@@ -16,6 +16,8 @@ export const BANNER_STATUS = {
   tidak_ditemukan: { kelas: 'bg-soft text-soft-ink', teks: 'Tidak ditemukan jawabannya di kitab yang dicari.' },
 };
 const kelasPoin = { cocok: 'bg-ok-bg text-ok', mirip: 'bg-warn-bg text-warn' };
+export const LABEL_RINCIAN = { terjawab: 'Terjawab', sebagian: 'Sebagian', tidak_ada: 'Tidak ada di halaman' };
+const kelasRincian = { terjawab: 'bg-ok-bg text-ok', sebagian: 'bg-warn-bg text-warn', tidak_ada: 'bg-soft text-soft-ink' };
 
 function HasilJawaban({ hasil }) {
   const banner = BANNER_STATUS[hasil.status];
@@ -31,6 +33,10 @@ function HasilJawaban({ hasil }) {
           {hasil.status !== 'tidak_ditemukan' && <p className="text-xs text-mute">{hasil.dasarMadrasah ? 'Seluruh dasar berasal dari kitab pegangan atau rujukan yang ditetapkan admin.' : 'Belum semua dasar berasal dari kitab pegangan/rujukan madrasah; ini pendapat kitab yang tertera, bukan ketentuan madrasah.'}</p>}
         </div>)}
       {hasil.catatan && <p className="text-xs text-mute">{hasil.catatan}</p>}
+      {(hasil.rincian || []).length > 0 && (
+        <ul className="space-y-1 text-xs text-mute" aria-label="Status tiap bagian pertanyaan">
+          {hasil.rincian.map((r, i) => <li key={i} className="flex items-start gap-2"><span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${kelasRincian[r.status] || 'bg-soft text-soft-ink'}`}>{LABEL_RINCIAN[r.status] || r.status}</span><span>{r.bagian}</span></li>)}
+        </ul>)}
       {(hasil.poin || []).length > 0 && (
         <ol className="space-y-2">
           {hasil.poin.map((p, i) => (
