@@ -1,6 +1,6 @@
 // Tahap 1: tanya-jawab bersumber atas perpustakaan. Bagian murni (tanpa jaringan, tanpa AI): membersihkan rencana pencarian, dan MEMVERIFIKASI kutipan.
 // Prinsip: jawaban AI hanya dianggap sah sejauh tiap butir dasarnya (kutipan Arab) benar-benar ada di halaman yang dikutip. Yang tidak cocok ditandai, bukan dipercaya.
-import { siapkanKueri } from './cariKitab.js';
+import { siapkanKueri, normalCari } from './cariKitab.js';
 import { periksaKutipan, ekstrakKutipan, MIN_KATA } from './kutipan.js';
 import { nisbahArab } from './bahasa.js';
 
@@ -62,11 +62,16 @@ export function saringPilihanKitab(terpilih, daftar) {
   return (Array.isArray(terpilih) ? terpilih : []).filter((id) => ada.has(id));
 }
 
-/** Rencana AI (kueri berupa teks) -> larik larik kata normal. Kueri kosong dibuang; duplikat dibuang. */
+// Kata yang ada di hampir semua halaman atau bukan isi pertanyaan. Model sering menyelipkannya ("الصلاة في الشرع", "الصلاة تعريف"); pada pencarian
+// substring + bobot kelangkaan, kata seperti ini justru menarik halaman yang tidak berkaitan (mis. bab luqathah yang memuat "تعريف" dan "في").
+// Dibuang oleh kode, apa pun hasil rencana AI. Kata inti (istilah, لغة, شرعا, judul bab) tetap.
+export const KATA_UMUM_KUERI = new Set(['في', 'من', 'على', 'عن', 'إلى', 'ما', 'هو', 'هي', 'هل', 'أن', 'إن', 'تعريف', 'معنى', 'حكم', 'مسألة', 'الله'].map((w) => normalCari(w)));
+
+/** Rencana AI (kueri berupa teks) -> larik larik kata normal. Kueri kosong dibuang; duplikat dibuang; kata umum dibuang. */
 export function bersihkanRencana(kueri) {
   const lihat = new Set(); const hasil = [];
   for (const k of (Array.isArray(kueri) ? kueri : []).slice(0, MAKS_KUERI * 2)) {
-    const kata = siapkanKueri(String(k == null ? '' : k)).kata.slice(0, MAKS_KATA_PER_KUERI);
+    const kata = siapkanKueri(String(k == null ? '' : k)).kata.filter((w) => !KATA_UMUM_KUERI.has(w)).slice(0, MAKS_KATA_PER_KUERI);
     const kunci = kata.join(' ');
     if (kata.length && !lihat.has(kunci)) { lihat.add(kunci); hasil.push(kata); }
     if (hasil.length >= MAKS_KUERI) break;

@@ -51,6 +51,7 @@ export const FIQH = [
   ['قنوت', 'qunut', "Doa tertentu dalam shalat (mis. Subuh dan witir); kedudukan dan tempatnya berbeda antarmazhab."],
   ['أبعاض', 'abadh', "Sunnah shalat yang bila ditinggalkan disunnahkan menggantinya dengan sujud sahwi (istilah Syafi'iyah)."],
   ['هيئات', 'haiat', "Sunnah shalat yang bila ditinggalkan tidak diganti sujud sahwi (istilah Syafi'iyah)."],
+  ['صلاة/الصلاة/صلوات', 'shalat|salat|sholat|solat|menshalati', "Secara bahasa: doa. Secara istilah (rumusan umum Syafi'iyah): ucapan dan perbuatan tertentu yang diawali takbir dan diakhiri salam, dengan syarat tertentu. Rumusan dan urutan unsurnya bisa berbeda antar kitab dan mazhab."],
   ['تكبيرة الإحرام', 'takbiratul ihram', "Takbir pembuka shalat; rukun shalat."],
   ['مسبوق', 'masbuq', "Makmum yang tertinggal sebagian rakaat bersama imam."],
   ['صلاة الجنازة', 'shalat jenazah|salat jenazah', "Shalat atas jenazah muslim dengan empat takbir tanpa ruku' dan sujud; fardhu kifayah."],

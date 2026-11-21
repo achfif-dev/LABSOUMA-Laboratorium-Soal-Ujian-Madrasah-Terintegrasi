@@ -169,6 +169,18 @@ export function potongCuplikan(c, kata, mode = 'frasa') {
 const akarKata = (w) => (w.startsWith('ال') && w.length > 4 ? w.slice(2) : w);
 
 /**
+ * Pola frasa untuk kueri yang kata-katanya SUDAH dibuang awalan "ال" (akarKata). Teks halaman masih memuat "ال", jadi mencari
+ * `q.join(' ')` ("كتاب صلاه") tidak pernah cocok dengan "كتاب الصلاه": bonus frasa mati untuk hampir semua kueri Arab. Pola ini mengizinkan
+ * awalan (ال, بال, وال, ...) di antara kata. Dihitung sekali per kueri.
+ */
+const POLA_FRASA = new WeakMap();
+export function adaFrasa(teks, q) {
+  let re = POLA_FRASA.get(q);
+  if (!re) { re = new RegExp(q.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(' (?:[وفبلك]?ال)?')); POLA_FRASA.set(q, re); }
+  return re.test(teks);
+}
+
+/**
  * Peringkat halaman untuk beberapa kueri sekaligus (hasil rencana pencarian AI). Skor memakai bobot kelangkaan kata (idf) atas kata yang ada di halaman,
  * ditambah bonus bila SEMUA kata satu kueri ada di halaman yang sama dan bonus lagi bila berurutan sebagai frasa. Murni dan deterministik.
  * @param {{s:number,h:any,j:any,t:string}[]} halaman  halaman terindeks (t = teks normal)
@@ -188,7 +200,7 @@ export function peringkatHalaman(halaman, kuerian, { k = 6 } = {}) {
     for (const q of kueri) {
       if (!q.every((w) => m.has(w))) continue;
       const bobot = q.reduce((a, w) => a + idf(w), 0);
-      sk += 0.5 * bobot; if (q.length > 1 && p.t.includes(q.join(' '))) sk += 0.5 * bobot;
+      sk += 0.5 * bobot; if (q.length > 1 && adaFrasa(p.t, q)) sk += 0.5 * bobot;
     }
     return sk;
   });

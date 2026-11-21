@@ -5,7 +5,7 @@
 //   4. pilihBeragam        : gabungan lintas kitab dengan jaminan yang sama.
 //   5. perluTetangga       : apakah halaman tampak terpotong di awal/akhir sehingga halaman sebelum/sesudahnya perlu dibaca.
 //   6. ringkasHalaman      : halaman yang lebih panjang dari batas prompt dipotong di SEKITAR kata kunci, bukan di kepala halaman.
-import { normalCari, siapkanKueri } from './cariKitab.js';
+import { normalCari, siapkanKueri, adaFrasa } from './cariKitab.js';
 
 const n = (s) => normalCari(s);
 
@@ -25,7 +25,7 @@ const POLA_JENIS = [
   ['tata_cara', /tata cara|cara (?:me|ber)|bagaimana (?:cara|melakukan|mengerjakan)|langkah|urutan|kaifiyat|كيفية|صفة/i],
   ['bilangan', /berapa|jumlah|banyaknya|hitungan|nisab|kadar|ukuran|(?:^|\s)كم\s|عدد|مقدار|نصاب/i],
   ['contoh', /contoh|misal(?:nya)?\b|ilustrasi|مثال|أمثلة/i],
-  ['definisi', /apa (?:itu|yang dimaksud|arti|pengertian)|pengertian|definisi|makna|arti(?:nya)?\b|maksud|yang dimaksud|تعريف|معنى|ما هو|ما هي/i],
+  ['definisi', /apa (?:itu|yang (?:dimaksud|dinamakan|dinamai|disebut)|arti|pengertian)|\bitu apa\b|\b(?:dinamakan|dinamai|disebut) apa\b|pengertian|definisi|makna|arti(?:nya)?\b|maksud|yang dimaksud|تعريف|معنى|ما هو|ما هي/i],
   ['hukum', /hukum|boleh|bolehkah|haram|halal|wajib|sunnah|sunah|makruh|sah(?:kah)?\b|batal|apakah (?:boleh|sah|wajib)|حكم|يجوز|يجب|يحرم|يكره|يصح/i],
 ];
 
@@ -97,7 +97,8 @@ export const KELUARGA_ISTILAH = [
   ['استنجاء', 'استجمار'],
 ];
 
-const AWALAN = ['بال', 'وال', 'فال', 'لل', 'ال', 'و', 'ف', 'ب', 'ل', 'ك'];
+// "ك" sengaja tidak ada: كتاب -> تاب (keluarga توبة) menghasilkan varian sampah (توبة الصلاة) pada kueri "كتاب الصلاة".
+const AWALAN = ['بال', 'وال', 'فال', 'لل', 'ال', 'و', 'ف', 'ب', 'ل'];
 // Bentuk inti kata (awalan dibuang) untuk dicocokkan dengan keluarga istilah.
 function inti(w) {
   const s = [w];
@@ -145,6 +146,22 @@ export function perluasKueri(kuerian, maks = MAKS_VARIAN) {
   return hasil;
 }
 
+const KATA_BUKAN_ISTILAH = new Set(['كتاب', 'باب', 'فصل', 'لغه', 'شرعا', 'شرع', 'اصطلاحا', 'تعريف', 'معني', 'حكم', 'في', 'من', 'علي', 'عن', 'الي', 'ما', 'هو', 'هي'].map(n));
+
+/**
+ * Pertanyaan DEFINISI: kitab turats menulis definisi sebagai "X لغة ... وشرعا ...", bukan "تعريف X". Dari kueri rencana (kode, bukan AI) ambil kata yang paling
+ * sering muncul selain judul dan kata umum, lalu buat varian [istilah لغة] dan [istilah شرعا]. Kosong bila tidak ada istilah yang jelas.
+ * @param {string[][]} kuerian
+ * @returns {string[][]}
+ */
+export function varianDefinisi(kuerian) {
+  const hitungKata = new Map();
+  for (const q of kuerian || []) for (const w of new Set((q || []).map(akarKata))) { if (w.length >= 3 && !KATA_BUKAN_ISTILAH.has(w) && !KATA_BUKAN_ISTILAH.has(n(w))) hitungKata.set(w, (hitungKata.get(w) || 0) + 1); }
+  if (!hitungKata.size) return [];
+  const istilah = [...hitungKata.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0];
+  return [[istilah, n('لغة')], [istilah, n('شرعا')]];
+}
+
 /* ------------------------------------------------------------------ 3-4. peringkat beragam */
 
 const akarKata = (w) => (w.startsWith('ال') && w.length > 4 ? w.slice(2) : w);
@@ -175,7 +192,7 @@ export function peringkatBeragam(halaman, kuerian, { k = 6, varian = [] } = {}) 
     for (const q of qs) {
       if (!q.every((w) => m.has(w))) continue;
       const bobot = q.reduce((a, w) => a + idf(w), 0);
-      sk += 0.5 * bobot; if (q.length > 1 && halaman[i].t.includes(q.join(' '))) sk += 0.5 * bobot;
+      sk += 0.5 * bobot; if (q.length > 1 && adaFrasa(halaman[i].t, q)) sk += 0.5 * bobot;
     }
     return sk;
   };
