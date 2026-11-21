@@ -2,11 +2,11 @@
 // tetapi tiap giliran tetap mencari halaman sendiri. Setiap butir jawaban wajib punya kutipan yang terbukti ada di halaman kitab;
 // jawaban yang kutipannya tidak cocok tidak ditampilkan. Ini telaah teks, bukan fatwa. Komponen mandiri: Btn, ErrorBox, callApi, apiErr dioper dari App.jsx.
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, BookOpen, ShieldCheck, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Sparkles, BookOpen, ShieldCheck, AlertTriangle, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { hashBaca, idHalaman } from './lib/rujukan.js';
 import { buatPemuat } from './lib/perpus.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
-import { MAKS_PERTANYAAN, MAKS_KITAB_TANYA, alihkanPilihanKitab, saringPilihanKitab, susunRiwayat } from './lib/telaahKitab.js';
+import { MAKS_PERTANYAAN, MAKS_KITAB_TANYA, MAKS_HALAMAN_LANJUT, alihkanPilihanKitab, saringPilihanKitab, susunRiwayat, niatLanjut, penelusuranTerakhir } from './lib/telaahKitab.js';
 
 export const LABEL_VERIFIKASI = { cocok: 'Cocok dengan halaman', mirip: 'Mirip, cek manual', tidak_cocok: 'Tidak ditemukan di halaman', tanpa_kutipan: 'Tanpa kutipan', halaman_tidak_dikenal: 'Halaman tidak dikenal' };
 export const BANNER_STATUS = {
@@ -45,7 +45,8 @@ function HasilJawaban({ hasil }) {
               </p>
             </li>))}
         </ol>)}
-      {(hasil.kitabDicari || []).length > 0 && <p className="text-xs text-mute">Dicari di: {hasil.kitabDicari.map((k) => k.judul).join(', ')}. Kata kunci: {(hasil.kueri || []).join(' | ')}</p>}
+      {(hasil.halamanDibaca || []).length > 0 && <p className="text-xs text-mute">{hasil.lanjutan ? `Penelusuran halaman ${hasil.lanjutan === 'sesudah' ? 'sesudahnya' : 'sebelumnya'}. ` : ''}Halaman yang dibaca AI: {hasil.halamanDibaca.map((h) => `${h.kitab} hal. ${h.hal}${h.sambungan ? ' (sambungan)' : ''}`).join('; ')}.</p>}
+      {(hasil.kitabDicari || []).length > 0 && !hasil.lanjutan && <p className="text-xs text-mute">Dicari di: {hasil.kitabDicari.map((k) => k.judul).join(', ')}. Kata kunci: {(hasil.kueri || []).join(' | ')}</p>}
     </div>
   );
 }
@@ -97,18 +98,22 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
   useEffect(() => { if (pesan.length && akhir.current && akhir.current.scrollIntoView) akhir.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [pesan, busy]);
   // Daftar kitab memakai simpanan memori yang sama dengan Pemilih Kitab: tab dibuka-tutup tidak membaca ulang seluruh koleksi `kitab` di Firestore.
   useEffect(() => { let batal = false; buatPemuat((b) => callApi('/api/kitab', b), SIMPANAN).daftar(true).then((k) => { if (!batal) { const l = Array.isArray(k) ? k : []; setDaftar(l); setTerpilih((t) => saringPilihanKitab(t, l)); } }).catch(() => { /* daftar gagal dimuat: "semua kitab" tetap bisa dipakai */ }); return () => { batal = true; }; }, []);
-  const tanya = async () => {
-    const teks = pertanyaan.trim(); if (busy || teks.length < 3) return;
+  // teksPaksa/arahPaksa: tombol "halaman berikutnya/sebelumnya". Mengetik "halaman selanjutnya" memberi hasil yang sama (niatLanjut).
+  const tanya = async (teksPaksa, arahPaksa) => {
+    const teks = (teksPaksa || pertanyaan).trim(); if (busy || teks.length < 3) return;
     const bebas = mode === 'bebas';
+    const arah = bebas ? '' : (arahPaksa || niatLanjut(teks));
+    const pen = arah ? penelusuranTerakhir(pesan) : null;      // batas halaman yang sudah dibaca pada jawaban terakhir
+    const lanjut = pen ? { kitabId: pen.kitabId, arah, maju: pen.maju, mundur: pen.mundur } : null;
     const riwayat = susunRiwayat(pesan);                 // konteks pertanyaan lanjutan; server tetap mencari dan memverifikasi halaman untuk tiap giliran
-    setBusy(true); setErr(null); setPertanyaan('');
+    setBusy(true); setErr(null); if (!teksPaksa) setPertanyaan('');
     setPesan((p) => [...p, { id: ++nomor.current, role: 'user', teks }]);
     try {
-      const d = await callApi('/api/assist', { aksi: bebas ? 'chatbebas' : 'tanyakitab', pertanyaan: teks, ...(bebas && web ? { web: true } : {}), ...(riwayat.length ? { riwayat } : {}), ...(!bebas && terpilih.length ? { kitabIds: terpilih } : {}) });
+      const d = await callApi('/api/assist', { aksi: bebas ? 'chatbebas' : 'tanyakitab', pertanyaan: teks, ...(bebas && web ? { web: true } : {}), ...(riwayat.length ? { riwayat } : {}), ...(!bebas && !lanjut && terpilih.length ? { kitabIds: terpilih } : {}), ...(lanjut ? { lanjut } : {}) });
       setPesan((p) => [...p, { id: ++nomor.current, role: 'ai', mode, hasil: d.hasil }]);
     } catch (e) {
       // Gagal: pertanyaan dikembalikan ke kotak tulis dan dilepas dari percakapan supaya bisa dikirim ulang tanpa mengetik lagi.
-      setPesan((p) => p.slice(0, -1)); setPertanyaan(teks);
+      setPesan((p) => p.slice(0, -1)); if (!teksPaksa) setPertanyaan(teks);
       const x = apiErr(e); if (x) setErr(x);
     } finally { setBusy(false); }
   };
@@ -159,6 +164,15 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
           {pesan.map((m) => m.role === 'user'
             ? <div key={m.id} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand px-3 py-2 text-sm text-brand-fg">{m.teks}</p></div>
             : <div key={m.id} className="rounded-2xl rounded-bl-md border border-line bg-bg p-3">{m.mode === 'bebas' ? <JawabanBebas hasil={m.hasil} /> : <HasilJawaban hasil={m.hasil} />}</div>)}
+          {!busy && mode === 'sumber' && pesan[pesan.length - 1].role === 'ai' && (() => {
+            const pen = penelusuranTerakhir(pesan); if (!pen) return null;
+            return (
+              <div className="flex flex-wrap items-center gap-2" aria-label="Telusuri halaman kitab">
+                <button type="button" disabled={!pen.adaSebelum} onClick={() => tanya('Telusuri halaman sebelumnya', 'sebelum')} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-2 text-xs disabled:opacity-50"><ChevronLeft size={12} />{MAKS_HALAMAN_LANJUT} halaman sebelumnya</button>
+                <button type="button" disabled={!pen.adaSesudah} onClick={() => tanya('Telusuri halaman selanjutnya', 'sesudah')} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-2 text-xs disabled:opacity-50">{MAKS_HALAMAN_LANJUT} halaman selanjutnya<ChevronRight size={12} /></button>
+                <span className="text-xs text-mute">{pen.kitab}, sudah dibaca sampai urutan halaman {pen.mundur}–{pen.maju} dari {pen.jumlahHalaman}. Boleh juga ketik: "halaman selanjutnya".</span>
+              </div>);
+          })()}
           {busy && <p className="text-xs text-mute">{mode === 'bebas' ? (web ? 'Menelusuri internet…' : 'Menulis balasan…') : 'Mencari dan membaca kitab…'}</p>}
           <div ref={akhir} />
         </div>)}
@@ -169,7 +183,7 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ok && !busy) { e.preventDefault(); tanya(); } }}
             placeholder={pesan.length ? 'Contoh: Apa dalilnya? / Bagaimana kalau sedang safar?' : 'Contoh: Apa saja yang membatalkan wudhu?'} /></label>
         <div className="flex flex-wrap items-center gap-2">
-          <Btn onClick={tanya} disabled={busy || !ok}>{busy ? (mode === 'bebas' ? 'Menulis…' : 'Mencari dan membaca…') : (pesan.length ? 'Kirim' : 'Tanya')}</Btn>
+          <Btn onClick={() => tanya()} disabled={busy || !ok}>{busy ? (mode === 'bebas' ? 'Menulis…' : 'Mencari dan membaca…') : (pesan.length ? 'Kirim' : 'Tanya')}</Btn>
           {pesan.length > 0 && <button type="button" onClick={baru} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-2 text-xs disabled:opacity-50"><RotateCcw size={12} />Percakapan baru</button>}
         </div>
       </div>

@@ -12,6 +12,37 @@ export const MAKS_KUERI = 4;
 export const MAKS_KATA_PER_KUERI = 4;
 export const MAKS_RIWAYAT = 6;         // pasangan tanya-jawab sebelumnya yang dikirim sebagai konteks percakapan
 export const MAKS_TEKS_RIWAYAT = 700;  // karakter per pesan riwayat
+export const MAKS_HALAMAN_LANJUT = 3;  // halaman yang dibaca per langkah "telusuri halaman selanjutnya/sebelumnya"
+
+/* ------------------------------------------------------------------ menelusuri halaman sesudah/sebelum */
+
+const SOPAN = /\b(?:tolong|coba|silakan|silahkan|mohon|ya|dong|deh|dulu|kak|ustadz|ustad|kiai|kyai|bisa|bisakah|boleh|bolehkah|anda|kamu|kamu)\b/g;
+const KERJA = '(?:lanjut(?:kan)?|teruskan|telusuri|baca(?:kan)?|buka|cek|periksa|cari|lihat)';
+const SESUDAH = '(?:selanjutnya|berikutnya|sesudahnya|setelahnya|lanjutannya|lanjutan|depan|setelah itu)';
+const RE_SESUDAH = new RegExp(`^(?:${KERJA}(?: membaca| baca)?(?: ke| di)?(?: lagi)?(?: halaman| hal)?(?: ${SESUDAH})?(?: lagi)?|(?:halaman|hal) ${SESUDAH}|(?:bagaimana|gimana|apa|ada apa) (?:di |dengan )?(?:halaman|hal) ${SESUDAH}|(?:ada|apa) lanjutannya|terus(?: apa| bagaimana)?)$`);
+const RE_SEBELUM = new RegExp(`^(?:${KERJA}(?: ke| di)?(?: halaman| hal)? (?:sebelum(?:nya)?|awal|mundur)|(?:halaman|hal) (?:sebelum(?:nya)?|awalnya)|(?:bagaimana|gimana|apa|ada apa) (?:di |dengan )?(?:halaman|hal) sebelum(?:nya)?|mundur(?: satu)? halaman)$`);
+
+/**
+ * Apakah pesan pengguna HANYA permintaan menelusuri halaman sesudah/sebelum yang sudah dibaca ("halaman selanjutnya", "lanjutkan membaca", "buka halaman sebelumnya")?
+ * Pesan harus pendek dan seluruhnya berupa permintaan itu; kalimat tanya biasa yang kebetulan memuat "setelah" atau "lanjut" tidak dianggap.
+ * @returns {'sesudah'|'sebelum'|''}
+ */
+export function niatLanjut(teks) {
+  const t = String(teks || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(SOPAN, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.length > 60) return '';
+  if (RE_SEBELUM.test(t)) return 'sebelum';
+  if (RE_SESUDAH.test(t)) return 'sesudah';
+  return '';
+}
+
+/** Penelusuran terakhir dari percakapan: hasil Tanya Kitab terbaru (mode bersumber) yang membawa `penelusuran`. Null bila tidak ada. */
+export function penelusuranTerakhir(pesan) {
+  for (let i = (Array.isArray(pesan) ? pesan.length : 0) - 1; i >= 0; i--) {
+    const m = pesan[i];
+    if (m && m.role === 'ai') return m.mode !== 'bebas' && m.hasil && m.hasil.penelusuran ? m.hasil.penelusuran : null;
+  }
+  return null;
+}
 
 /**
  * Riwayat percakapan dari klien -> larik { role: 'user'|'ai', teks } yang rapi. Peran tak dikenal dan pesan kosong dibuang;
