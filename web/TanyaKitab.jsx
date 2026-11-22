@@ -6,7 +6,7 @@ import { Sparkles, BookOpen, ShieldCheck, AlertTriangle, RotateCcw, ChevronLeft,
 import { hashBaca, idHalaman } from './lib/rujukan.js';
 import { buatPemuat } from './lib/perpus.js';
 import { SIMPANAN } from './PemilihKitab.jsx';
-import { MAKS_PERTANYAAN, MAKS_KITAB_TANYA, MAKS_HALAMAN_LANJUT, alihkanPilihanKitab, saringPilihanKitab, susunRiwayat, niatLanjut, penelusuranTerakhir } from './lib/telaahKitab.js';
+import { MAKS_PERTANYAAN, MAKS_KITAB_TANYA, MAKS_KITAB_OTOMATIS, MAKS_HALAMAN_LANJUT, alihkanPilihanKitab, saringPilihanKitab, susunRiwayat, niatLanjut, penelusuranTerakhir } from './lib/telaahKitab.js';
 
 export const LABEL_VERIFIKASI = { cocok: 'Cocok dengan halaman', mirip: 'Mirip, cek manual', tidak_cocok: 'Tidak ditemukan di halaman', tanpa_kutipan: 'Tanpa kutipan', halaman_tidak_dikenal: 'Halaman tidak dikenal' };
 export const BANNER_STATUS = {
@@ -53,6 +53,7 @@ function HasilJawaban({ hasil }) {
         </ol>)}
       {(hasil.halamanDibaca || []).length > 0 && <p className="text-xs text-mute">{hasil.lanjutan ? `Penelusuran halaman ${hasil.lanjutan === 'sesudah' ? 'sesudahnya' : 'sebelumnya'}. ` : ''}Halaman yang dibaca AI: {hasil.halamanDibaca.map((h) => `${h.kitab} hal. ${h.hal}${h.sambungan ? ' (sambungan)' : ''}`).join('; ')}.</p>}
       {(hasil.kitabDicari || []).length > 0 && !hasil.lanjutan && <p className="text-xs text-mute">Dicari di: {hasil.kitabDicari.map((k) => k.judul).join(', ')}. Kata kunci: {(hasil.kueri || []).join(' | ')}</p>}
+      {hasil.catatanKitab && !hasil.lanjutan && <p className="text-xs text-mute">{hasil.catatanKitab}</p>}
     </div>
   );
 }
@@ -136,13 +137,14 @@ export default function TanyaKitab({ Btn, ErrorBox, callApi, apiErr }) {
       {mode === 'bebas' && <p className="rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">Mode bebas: AI menjawab dari pengetahuannya sendiri, tanpa membaca atau mengutip kitab. Jawaban tidak diverifikasi. Untuk hukum atau dalil, pakai mode Bersumber.</p>}
       {mode === 'bebas' && <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 accent-[var(--brand)]" checked={web} onChange={(e) => setWeb(e.target.checked)} /><span>Telusuri internet (pendalaman)<span className="block text-xs text-mute">AI mencari beberapa situs dan menampilkan sumbernya, dikategorikan menurut aliran yang ditetapkan admin. Lebih lambat.</span></span></label>}
       {mode === 'sumber' && <details open={pesan.length === 0} className="space-y-2 rounded-xl border border-line px-3 py-2 text-sm">
-        <summary className="cursor-pointer font-medium">Kitab yang dicari: {terpilih.length ? `${terpilih.length} dipilih` : 'semua kitab aktif'}</summary>
+        <summary className="cursor-pointer font-medium">Kitab yang dicari: {terpilih.length ? `${terpilih.length} dipilih` : 'otomatis (paling sesuai)'}</summary>
       <fieldset className="mt-2 space-y-2 text-sm">
         <legend className="sr-only">Kitab yang dicari</legend>
         <label className="flex items-start gap-2 rounded-lg border border-line px-3 py-2">
           <input type="radio" name="tk-mode" className="mt-1 accent-[var(--brand)]" checked={terpilih.length === 0} onChange={() => setTerpilih([])} />
-          <span>Semua kitab aktif (maksimal {MAKS_KITAB_TANYA})
-            {daftar.length > MAKS_KITAB_TANYA && terpilih.length === 0 && <span className="block text-xs text-warn">Ada {daftar.length} kitab aktif, tetapi hanya {MAKS_KITAB_TANYA} kitab pertama menurut abjad yang dicari. Pilih kitabnya sendiri di bawah.</span>}
+          <span>Otomatis: kitab yang paling sesuai (maksimal {MAKS_KITAB_OTOMATIS})
+            <span className="block text-xs text-mute">Dipilih dari nama kitab yang Anda sebut dan bidang ilmu pertanyaan (isian Fan kitab di Perpustakaan).</span>
+            {daftar.length > MAKS_KITAB_OTOMATIS && terpilih.length === 0 && <span className="block text-xs text-warn">Ada {daftar.length} kitab aktif, tetapi hanya sampai {MAKS_KITAB_OTOMATIS} yang dicari tiap pertanyaan. Sebut nama kitab di pertanyaan, atau pilih kitabnya sendiri di bawah.</span>}
           </span>
         </label>
         {daftar.length > 0 && (

@@ -22,6 +22,7 @@ import { ringkasPetaHalaman } from '../web/lib/petaTeks.js';
 import { analisisPertanyaan, blokAnalisisPertanyaan, blokPetunjukIstilah } from '../web/lib/analisisPertanyaan.js';
 import { blokIstilahTeks } from '../web/lib/kamusIlmu.js';
 import { cariTopik, barisTopik, kueriTopik } from '../web/lib/kamusTopik.js';
+import { pilihKitabOtomatis, catatanPilihan } from '../web/lib/pilihKitab.js';
 import { PANDUAN_BACA, panduanDisiplin, kenaliDisiplin } from './pemahamanKitab.js';
 import { barisOtoritas, peringatanOtoritas, normalOtoritas, bolehJadiDasar } from './otoritas.js';
 import {
@@ -150,7 +151,16 @@ export async function tanyaKitab(body, deps = {}) {
   let daftar = [];
   // Tanpa pilihan kitab: ambil ID dari ringkasan (1 pembacaan), lalu baca metadata segar HANYA untuk paling banyak MAKS_KITAB_TANYA kitab
   // (metadata menentukan ruang halaman dan kunci cache indeks, jadi tidak boleh basi).
-  const ids = v.lanjut ? [v.lanjut.kitabId] : v.kitabIds.length ? v.kitabIds : (await daftarAktif(db)).slice(0, MAKS_KITAB_TANYA).map((k) => k.id);
+  // Tanpa pilihan: kitab dipilih OTOMATIS (nama kitab di pertanyaan, bidang ilmu) dari ringkasan yang sama, tanpa pembacaan tambahan (web/lib/pilihKitab.js).
+  let pilihan = null;
+  let ids;
+  if (v.lanjut) ids = [v.lanjut.kitabId];
+  else if (v.kitabIds.length) ids = v.kitabIds;
+  else {
+    const teksPilih = [v.pertanyaan, ...(v.riwayat || []).filter((m) => m.role === 'user').slice(-2).map((m) => m.teks)].join(' ');
+    pilihan = pilihKitabOtomatis(await daftarAktif(db), teksPilih);
+    ids = pilihan.ids;
+  }
   for (const id of ids) {
     const d = await db.doc(`kitab/${id}`).get();
     const ok = d.exists && d.data().aktif === true && d.data().status === 'siap';
@@ -226,15 +236,18 @@ export async function tanyaKitab(body, deps = {}) {
 
   // 3. pencarian: halaman terbaik dari tiap kitab (tiap kueri dijamin punya wakil), digabung lintas kitab dengan jaminan yang sama
   const kandidat = []; const belumSiap = [];
-  for (const k of daftar) {
-    const r = await cari(k.id, k.m, kuerian, { k: MAKS_HALAMAN_JAWAB, varian, beragam: true });
-    if (!r.siap) { belumSiap.push(k.m.judulLatin || k.id); continue; }
+  // Serentak: sampai MAKS_KITAB_OTOMATIS kitab tidak boleh dicari satu per satu (waktu dijumlahkan). Urutan hasil tetap mengikuti urutan kitab.
+  const hasilCari = await Promise.all(daftar.map((k) => cari(k.id, k.m, kuerian, { k: MAKS_HALAMAN_JAWAB, varian, beragam: true })));
+  daftar.forEach((k, i) => {
+    const r = hasilCari[i];
+    if (!r.siap) { belumSiap.push(k.m.judulLatin || k.id); return; }
     r.halaman.forEach((h) => kandidat.push({ ...h, kitabId: k.id, m: k.m }));
-  }
+  });
+  const catatanKitab = pilihan ? catatanPilihan(pilihan, daftar.length) : '';
   const terpilih = pilihBeragam(kandidat, MAKS_HALAMAN_JAWAB, kuerian.length);
-  const dasarHasil = { pertanyaan: v.pertanyaan, jenis, kueri: kuerian.map((q) => q.join(' ')), ...(varian.length ? { kueriVarian: varian.map((q) => q.join(' ')) } : {}), kitabDicari: daftar.map((k) => ({ id: k.id, judul: k.m.judulLatin || k.id })), ...(belumSiap.length ? { indeksBelumSiap: belumSiap } : {}) };
+  const dasarHasil = { pertanyaan: v.pertanyaan, jenis, kueri: kuerian.map((q) => q.join(' ')), ...(varian.length ? { kueriVarian: varian.map((q) => q.join(' ')) } : {}), kitabDicari: daftar.map((k) => ({ id: k.id, judul: k.m.judulLatin || k.id })), ...(catatanKitab ? { catatanKitab } : {}), ...(belumSiap.length ? { indeksBelumSiap: belumSiap } : {}) };
   if (!terpilih.length) {
-    return { ...dasarHasil, status: 'tidak_ditemukan', jawaban: '', poin: [], khilaf: '', tarjih: '', dasarMadrasah: false, peringatan: [], halamanDibaca: [], catatan: belumSiap.length ? `Indeks pencarian ${belumSiap.join(', ')} sedang disiapkan; coba lagi sebentar lagi.` : 'Tidak ada halaman yang cocok dengan kata kunci pencarian di kitab yang dipilih.', ringkasan: ringkasVerifikasi([], false) };
+    return { ...dasarHasil, status: 'tidak_ditemukan', jawaban: '', poin: [], khilaf: '', tarjih: '', dasarMadrasah: false, peringatan: [], halamanDibaca: [], catatan: belumSiap.length ? `Indeks pencarian ${belumSiap.join(', ')} sedang disiapkan; coba lagi sebentar lagi.` : `Tidak ada halaman yang cocok dengan kata kunci pencarian di kitab yang dipilih.${catatanKitab ? ` ${catatanKitab}` : ''}`, ringkasan: ringkasVerifikasi([], false) };
   }
 
   // 4. baca halaman terpilih

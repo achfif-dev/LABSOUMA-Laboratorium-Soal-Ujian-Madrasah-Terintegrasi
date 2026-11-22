@@ -5,6 +5,7 @@ import { periksaKutipan, ekstrakKutipan, MIN_KATA } from './kutipan.js';
 import { nisbahArab } from './bahasa.js';
 
 export const MAKS_PERTANYAAN = 500;
+export const MAKS_KITAB_OTOMATIS = 6;  // kitab yang dicari bila pengguna TIDAK memilih sendiri: dipilih otomatis dari nama kitab dan bidang ilmu (web/lib/pilihKitab.js)
 export const MAKS_KITAB_TANYA = 4;     // kitab yang dicari per pertanyaan (tiap kitab = puluhan pembacaan Firestore bila indeksnya belum di memori)
 export const MAKS_HALAMAN_JAWAB = 6;   // halaman yang dibacakan ke AI
 export const MAKS_TEKS_HALAMAN = 3500; // karakter per halaman yang dikirim ke AI (verifikasi tetap memakai halaman utuh)
@@ -79,7 +80,7 @@ export function susunRiwayat(pesan) {
 /**
  * Pilihan kitab di layar Tanya Kitab: mengalihkan (centang/lepas) satu kitab dari daftar terpilih.
  * Urutan klik dipertahankan; kitab ke-(maks+1) ditolak (daftar tetap) agar tidak dikirim lebih dari batas server.
- * Daftar kosong berarti "semua kitab aktif" (server mengambil MAKS_KITAB_TANYA kitab pertama menurut abjad).
+ * Daftar kosong berarti "otomatis": server memilih sampai MAKS_KITAB_OTOMATIS kitab yang paling sesuai (nama kitab, bidang ilmu), bukan lagi kitab pertama menurut abjad.
  */
 export function alihkanPilihanKitab(terpilih, id, maks = MAKS_KITAB_TANYA) {
   const daftar = Array.isArray(terpilih) ? terpilih : [];
