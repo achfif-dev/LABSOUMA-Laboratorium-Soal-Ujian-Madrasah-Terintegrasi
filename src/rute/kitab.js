@@ -1,5 +1,6 @@
 // POST /api/kitab:
 //  - tanpa `aksi`: mengambil satu halaman teks kitab dari situs perpustakaan online yang diizinkan (semua peran pemakai alat).
+//  - `aksi` "impor-indeks-global": status dan pembangunan indeks pencarian lintas kitab (penunjuk kitab untuk Tanya Kitab). Khusus admin (src/kitabGlobal.js).
 //  - `aksi` berawalan "impor-": impor perpustakaan kitab dari ekspor Syamilah. Khusus admin (src/kitabImpor.js).
 //  - `aksi` "impor-ocr": OCR satu halaman PDF pindai dengan AI. Khusus admin, batas laju sendiri (src/kitabOcr.js).
 //  - `aksi` "perpus-koreksi" / "perpus-riwayat": mengoreksi teks satu halaman kitab dan melihat riwayatnya. Khusus editor dan admin (src/kitabKoreksi.js).
@@ -9,7 +10,8 @@
 //    "perpus-isi-ai" = pemilahan kandidat judul dengan AI, bertahap per jendela halaman; tanpa kuota AI per pengguna, batas laju sendiri (seperti OCR).
 //  - `aksi` berawalan "perpus-": membaca perpustakaan untuk pemilih kitab/bab/halaman. Semua peran pemakai alat (src/kitabBaca.js).
 // Impor sengaja ada di sini, bukan berkas api/ baru: jumlah fungsi Vercel Hobby dibatasi 12 dan api/ sudah berisi 11.
-import { route, authenticateAuthor, authenticateAdmin, authenticateReviewer, enforceRate, kitabLimitsFor, num } from '../platform.js';
+import { route, authenticateAuthor, authenticateAdmin, authenticateReviewer, enforceRate, kitabLimitsFor, num, firestoreAdmin } from '../platform.js';
+import { bangunGlobal, statusGlobal } from '../kitabGlobal.js';
 import { fetchKitab, DEFAULT_HOSTS } from '../kitabFetch.js';
 import { aksiImpor } from '../kitabImpor.js';
 import { aksiBaca } from '../kitabBaca.js';
@@ -20,6 +22,7 @@ import { aksiOcr, validateFoto } from '../kitabOcr.js';
 import { loadAiConfig } from '../aiConfig.js';
 import { parseList } from '../access.js';
 
+const LIMIT_INDEKS_GLOBAL = { perMinute: 12, perDay: num('LIMIT_INDEKS_GLOBAL_PER_DAY', 200) }; // satu panggilan membangun sampai 3 kitab; satu sapuan = sampai 1.024 penulisan Firestore (kuota tulis Spark 20.000 per hari)
 const LIMIT_IMPOR = { perMinute: 60, perDay: 600 }; // satu kitab = sekitar 10 panggilan
 const LIMIT_KOREKSI = { perMinute: 30, perDay: 1500 }; // satu koreksi = satu panggilan; pembatas laju menulis satu dokumen per panggilan
 const LIMIT_NOMOR = { perMinute: 10, perDay: num('LIMIT_NOMOR_PER_DAY', 25) }; // satu proses = sampai sekitar 265 penulisan Firestore (kuota tulis Spark), jadi harian lebih ketat dari koreksi
@@ -36,6 +39,13 @@ export default route(async (req) => {
     await enforceRate(`${u.uid}_kitabocr`, { perMinute: num('LIMIT_OCR_PER_MINUTE', 20), perDay: num('LIMIT_OCR_PER_DAY', 1500) }, { pesanHarian: 'Batas OCR harian tercapai. Lanjutkan besok, atau naikkan LIMIT_OCR_PER_DAY di pengaturan server.' });
     await loadAiConfig(); // kunci, model, dan penyedia AI dari Konfigurasi admin
     return aksiOcr(req.body);
+  }
+  if (aksi === 'impor-indeks-global') { // indeks pencarian lintas kitab (src/kitabGlobal.js): { bangun:true } membangun satu putaran, tanpa itu hanya status. Khusus admin.
+    const u = await authenticateAdmin(req);
+    const bangun = req.body.bangun === true;
+    if (bangun) await enforceRate(`${u.uid}_kitabindeksglobal`, LIMIT_INDEKS_GLOBAL, { pesanHarian: 'Batas pembangunan indeks harian tercapai. Lanjutkan besok, atau naikkan LIMIT_INDEKS_GLOBAL_PER_DAY di pengaturan server.' });
+    const { db } = await firestoreAdmin();
+    return bangun ? bangunGlobal(db) : statusGlobal(db);
   }
   if (typeof aksi === 'string' && aksi.startsWith('impor-')) {
     const u = await authenticateAdmin(req);

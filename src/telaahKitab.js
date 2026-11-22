@@ -22,7 +22,8 @@ import { ringkasPetaHalaman } from '../web/lib/petaTeks.js';
 import { analisisPertanyaan, blokAnalisisPertanyaan, blokPetunjukIstilah } from '../web/lib/analisisPertanyaan.js';
 import { blokIstilahTeks } from '../web/lib/kamusIlmu.js';
 import { cariTopik, barisTopik, kueriTopik } from '../web/lib/kamusTopik.js';
-import { pilihKitabOtomatis, catatanPilihan } from '../web/lib/pilihKitab.js';
+import { pilihKitabOtomatis, pilihGabungan, catatanPilihan } from '../web/lib/pilihKitab.js';
+import { cariLintasKitab } from './kitabGlobal.js';
 import { PANDUAN_BACA, panduanDisiplin, kenaliDisiplin } from './pemahamanKitab.js';
 import { barisOtoritas, peringatanOtoritas, normalOtoritas, bolehJadiDasar } from './otoritas.js';
 import {
@@ -147,33 +148,39 @@ export async function tanyaKitab(body, deps = {}) {
   const { db } = deps.db ? { db: deps.db } : await firestoreAdmin();
   const cari = deps.cari || cariTerbaik;
 
-  // 1. kitab yang dicari
-  let daftar = [];
-  // Tanpa pilihan kitab: ambil ID dari ringkasan (1 pembacaan), lalu baca metadata segar HANYA untuk paling banyak MAKS_KITAB_TANYA kitab
-  // (metadata menentukan ruang halaman dan kunci cache indeks, jadi tidak boleh basi).
-  // Tanpa pilihan: kitab dipilih OTOMATIS (nama kitab di pertanyaan, bidang ilmu) dari ringkasan yang sama, tanpa pembacaan tambahan (web/lib/pilihKitab.js).
-  let pilihan = null;
-  let ids;
+  // 1. kitab yang dicari. Metadata segar dibaca HANYA untuk kitab yang akan dicari (metadata menentukan ruang halaman dan kunci cache indeks, jadi tidak boleh basi).
+  const muatDaftar = async (idList) => {
+    const hasil = [];
+    for (const id of idList) {
+      const d = await db.doc(`kitab/${id}`).get();
+      const ok = d.exists && d.data().aktif === true && d.data().status === 'siap';
+      if (!ok) { if (v.kitabIds.length || v.lanjut) throw new ApiError(404, 'KITAB_TIDAK_ADA', `Kitab "${id}" tidak ditemukan atau belum diaktifkan admin.`); continue; }
+      hasil.push({ id, m: d.data() });
+    }
+    return hasil;
+  };
+  // Tanpa pilihan kitab = OTOMATIS: pilihan awal dari nama kitab dan bidang ilmu (web/lib/pilihKitab.js, tanpa pembacaan tambahan). Bila indeks lintas kitab sudah dibangun,
+  // pilihan itu disempurnakan di langkah 3 menurut kata kunci rencana pencarian (src/kitabGlobal.js), sehingga dokumen kitab baru dibaca sesudahnya.
+  let pilihan = null; let aktifRingkas = null; let ids; let daftar = [];
   if (v.lanjut) ids = [v.lanjut.kitabId];
   else if (v.kitabIds.length) ids = v.kitabIds;
   else {
     const teksPilih = [v.pertanyaan, ...(v.riwayat || []).filter((m) => m.role === 'user').slice(-2).map((m) => m.teks)].join(' ');
-    pilihan = pilihKitabOtomatis(await daftarAktif(db), teksPilih);
+    aktifRingkas = await daftarAktif(db);
+    if (!aktifRingkas.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', 'Belum ada kitab aktif di perpustakaan.');
+    pilihan = pilihKitabOtomatis(aktifRingkas, teksPilih);
     ids = pilihan.ids;
   }
-  for (const id of ids) {
-    const d = await db.doc(`kitab/${id}`).get();
-    const ok = d.exists && d.data().aktif === true && d.data().status === 'siap';
-    if (!ok) { if (v.kitabIds.length || v.lanjut) throw new ApiError(404, 'KITAB_TIDAK_ADA', `Kitab "${id}" tidak ditemukan atau belum diaktifkan admin.`); continue; }
-    daftar.push({ id, m: d.data() });
+  if (!pilihan) {
+    daftar = await muatDaftar(ids);
+    if (!daftar.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', 'Belum ada kitab aktif di perpustakaan.');
   }
-  if (!daftar.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', 'Belum ada kitab aktif di perpustakaan.');
 
   // Riwayat percakapan (opsional): hanya konteks untuk memahami pertanyaan lanjutan. Setiap giliran tetap mencari halaman baru dan memverifikasi kutipannya sendiri.
   const blokRiwayat = v.riwayat ? `<riwayat>\n${v.riwayat.map((m) => `${m.role === 'user' ? 'Pengguna' : 'Asisten'}: ${bersihPrompt(m.teks)}`).join('\n')}\n</riwayat>\n` : '';
 
   // Analisis pertanyaan (kode, bukan AI): jenis, fan, istilah teknis (padanan Arab), bagian pertanyaan majemuk. Alat bantu, bukan sumber.
-  const fanKitab0 = daftar.map((k) => k.m.fan).filter(Boolean).join(' ');
+  const fanKitab0 = pilihan ? aktifRingkas.filter((k) => ids.includes(k.id)).map((k) => k.fan).filter(Boolean).join(' ') : daftar.map((k) => k.m.fan).filter(Boolean).join(' ');
   const awal = analisisPertanyaan(v.pertanyaan, { mapel: fanKitab0 });
   // 2. rencana pencarian (AI hanya bila pertanyaan bukan Arab)
   let client = deps.client || null; const ambilClient = async () => (client || (client = await getClient()));
@@ -235,6 +242,15 @@ export async function tanyaKitab(body, deps = {}) {
   const kataKueri = kataDariKueri([...kuerian, ...varian]);
 
   // 3. pencarian: halaman terbaik dari tiap kitab (tiap kueri dijamin punya wakil), digabung lintas kitab dengan jaminan yang sama
+  // Mode otomatis: bila indeks lintas kitab sudah ada, kitab ditunjuk menurut kecocokan kata kunci di SELURUH perpustakaan (kecuali pengguna menyebut nama kitab).
+  // Gagal atau belum dibangun = tetap memakai pilihan awal; Tanya Kitab tidak boleh berhenti karena indeks tambahan ini.
+  if (pilihan) {
+    let g = null;
+    if (pilihan.dasar !== 'nama') { try { g = await cariLintasKitab(db, [...kuerian], varian); } catch { g = null; } }
+    pilihan = pilihGabungan(g, pilihan);
+    daftar = await muatDaftar(pilihan.ids);
+    if (!daftar.length) throw new ApiError(404, 'KITAB_TIDAK_ADA', 'Belum ada kitab aktif di perpustakaan.');
+  }
   const kandidat = []; const belumSiap = [];
   // Serentak: sampai MAKS_KITAB_OTOMATIS kitab tidak boleh dicari satu per satu (waktu dijumlahkan). Urutan hasil tetap mengikuti urutan kitab.
   const hasilCari = await Promise.all(daftar.map((k) => cari(k.id, k.m, kuerian, { k: MAKS_HALAMAN_JAWAB, varian, beragam: true })));

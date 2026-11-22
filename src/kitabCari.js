@@ -104,3 +104,16 @@ export async function cariTerbaik(kid, m, kuerian, { k = 6, opsi = {}, varian = 
   // beragam: tiap kueri dijamin punya wakil dan varian istilah ikut (Tanya Kitab); bawaan tetap peringkat lama.
   return { siap: true, halaman: beragam ? peringkatBeragam(indeks, kuerian, { k, varian }) : peringkatHalaman(indeks, kuerian, { k }) };
 }
+
+/**
+ * Halaman terindeks sebuah kitab untuk indeks global (src/kitabGlobal.js): memakai indeks per kitab yang sama, dan membangunnya bertahap bila belum ada.
+ * @returns {{siap:true, halaman:{s:number,t:string}[]} | {siap:false, kemajuan:{selesai:number,total:number}}}
+ */
+export async function halamanTerindeks(db, kid, m, opsi = {}) {
+  let cm = simpanan.has(kunci(kid, m)) ? { status: 'siap', versi: VERSI_INDEKS, revisi: m.revisi || 1 } : (await metaRef(db, kid, m).get()).data();
+  if (!metaSiap(cm, m)) {
+    cm = await bangunBertahap(db, kid, m, cm, opsi);
+    if (!metaSiap(cm, m)) return { siap: false, kemajuan: { selesai: (cm && cm.berikutnya) || 0, total: Math.ceil(m.jumlahHalaman / GRUP_HALAMAN) } };
+  }
+  return { siap: true, halaman: await muatIndeks(db, kid, m) };
+}

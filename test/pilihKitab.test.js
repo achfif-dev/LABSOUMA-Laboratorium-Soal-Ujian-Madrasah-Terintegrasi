@@ -95,3 +95,23 @@ test('tanyaKitab tanpa kitabIds: mencari kitab yang dipilih otomatis, bukan empa
     assert.deepEqual(r.kitabDicari.map((k) => k.id), ['z-fiqih']);
   } finally { __setFirebaseForTest(null); }
 });
+
+/* ---------- penunjuk isi lintas kitab ---------- */
+import { pilihGabungan, MAKS_KITAB_ISI } from '../web/lib/pilihKitab.js';
+const AWAL = { ids: ['a', 'b', 'c'], dasar: 'tanpa_isyarat', fan: '', jumlahAktif: 12 };
+const peringkat = (...s) => s.map(([id, skor]) => ({ id, skor, halaman: [] }));
+
+test('pilihGabungan: tanpa penunjuk, belum dibangun, atau tak ada yang cocok -> pilihan awal apa adanya', () => {
+  assert.equal(pilihGabungan(null, AWAL), AWAL);
+  assert.equal(pilihGabungan({ siap: false, alasan: 'belum_dibangun' }, AWAL), AWAL);
+  assert.equal(pilihGabungan({ siap: true, kitab: [], tidakTerindeks: [] }, AWAL), AWAL);
+});
+
+test('pilihGabungan: kitab menurut isi didahulukan, kitab pilihan awal yang belum terindeks tetap ikut, dibatasi maksimum', () => {
+  const g = { siap: true, kitab: peringkat(['x', 10], ['y', 8], ['z', 0.5]), tidakTerindeks: ['b', 'q'] };
+  const r = pilihGabungan(g, AWAL);
+  assert.deepEqual(r.ids, ['x', 'y', 'b']); assert.equal(r.dasar, 'isi'); assert.equal(r.belumTerindeks, 2); assert.equal(r.jumlahAktif, 12);
+  const penuh = pilihGabungan({ siap: true, kitab: peringkat(['k1', 9], ['k2', 9], ['k3', 9], ['k4', 9], ['k5', 9]), tidakTerindeks: ['a', 'b', 'c'] }, AWAL);
+  assert.equal(MAKS_KITAB_ISI, 4); assert.equal(penuh.ids.length, 6); assert.deepEqual(penuh.ids.slice(0, 4), ['k1', 'k2', 'k3', 'k4']);
+  assert.match(catatanPilihan(r, r.ids.length), /seluruh isi perpustakaan: 3 dari 12 kitab aktif\. 2 kitab aktif belum masuk indeks isi/);
+});

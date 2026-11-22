@@ -1836,3 +1836,6 @@ Tiga cara: satu halaman, geser (selisih dari satu nomor acuan), urutkan (nomori 
 
 ## 21 Nov 2026: kamus istilah keilmuan Islam dan analisis pertanyaan
 Kamus 752 istilah (16 fan), analisis pertanyaan deterministik, disiplin baru balaghah dan mushthalah, jenis pertanyaan baru (pembagian, hikmah, contoh, derajat), dan jawaban Tanya Kitab yang lebih terjabar. Rincian: `docs/PENGUATAN-AI-ISTILAH-2026-11-21.md`.
+
+## 22 Nov 2026: pemilih kitab otomatis dan indeks pencarian lintas kitab
+Tanya Kitab tanpa pilihan kitab dulu mencari di empat kitab pertama menurut abjad. Sekarang: (1) pemilih otomatis dari nama kitab dan bidang ilmu pertanyaan (`web/lib/pilihKitab.js`, sampai 6 kitab, dinyatakan di hasil bila tanpa isyarat); (2) indeks lintas kitab (`web/lib/indeksGlobal.js`, `src/kitabGlobal.js`, panel di menu Perpustakaan) yang menunjuk kitab menurut kata kunci rencana pencarian di seluruh perpustakaan, dengan kembali ke pemilih otomatis bila indeks belum ada atau gagal. Pencarian per kitab juga berjalan serentak. Rincian dan batas: `docs/SKEMA-KITAB.md`, bagian "Indeks pencarian lintas kitab".

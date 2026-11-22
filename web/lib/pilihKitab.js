@@ -8,6 +8,9 @@
 import { normalCari } from './cariKitab.js';
 import { cariTopik, fanTopik, FAN_TOPIK } from './kamusTopik.js';
 import { MAKS_KITAB_OTOMATIS } from './telaahKitab.js';
+import { pilihDariPeringkat } from './indeksGlobal.js';
+
+export const MAKS_KITAB_ISI = 4; // kitab yang ditunjuk indeks isi lintas kitab; sisa slot (sampai MAKS_KITAB_OTOMATIS) untuk kitab yang belum masuk indeks
 
 const n = (s) => normalCari(s);
 const pad = (s) => ` ${n(s)} `;
@@ -93,11 +96,25 @@ export function pilihKitabOtomatis(aktif, teks, { maks = MAKS_KITAB_OTOMATIS } =
   return dasarHasil(urut.slice(0, maks), 'tidak_sefan'); // tak satu pun fan-nya cocok: yang belum diketahui didahulukan, yang jelas beda bidang paling akhir
 }
 
+/**
+ * Menyempurnakan pilihan awal dengan penunjuk isi lintas kitab (src/kitabGlobal.js `cariLintasKitab`).
+ * - Ada penunjuk dan ada kitab yang cocok: kitab teratas menurut isi (paling banyak MAKS_KITAB_ISI) + kitab pilihan awal yang BELUM masuk indeks (tidak boleh hilang), maksimal `maks`.
+ * - Tidak ada penunjuk, indeks belum dibangun, atau tak satu kata pun ditemukan: pilihan awal dipakai apa adanya.
+ */
+export function pilihGabungan(g, pilihan, { maksIsi = MAKS_KITAB_ISI, maks = MAKS_KITAB_OTOMATIS } = {}) {
+  if (!g || g.siap !== true || !Array.isArray(g.kitab) || !g.kitab.length) return pilihan;
+  const isi = pilihDariPeringkat(g.kitab, { maks: maksIsi });
+  const belum = new Set(g.tidakTerindeks || []);
+  const ids = [...isi, ...(pilihan.ids || []).filter((id) => belum.has(id) && !isi.includes(id))].slice(0, maks);
+  return { ...pilihan, ids, dasar: 'isi', belumTerindeks: belum.size };
+}
+
 /** Kalimat catatan untuk pengguna tentang cara kitab dipilih ('' bila semua kitab aktif ikut dicari). */
 export function catatanPilihan(p, jumlahDicari) {
   if (!p || p.jumlahAktif <= jumlahDicari) return '';
   const dari = `${jumlahDicari} dari ${p.jumlahAktif} kitab aktif`;
   const namaFan = p.fan && FAN_TOPIK[p.fan] ? FAN_TOPIK[p.fan] : '';
+  if (p.dasar === 'isi') return `Kitab yang dicari ditunjuk menurut kecocokan kata kunci pertanyaan di seluruh isi perpustakaan: ${dari}.${p.belumTerindeks ? ` ${p.belumTerindeks} kitab aktif belum masuk indeks isi (admin dapat membangunnya di menu Perpustakaan).` : ''} Bila kitab yang Anda maksud tidak ikut, sebut namanya di pertanyaan atau pilih sendiri kitabnya.`;
   if (p.dasar === 'nama') return `Kitab yang dicari dipilih dari nama kitab di pertanyaan (${dari}).`;
   if (p.dasar === 'fan') return `Kitab yang dicari dipilih menurut bidang ilmu pertanyaan (${namaFan}): ${dari}. Bila kitab yang Anda maksud tidak ikut, sebut namanya di pertanyaan atau pilih sendiri kitabnya.`;
   if (p.dasar === 'tidak_sefan') return `Tidak ada kitab aktif yang isian fan-nya cocok dengan bidang pertanyaan (${namaFan}), jadi hanya ${dari} yang dicari menurut abjad. Sebut nama kitab atau pilih sendiri kitabnya.`;

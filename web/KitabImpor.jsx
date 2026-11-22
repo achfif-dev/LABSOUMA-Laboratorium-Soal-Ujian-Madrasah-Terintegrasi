@@ -5,6 +5,7 @@ import { bukaSimpananOcr, kunciBerkas } from './lib/simpananOcr.js';
 import { KONKUREN_OCR_TERATUR, MAKS_PER_MENIT_OCR } from './lib/ocrPdf.js';
 import { slugKitab, isianAwal, peringatanPratinjau, peringatanDuplikat, isianSiap, jalankanImpor, PILIHAN_BAHASA, nilaiBahasa, bahasaDariNilai } from './lib/imporKitab.js';
 import { tampilanTeks, bahasaKitab, LABEL_BAHASA } from './lib/bahasa.js';
+import IndeksGlobalPanel from './IndeksGlobalPanel.jsx';
 import { STATUS_OTORITAS, LABEL_STATUS, AKIDAH, LABEL_AKIDAH, MAKS_CATATAN, normalOtoritas } from './lib/otoritas.js';
 
 // Impor perpustakaan kitab/buku dari banyak sumber (Arab maupun berhuruf Latin, mis. Indonesia/Jawa/Inggris; Pegon/Jawi tampil kanan ke kiri): .txt/.docx ekspor Syamilah, .docx/.txt/.html/.epub dengan penanda halaman, PDF berlapis teks, JSON halaman,
@@ -199,6 +200,8 @@ export default function KitabImpor({ Btn, ErrorBox, callApi, apiErr, toast }) {
         <p className="font-semibold">Perpustakaan kitab</p>
         <details className="mt-1 text-mute"><summary className="font-semibold text-ink">Format yang didukung dan cara kerja impor</summary><p className="mt-1">Unggah ekspor Maktabah Syamilah (.txt UTF-8 atau .docx), PDF yang teksnya bisa disalin, EPUB, HTML, JSON halaman, atau berkas lain yang memuat penanda halaman [ص N] (kitab Arab) atau [hal. N] (buku berbahasa Indonesia, Jawa, Inggris, dan lain-lain). Bahasa dikenali otomatis dan bisa diubah sebelum impor. Berkas tanpa penanda halaman bisa dibagi otomatis (halaman virtual). Berkas dibaca di perangkat ini, lalu halaman dikirim per 100 ke server. Kitab baru aktif setelah jumlah halaman cocok.</p></details>
       </div>
+
+      <IndeksGlobalPanel Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} toast={toast} />
 
       {errDaftar && <ErrorBox e={errDaftar} />}
       <div className="rounded-2xl border border-line bg-surface">
