@@ -5,6 +5,7 @@ import * as PK from './lib/paket.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Camera, Check, ClipboardCheck, Layers, ListChecks, Loader2, Pencil, RefreshCw, Save, Send, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import * as NK from './lib/naskah.js';
+import { isolasiArab } from './lib/isolasiArab.js';
 import { faktaSahDi, jejakFaktaButir, spekDenganFakta } from './lib/fakta.js';
 import * as PKK from './lib/paketKembar.js';
 import { bagianTeks } from './lib/perpus.js';
@@ -425,7 +426,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
     if (!bab.trim() && r.bab) setBab(String(r.bab).slice(0, 120));
     toast(`${baru.length} halaman ditambahkan ke materi.`);
   };
-  const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAURI[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${LABEL_BAGIAN[k].split(' ')[0]}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
+  const sebaranTeks = ['a', 'b', 'c'].map((k) => { const p = NK.PRESET_DAURI[dawr].bagian.find((x) => x.kode === k); const c = PK.bagiLevel(p.n, komposisi); return `${isolasiArab(LABEL_BAGIAN[k].split(' ')[0])}: ${c.L1}/${c.L2}/${c.L3}`; }).join(' · ');
 
   return (
     <div className="space-y-4">
@@ -434,7 +435,8 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         <DraftNote names={['paketDauri']} className="mt-2" />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div><Label htmlFor="pk-dauri">Dauri</Label>
-            <Select id="pk-dauri" value={String(dawr)} onChange={(v) => setDauri(NK.dauriSah(v))} disabled={jalan}>{NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label} ({NK.ringkasDauri(d.dawr)})</option>)}</Select></div>
+            <Select id="pk-dauri" value={String(dawr)} onChange={(v) => setDauri(NK.dauriSah(v))} disabled={jalan}>{NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label}</option>)}</Select>
+            <p className="mt-1 text-xs leading-relaxed text-mute">{isolasiArab(NK.ringkasDauri(dawr))} <span className="whitespace-nowrap">(nomor × nilai)</span></p></div>
           <div><Label htmlFor="pk-tingkat">Tingkat</Label>
             <Select id="pk-tingkat" value={tingkat} onChange={(v) => { setTingkat(v); setKelas(''); }} disabled={jalan}>{tingkatOpsi.map((t) => <option key={t} value={t}>{labelTingkat(cfg, t)}</option>)}</Select></div>
           <div><Label htmlFor="pk-mapel">Mata pelajaran</Label>
@@ -521,7 +523,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
               <input id={'pk-' + k} type="number" min="0" max="100" inputMode="numeric" className="field" value={komposisi[k]} onChange={(e) => ubahKomp(k, e.target.value)} disabled={jalan} /></div>
           ))}
         </div>
-        <div className="mt-3 max-w-[200px]"><Label htmlFor="pk-lanj" hint="% di bagian أ">Soal melanjutkan</Label>
+        <div className="mt-3 max-w-[200px]"><Label htmlFor="pk-lanj" hint={`% di bagian ${isolasiArab('أ')}`}>Soal melanjutkan</Label>
           <input id="pk-lanj" type="number" min="0" max="100" inputMode="numeric" className="field" value={lanjutan} onChange={(e) => setLanjutan(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} disabled={jalan} /></div>
         <p className="mt-2 text-xs leading-relaxed text-mute">Angka adalah perbandingan (bobot), bukan harus 100. Bawaan 30:50:20 hanya titik awal; sesuaikan kebijakan madrasah. Jumlah per bagian (L1/L2/L3): {sebaranTeks}.</p>
         <div className="mt-3"><Label htmlFor="pk-fokus" hint="(opsional)">Fokus soal</Label><input id="pk-fokus" className="field" value={fokus} maxLength={300} onChange={(e) => setFokus(e.target.value)} disabled={jalan} /></div>
@@ -535,7 +537,7 @@ export function PaketDauri({ toast, onSimpan, onBukaBank, onCekBank }) {
         <span className="min-w-0 leading-relaxed"><b>Mode fakta</b>: tiap butir menguji satu fakta berbeda dari teks, dengan kutipan dasar yang sudah dicocokkan sistem, dan wajib menjelaskan mengapa tiap pengecoh salah. Menambah ±1 panggilan AI per segmen teks (untuk mengekstrak fakta). Bila fakta di satu segmen habis atau ekstrak gagal, butir yang tersisa dibuat dengan cara biasa dan dilaporkan.</span>
       </label>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 max-sm:sticky max-sm:bottom-0 max-sm:z-30 max-sm:-mx-4 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-4 max-sm:pt-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
         <Btn kind="primary" onClick={buat} disabled={jalan || !!rencana.masalah || !rencana.panggilan}><Sparkles size={16} />Buat paket {NK.PRESET_DAURI[dawr].label}</Btn>
         {!jalan && hasil.length > 0 && kekurangan.sisa.length > 0 && !rencana.masalah && <Btn kind="soft" onClick={lanjutkan}><RefreshCw size={15} />Lanjutkan sisa ({kekurangan.sisa.length} butir)</Btn>}
         {jalan && !fotoStatus && <Btn kind="danger" onClick={batal}><X size={15} />Batal</Btn>}

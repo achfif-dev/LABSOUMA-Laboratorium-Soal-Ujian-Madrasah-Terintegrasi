@@ -114,7 +114,9 @@
   button, summary, label, select, [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   @media (max-width: 639px) {
     /* 16px mencegah Safari iOS memperbesar layar sendiri saat isian difokus; tinggi 44px = sasaran ketuk yang nyaman */
-    .field { font-size: 16px; min-height: 44px; }
+    .field { font-size: 16px; }
+    /* 44px = sasaran ketuk nyaman, kecuali kolom yang memang menetapkan tinggi sendiri (min-h-[160px] dkk. tidak boleh dikalahkan) */
+    .field:not([class*="min-h-"]) { min-height: 44px; }
     .ar-input { font-size: 1.3rem; }
     main button, main summary { min-height: 40px; }
     main button { min-width: 40px; }

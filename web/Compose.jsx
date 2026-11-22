@@ -4,6 +4,7 @@ import { Bt, KEYS, LEVEL, bacaPref, cariKitab, mapelUntuk } from './lib/dasar.js
 import SaranTulisan from './SaranTulisan.jsx';
 import { AlertTriangle, BookOpen, Camera, Check, Copy, Download, FileText, Info, Languages, Layers, Loader2, PenLine, RotateCcw, Save, Send, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
 import * as NK from './lib/naskah.js';
+import { isolasiArab } from './lib/isolasiArab.js';
 import { bahasaOtomatis, tampilanDariIsi } from './lib/bahasa.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
@@ -444,7 +445,7 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
                     <Select id="tpl-dauri" value={String(dawr)} onChange={(v) => patchEx({ dawr: NK.dauriSah(v) })}>
                       {NK.DAFTAR_DAURI.map((d) => <option key={d.dawr} value={d.dawr}>{d.label}</option>)}
                     </Select></div>
-                  <div className="text-xs leading-relaxed text-mute sm:pt-6 lg:pt-0 xl:pt-6">{NK.ringkasDauri(dawr)} <span className="whitespace-nowrap">(nomor × nilai)</span></div>
+                  <div className="text-xs leading-relaxed text-mute sm:pt-6 lg:pt-0 xl:pt-6">{isolasiArab(NK.ringkasDauri(dawr))} <span className="whitespace-nowrap">(nomor × nilai)</span></div>
                 </div>
                 {(() => {
                   const kode = NK.bagianDari(form); const bg = kode ? NK.ringkasBagian(dawr, kode) : null;
@@ -741,7 +742,7 @@ export function Compose({ form, setForm, editingId, onSave, onSend, onReset, toa
               {errors.map((e) => <li key={e} className="flex gap-2"><X size={14} className="mt-1 shrink-0" />{e}</li>)}
             </ul>
           )}
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-5 flex flex-wrap gap-2 max-sm:sticky max-sm:bottom-0 max-sm:z-30 max-sm:-mx-4 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-4 max-sm:pt-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
             {ustadz ? <Btn kind="primary" onClick={send}><Save size={16} />Simpan ke Soal Saya</Btn> : <>
               <Btn kind="ghost" onClick={save}><Save size={16} />Simpan Draft</Btn>
               <Btn kind="primary" onClick={send}><Send size={16} />Kirim ke Editor</Btn>
