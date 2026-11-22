@@ -10,6 +10,14 @@ import { Empty, Meta, QuestionView, RefArab, SourceLink, TahapChip, TautKitab, r
 import { ButaView, TelaahView } from './TinjauanView.jsx';
 
 /* ---------- Tab 2: Review ---------- */
+// Pilihan alasan persetujuan akhir bagi soal yang belum diuji buta/ditelaah. Tiap butir menyatakan pemeriksaan yang benar-benar dilakukan editor.
+const ALASAN_SETUJU = [
+  'Kutipan, kunci, dan pembahasan sudah saya cocokkan manual dengan teks kitab.',
+  'Soal L1: jawabannya tertulis langsung di teks kitab, sudah saya periksa.',
+  'Soal sudah ditelaah ustadz/guru pakar di luar aplikasi.',
+  'Soal lama yang sudah pernah dipakai ujian, isinya tidak berubah.',
+  'Temuan telaah AI sudah saya nilai dan tidak perlu diterapkan pada soal ini.',
+];
 function ReviewCard({ q, onApprove, onRevise, me }) {
   const own = q.authorUid === me.uid && me.role !== 'admin';
   const alur = useAlur();
@@ -21,6 +29,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
   const [err, setErr] = useState(false);
   const [tl, setTl] = useState(null);
   const [errOk, setErrOk] = useState(false);
+  const [pilih, setPilih] = useState('');
   const [buta, setButa] = useState(null);
   const K = window.Kutipan;
   const kutLive = useMemo(() => (K && q.teks && q.pembahasan ? K.periksaKutipan(K.bidangDariSoal(q), q.teks).status : ''), [K, q.teks, q.pembahasan, q.stimulus, q.pertanyaan, q.opsi]);
@@ -37,9 +46,10 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
     } catch (e) { const er = apiErr(e); setButa(er ? { error: er } : null); }
   };
   const setujui = () => {
-    if (akhir && alasanOverride.length && !note.trim()) { setErrOk(true); return; }
-    // Meloloskan ke editor berikutnya: catatan opsional (tersimpan di jejak tinjauan). Persetujuan akhir: catatan override bila ada peringatan.
-    onApprove(q.id, !akhir ? note.trim().slice(0, 300) : (alasanOverride.length ? `[Disetujui dengan catatan] ${note.trim()}`.slice(0, 1000) : ''));
+    const cat = [pilih, note.trim()].filter(Boolean).join(' — ');
+    if (akhir && alasanOverride.length && !cat) { setErrOk(true); return; }
+    // Meloloskan ke editor berikutnya: catatan opsional (tersimpan di jejak tinjauan). Persetujuan akhir: alasan terpilih dan/atau catatan ikut terkirim; server yang memutuskan apakah wajib.
+    onApprove(q.id, !akhir ? note.trim().slice(0, 300) : (cat ? `[Disetujui dengan catatan] ${cat}`.slice(0, 1000) : ''));
   };
   const runTelaah = async () => {
     setTl({ loading: true });
@@ -90,6 +100,15 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
           </div>
         )}
         {q.sumberUrl && <p className="mb-3 text-xs text-mute">Tautan sumber diisi penyusun dan tidak otomatis terikat ke teks di atas. Cocokkan sendiri bila perlu.</p>}
+        {akhir && (
+          <div className="mb-3">
+            <Label htmlFor={'pilih-' + q.id}>Alasan persetujuan (pilih bila soal belum diuji buta atau ditelaah)</Label>
+            <select id={'pilih-' + q.id} className="field" value={pilih} onChange={(e) => { setPilih(e.target.value); setErrOk(false); }}>
+              <option value="">Tidak ada, soal sudah diperiksa otomatis</option>
+              {ALASAN_SETUJU.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
         <Label htmlFor={'note-' + q.id}>Catatan Revisi</Label>
         <textarea id={'note-' + q.id} rows={2} className={`field ${err ? '!border-[var(--bad)]' : ''}`} placeholder="Wajib diisi bila meminta revisi"
           value={note} onChange={(e) => { setNote(e.target.value); setErr(false); setErrOk(false); }} />

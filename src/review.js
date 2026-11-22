@@ -141,7 +141,7 @@ export async function setujui(db, FieldValue, { id, uid, nama, role, catatan, am
     const rek = await tx.get(db.doc(`${KOLEKSI_BUTA}/${sidikButaSoal(q)}`));
     const rekT = await tx.get(db.doc(`${KOLEKSI_TELAAH}/${sidikTelaahSoal(q)}`));
     const alasan = alasanPerluCatatan(q, rek.exists ? rek.data() : null, { sumber, sumberWajib, rekamTelaah: rekT.exists ? rekT.data() : null });
-    if (alasan.length && !note) throw new ApiError(422, 'ALASAN_WAJIB', `Soal ini perlu catatan alasan sebelum disetujui: ${alasan.join('; ')}.`);
+    if (alasan.length && note.replace(/^\[Disetujui dengan catatan\]\s*/, '').length < 10) throw new ApiError(422, 'ALASAN_WAJIB', `Soal ini perlu catatan alasan (minimal 10 karakter) sebelum disetujui: ${alasan.join('; ')}.`);
     alasanDipakai = alasan;
     tx.update(ref, { status: 'approved', ...jejak('setuju'), catatan: note, reviewerUid: uid, reviewerName: String(nama || '').slice(0, 120), reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
   });
