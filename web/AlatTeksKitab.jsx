@@ -8,6 +8,7 @@ import { AssistView } from './TinjauanView.jsx';
 import FaktaTeks from './FaktaTeks.jsx';
 import { faktaBasi, pilihFaktaBerikut } from './lib/fakta.js';
 import { masalahCakupan } from './lib/pilihanBaca.js';
+import { kenaliDisiplin } from './lib/petaTeks.js';
 
 const LABEL_MODE = { pilihan: 'Teks terpilih', halaman: 'Halaman yang tampil', kosong: 'Belum ada teks' };
 
@@ -20,11 +21,15 @@ export default function AlatTeksKitab({ Btn, callApi, apiErr, kitab, kitabId, ca
   const urut = useRef(0);
 
   const masalah = masalahCakupan(cakupan);
+  // Fan kitab beda dengan mapel Susun Soal: hanya catatan, bukan penolakan. Ekstrak fakta, terjemah, dan analisis mengikuti disiplin kitab.
+  const dKitab = kitab && kitab.fan ? kenaliDisiplin('', kitab.fan) : null;
+  const dMapel = konteks.mapel ? kenaliDisiplin('', konteks.mapel) : null;
+  const bedaMapel = !!(dKitab && dMapel && dKitab.sumber === 'mapel' && dMapel.sumber === 'mapel' && dKitab.id !== dMapel.id);
   const sibuk = !!((ai && ai.loading) || (fk && fk.loading));
   const nama = kitab ? kitab.judulLatin : '';
 
   const jalankan = async (aksi, ulang = false) => {
-    const teks = cakupan.teks; const kunci = `${kitabId}|${aksi}|${teks}`;
+    const teks = cakupan.teks; const kunci = `${kitabId}|${aksi}|${konteks.mapel || ''}|${konteks.tingkat || ''}|${teks}`;
     const untukAi = aksi !== 'fakta'; const set = untukAi ? (v) => { setAi(v); setTampil('ai'); } : (v) => { setFk(v); setTampil('fk'); };
     const kind = aksi;
     if (masalah) { set({ kind, teks, error: { code: 'INVALID_ARABIC', message: masalah } }); return; }
@@ -60,6 +65,9 @@ export default function AlatTeksKitab({ Btn, callApi, apiErr, kitab, kitabId, ca
         {cakupan.mode === 'pilihan' && <span dir="auto" {...(arab ? { lang: 'ar' } : {})} className={`${arab ? 'ar ' : ''}min-w-0 max-w-full truncate text-sm`}>{cakupan.teks.replace(/\s+/g, ' ').slice(0, 80)}</span>}
         {cakupan.mode === 'pilihan' && <button type="button" onClick={onHapusPilihan} className="ml-auto inline-flex items-center gap-1 underline"><X size={12} />Hapus pilihan</button>}
       </p>
+      {bedaMapel && cakupan.mode !== 'kosong' && (
+        <p role="note" className="flex items-start gap-1.5 text-xs leading-snug text-mute"><AlertTriangle size={13} className="mt-0.5 shrink-0" />Kitab ini fan {dKitab.label}, sedangkan mapel di Susun Soal {dMapel.label}. Fakta, terjemah, dan analisis mengikuti isi kitab, bukan ditolak. Sesuaikan mapel di Susun Soal sebelum membuat soal.</p>
+      )}
       {masalah && cakupan.mode !== 'kosong' && <p role="note" className="flex items-start gap-1.5 text-xs text-warn"><AlertTriangle size={13} className="mt-0.5 shrink-0" />{masalah}</p>}
       <div className="flex flex-wrap gap-1.5">
         <Btn kind="soft" className="!px-3 !py-1.5 !text-xs" onClick={() => jalankan('terjemah')} disabled={sibuk || !!masalah}><Languages size={14} />Terjemahkan</Btn>

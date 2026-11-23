@@ -5,9 +5,9 @@
 
 // Jenis fakta yang paling cocok per level (indeks lebih kecil = lebih cocok).
 const JENIS_COCOK = {
-  L1: ['definisi', 'bilangan', 'hukum', 'syarat', 'dalil', 'perbedaan_pendapat'],
-  L2: ['hukum', 'syarat', 'bilangan', 'definisi', 'dalil', 'perbedaan_pendapat'],
-  L3: ['syarat', 'perbedaan_pendapat', 'hukum', 'dalil', 'bilangan', 'definisi'],
+  L1: ['definisi', 'bilangan', 'hukum', 'syarat', 'sifat', 'rukun', 'kaidah', 'kisah', 'adab', 'dalil', 'perbedaan_pendapat'],
+  L2: ['hukum', 'syarat', 'rukun', 'kaidah', 'sifat', 'adab', 'kisah', 'bilangan', 'definisi', 'dalil', 'perbedaan_pendapat'],
+  L3: ['syarat', 'perbedaan_pendapat', 'kaidah', 'sifat', 'hukum', 'rukun', 'dalil', 'adab', 'kisah', 'bilangan', 'definisi'],
 };
 const URUT = { L1: 1, L2: 2, L3: 3 };
 const BENTUK_KUNCI_HURUF = { pilgan: 'ABCDE', lanjutan: 'ABCDE', benarsalah: 'AB' };

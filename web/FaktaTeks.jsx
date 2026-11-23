@@ -3,12 +3,19 @@ import { Sparkles, Wand2, AlertTriangle } from 'lucide-react';
 import { Btn, Spin, ErrorBox } from './ui.jsx';
 import { peringatanLevel } from './lib/fakta.js';
 
-const JENIS = { hukum: 'Hukum', bilangan: 'Bilangan', syarat: 'Syarat', definisi: 'Definisi', dalil: 'Dalil', perbedaan_pendapat: 'Beda pendapat' };
+const JENIS = { hukum: 'Hukum', bilangan: 'Bilangan', syarat: 'Syarat', definisi: 'Definisi', dalil: 'Dalil', perbedaan_pendapat: 'Beda pendapat', sifat: 'Sifat', rukun: 'Rukun', kaidah: 'Kaidah', kisah: 'Kisah', adab: 'Adab' };
 
 /** Daftar fakta atomik dari teks (kutipan dasar sudah diperiksa kode). Soal dibuat terikat pada SATU fakta yang dipilih pengguna. */
 export default function FaktaTeks({ state, level, terpakai, basi, disabled, onBuat, onOtomatis, labelBuat = 'Buat soal dari fakta ini' }) {
   if (state.loading) return <Spin>Sedang mengekstrak fakta dari teks kitab...</Spin>;
-  if (state.error) return <ErrorBox e={state.error} />;
+  if (state.error) return (
+    <div className="space-y-2">
+      <ErrorBox e={state.error} />
+      {state.error.code === 'TEKS_TIDAK_MEMADAI' && (
+        <p className="text-xs leading-relaxed text-mute">Ini penilaian AI atas teks yang dipilih, bukan kesalahan sistem. Coba blok bagian yang lebih sempit dan berisi pembahasan utuh, atau tekan Ulangi.</p>
+      )}
+    </div>
+  );
   const d = state.data;
   return (
     <div className="space-y-3 text-sm">
