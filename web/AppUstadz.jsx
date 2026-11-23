@@ -19,6 +19,7 @@ import { Export } from './panelMalas.jsx';
 import { FokusUjian } from './FokusUjian.jsx';
 import { PegonTab } from './PegonTab.jsx';
 import { BilahPilih, KotakPilih, usePilihan } from './BankTab.jsx';
+import { TeksKitabLipat } from './TeksKitabSorot.jsx';
 
 /* ---------- Peran Ustadz ---------- */
 // Alat bantu untuk soal latihan sendiri: susun (dengan AI), Pegonkan, dan ekspor. TIDAK memasang pendengar ke koleksi `soal` (aturan Firestore menolaknya)
@@ -354,12 +355,7 @@ function SoalSaya({ store, semuaQ, onEdit, onDelete, onDeleteMany, onChanged, to
               <span className="text-xs text-mute">{refText(q)}<RefArab q={q} /></span>
             </div>
             <QuestionView q={q} />
-            {q.teks && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm font-semibold text-soft-ink">Lihat teks kitab</summary>
-                <p dir="rtl" lang="ar" className="ar ar-sm mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">{q.teks}</p>
-              </details>
-            )}
+            {q.teks && <TeksKitabLipat q={q} />}
             <div className="mt-4 flex flex-wrap gap-2">
               <Btn kind="ghost" onClick={() => onEdit(q.id)}><Pencil size={15} />Edit</Btn>
               {konfirm === q.id ? (

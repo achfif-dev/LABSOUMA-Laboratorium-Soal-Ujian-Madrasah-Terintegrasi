@@ -6,6 +6,7 @@ import * as CS from './lib/cariSoal.js';
 import * as SK from './lib/saringKitab.js';
 import * as PK from './lib/paket.js';
 import { Badge, Empty, Meta, QuestionView, RefArab, SourceLink, TahapChip, TautKitab, refText } from './bersama.jsx';
+import { TeksKitabLipat } from './TeksKitabSorot.jsx';
 
 /* ---------- Pilih massal (dipakai Bank Soal dan Soal Saya) ---------- */
 // "terlihat" = soal yang sedang tampil sesuai filter. Pilihan di luar daftar yang tampil TIDAK ikut diproses,
@@ -88,11 +89,9 @@ export function Bank({ all, onEdit, onDelete, onDeleteMany, canEdit, uid = '', o
             )}
             <QuestionView q={q} />
             {q.teks && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm font-semibold text-soft-ink">Lihat teks kitab</summary>
-                <p dir="rtl" lang="ar" className="ar ar-sm mt-2 rounded-xl bg-soft px-4 py-2 text-soft-ink">{q.teks}</p>
+              <TeksKitabLipat q={q}>
                 {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
-              </details>
+              </TeksKitabLipat>
             )}
             {onKirimTab && q.status === 'approved' && <div className="mt-4 flex flex-wrap gap-2">
               <Btn kind="soft" onClick={() => onKirimTab('export', [q.id])}><Download size={15} />Ke Export</Btn>

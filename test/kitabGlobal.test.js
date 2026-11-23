@@ -144,25 +144,27 @@ test('Tanya Kitab: pengguna menyebut nama kitab -> indeks isi tidak dipakai; keg
 const semuaBucket = async (db) => Object.fromEntries((await db.collection('cariGlobal').get()).docs.filter((d) => d.id !== '_peta').map((d) => [d.id, d.data().d]));
 
 test('sapuan bertahap: anggaran habis -> kemajuan tersimpan, kitab diabaikan pencarian sampai selesai, hasil akhir sama dengan sekali jalan', async () => {
+  const jam = () => 4_000_000_000_000; // jam tetap: tidak ada waktu terpakai, jadi tiap panggilan membangun 3 kitab dan menyapu tepat satu gelombang bucket
   let sekali;
-  await dengan(dasar(), async (db) => { for (const id of Object.keys(ISI)) await impor(id); await bangunGlobal(db); sekali = await semuaBucket(db); });
+  await dengan(dasar(), async (db) => { for (const id of Object.keys(ISI)) await impor(id); await bangunGlobal(db, { sekarang: jam }); sekali = await semuaBucket(db); });
   assert.ok(Object.keys(sekali).length > 20, 'ada cukup banyak bucket untuk dibagi');
 
   await dengan(dasar(), async (db) => {
     for (const id of Object.keys(ISI)) await impor(id);
     let putaran = 0; let r; let pernahSetengah = false;
     do {
-      r = await bangunGlobal(db, { anggaran: 0, konkuren: 6 }); putaran++;
+      r = await bangunGlobal(db, { anggaran: 0, konkuren: 6, sekarang: jam }); putaran++;
       if (!r.selesai) {
         pernahSetengah = true;
         assert.ok(r.sapuan && r.sapuan.selesai > 0 && r.sapuan.selesai < r.sapuan.total, 'kemajuan sapuan dilaporkan');
-        assert.equal((await cariLintasKitab(db, [['زكاة']], [], { sekarang: () => Date.now() + 99 * 60_000 })).siap, false, 'kitab yang belum selesai disapu tidak dipakai pencarian');
+        assert.deepEqual(r.dibangun, [], 'belum ada kitab yang ditandai siap sebelum sapuannya selesai');
+        assert.equal((await cariLintasKitab(db, [['زكاة']], [], { sekarang: jam })).siap, false, 'kitab yang belum selesai disapu tidak dipakai pencarian');
       }
     } while (!r.selesai && putaran < 60);
-    assert.ok(pernahSetengah && putaran > 1, 'dibagi menjadi beberapa panggilan'); assert.equal(r.selesai, true);
+    assert.ok(pernahSetengah && putaran > 1, 'dibagi menjadi beberapa panggilan'); assert.equal(r.selesai, true); assert.equal(r.dibangun.length, 3);
     assert.deepEqual(await semuaBucket(db), sekali, 'isi bucket identik dengan pembangunan sekali jalan');
-    const peta = await bacaPeta(db, { segar: true }); assert.equal(peta.sapuan, undefined); assert.equal(peta.kunci, undefined);
-    assert.equal((await cariLintasKitab(db, [['زكاة', 'البقر']])).kitab[0].id, 'k-fiqih');
+    const peta = await bacaPeta(db, { segar: true, sekarang: jam }); assert.equal(peta.sapuan, undefined); assert.equal(peta.kunci, undefined);
+    assert.equal((await cariLintasKitab(db, [['زكاة', 'البقر']], [], { sekarang: jam })).kitab[0].id, 'k-fiqih');
   });
 });
 

@@ -7,6 +7,7 @@ import * as LK from './lib/lebarKolom.js';
 import { Check, CheckCircle2, ClipboardCheck, Loader2, PenLine, Quote, RotateCcw, ShieldCheck } from 'lucide-react';
 import * as PK from './lib/paket.js';
 import { Empty, Meta, QuestionView, RefArab, SourceLink, TahapChip, TautKitab, refText } from './bersama.jsx';
+import { TeksKitabSorot } from './TeksKitabSorot.jsx';
 import { ButaView, TelaahView } from './TinjauanView.jsx';
 
 /* ---------- Tab 2: Review ---------- */
@@ -70,7 +71,7 @@ function ReviewCard({ q, onApprove, onRevise, me }) {
       <div className="grid md:[grid-template-columns:var(--kolom)]" style={{ '--kolom': LK.lebarKolom((q.teks || '').length, LK.panjangSoal(q)).css }}>
         <div className="min-w-0 border-b border-line p-4 sm:p-5 md:border-b-0 md:border-r">
           <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-mute"><Quote size={14} />Teks Kitab Asli</h3>
-          <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">{q.teks || '—'}</p></div>
+          {q.teks ? <TeksKitabSorot q={q} gulir="halaman" kelas="ar" /> : <div className="rounded-xl bg-soft px-4 py-2"><p dir="rtl" lang="ar" className="ar text-soft-ink">—</p></div>}
           <p className="mt-2 text-xs text-mute">{refText(q)}<RefArab q={q} /><TautKitab q={q} /></p>
           {q.sumberUrl && <p className="mt-1 text-xs text-mute">Sumber: <SourceLink url={q.sumberUrl} /></p>}
         </div>
