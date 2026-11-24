@@ -13,17 +13,20 @@ Cloud Functions tidak dipakai karena butuh paket Blaze. Server hanya **satu fung
 
 Peran: **pending** (baru daftar), **penyusun**, **editor** (menyetujui atau meminta revisi, tidak untuk soal buatannya sendiri), **admin** (mengelola pengguna dan semua soal), **ustadz** (alat bantu pribadi, lihat bagian Peran Ustadz), **nonaktif**.
 
-## Kondisi aplikasi saat ini (7 Nov 2026)
+## Kondisi aplikasi saat ini (24 Nov 2026)
 
-Ringkasan keadaan kode di `main`; riwayat lengkap tiap audit dan perubahan ada di `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` (25 bagian, kronologis).
+Ringkasan keadaan kode di `main` (commit `b901c85`); riwayat tiap audit dan perubahan ada di `docs/RIWAYAT-AUDIT-DAN-PERUBAHAN.md` (33 bagian, 21 Okt sampai 8 Nov 2026) dan, untuk perubahan sesudahnya, di berkas terpisah: `docs/AUDIT-2026-11-16.md`, `docs/AUDIT-AI-KITAB-2026-11-18.md`, `docs/AUDIT-KUOTA-FIRESTORE-2026-11-18.md`, `docs/PENELUSURAN-HALAMAN-2026-11-21.md`, dan `docs/PENGUATAN-AI-ISTILAH-2026-11-21.md`.
 
 **Yang sudah ada**
 - **Penyusunan soal berbantuan AI** dari teks kitab: lima bentuk soal, terjemah, analisis teks, telaah dan perbaikan, uji jawab buta, pemeriksa kutipan Arab dan nada, Paket Dauri (materi panjang menjadi soal bersegmen), kisi-kisi, dan haluan Ahlussunnah wal Jamaah yang moderat satu sumber di semua prompt (`src/aswaja.js`).
-- **Perpustakaan kitab di Firestore** (bukan lagi hanya tempel teks): impor ekspor Syamilah (.txt/.docx), teks bertanda `[ص N]`, PDF (lapisan teks atau OCR AI Arab, Latin, Pegon), EPUB, HTML, JSON; pembaca layar penuh dengan pencarian isi; pilih kitab, bab, dan halaman langsung dari form soal; tautan balik soal ke halaman kitab; koreksi teks oleh editor dan admin; status otoritas kitab; tanya-jawab bersumber dan pemeriksaan soal terhadap halaman rujukan. Lihat bagian *Perpustakaan kitab* di bawah.
+- **Perpustakaan kitab di Firestore**: impor ekspor Syamilah (.txt/.docx), teks bertanda `[ص N]`, PDF (lapisan teks atau OCR AI Arab, Latin, Pegon), EPUB, HTML, JSON; pembaca layar penuh dengan pencarian isi; pilih kitab, bab, dan halaman dari form soal; tautan balik soal ke halaman kitab; koreksi teks oleh editor dan admin; status otoritas kitab; tanya-jawab bersumber dan pemeriksaan soal terhadap halaman rujukan. Lihat bagian *Perpustakaan kitab*.
+- **Tanya Kitab, diperkuat 18 dan 21 Nov:** metode baca kitab dan peta teks deterministik (`src/pemahamanKitab.js`, `web/lib/petaTeks.js`); kamus istilah 752 istilah dari 16 fan (`web/lib/kamusIlmuData.js`); analisis pertanyaan (jenis, fan, pemecahan pertanyaan majemuk); kamus topik untuk menemukan halaman (`docs/KAMUS-TOPIK-PENCARIAN.md`); penelusuran halaman sesudah/sebelum ("halaman selanjutnya"); indeks pencarian lintas kitab yang dibangun admin dan dipakai sebagai penunjuk kitab.
+- **Bank Soal Manual (Word):** unggah naskah .docx format Dauri (parser `web/lib/soalDocx.js`), kisi-kisi tiga keluaran (umum, lembar fokus belajar, rinci untuk guru), naskah asli disimpan di `soalLuar/{id}/berkas/*`, dan ikut Backup Drive. Koleksi `soalLuar` sengaja terpisah dari `soal` agar tidak memalsukan jejak persetujuan.
 - **Alur editor bertahap** (1 sampai 3 editor) dan filter penyusun; persetujuan hanya lewat server dengan gerbang kutipan, uji buta, dan sumber.
 - **Pegonizer**: mesin aturan al-Qolam '24 di browser, bantuan AI, kamus bersama di Firestore, ekspor Soal Pegon dan Naskah Ujian IMDA.
 - **Admin**: konfigurasi aplikasi dengan cadangan dan riwayat, pengaturan AI (Gemini atau Claude), pengguna dan peran (termasuk tahap editor), dasbor kuota, backup dan arsip ke Google Drive, impor Excel.
 - **Peran Ustadz**: alat bantu pribadi, soal disimpan hanya di perangkat.
+- **Hemat kuota Firestore (18 Nov):** cache peran per instance (`ROLE_CACHE_SECONDS`, bawaan 60 detik), cache dasbor dan riwayat konfigurasi, halaman muat lebih kecil, dan galat jelas 503 saat kuota habis (rincian di `docs/AUDIT-KUOTA-FIRESTORE-2026-11-18.md`).
 
 **Menu** (dua tingkat: grup lalu sub-tab)
 
@@ -31,24 +34,27 @@ Ringkasan keadaan kode di `main`; riwayat lengkap tiap audit dan perubahan ada d
 |---|---|---|
 | Susun | Penyusunan, Paket Dauri, Pegonizer | staf (Ustadz: Penyusunan dan Pegonizer) |
 | Baca Kitab | pembaca, pencarian isi, Tanya Kitab | staf |
-| Bank Soal | Review (editor, admin), Approved | staf |
+| Bank Soal | Review (editor, admin), Approved, Manual (Word) | staf |
 | Ujian | Fokus & Kisi-kisi, Export, Analisis Butir | staf (Ustadz: Fokus dan Export untuk soalnya sendiri) |
 | Kelola | Backup Drive (editor, admin); Dasbor, Pengguna, Konfigurasi, Perpustakaan, Pengaturan AI (admin) | sesuai peran |
 
 Ustadz hanya mendapat lima sub-tab: Penyusunan, Soal Saya, Export, Fokus & Kisi-kisi, dan Pegonizer.
 
-**Angka terukur** (clone `main`, 7 Nov 2026)
-- `npm test`: 770 tes, 769 lulus, 1 dilewati (uji berkas nyata Dasuqi; jalankan dengan `KITAB_DASUQI_DOCX=...`). `npm run lint`: 0 error, 72 peringatan (kebanyakan `react-hooks/exhaustive-deps`, belum ditriase). `npm run build` lolos.
-- Bundel awal 994 KB (gzip 305 KB), turun dari 1.984 KB (gzip 622 KB) pada 6 Nov. Dimuat saat dipakai: mesin Pegon 259 KB, `docx` 466 KB, tab Export 30 KB, tab Konfigurasi/Pengaturan AI 50 KB, dan tujuh panel lain. Lihat *Arsitektur frontend*.
-- Fungsi Vercel: **1** (`api/gateway.js`), bukan 11. Rute API baru: buat berkas di `src/rute/`, lalu daftarkan di tabel `RUTE` pada `api/gateway.js`. Jangan menambah berkas lain di `api/` (lihat *Function Storage Vercel*).
+**Angka terukur** (clone `main`, 24 Nov 2026, Node 22)
+- `npm test`: 1.264 tes, 1.263 lulus, 0 gagal, 1 dilewati (uji berkas nyata Dasuqi; jalankan dengan `KITAB_DASUQI_DOCX=...`). `npm run lint`: 0 error, 160 peringatan (82 `no-unused-vars`, 77 `react-hooks/exhaustive-deps`, 1 lain). Lima peringatan hook (`ui.jsx` 180 dan 182, `bersama.jsx` 90, 129, 143) ditinjau lewat pembacaan kode pada 24 Nov (bukan uji UI) dan tidak tampak menyebabkan perilaku salah; sisanya belum ditriase. `npm run build` lolos.
+- Bundel awal 1.092 KB (gzip 341 KB), naik dari 994 KB (gzip 305 KB) pada 7 Nov; penyebabnya belum dianalisis, dan batas peringatan ukuran chunk di `vite.config.js` dinaikkan ke 1.200 KB. Dimuat saat dipakai: mesin Pegon 270 KB, `docx` 466 KB, `mammoth` 500 KB, `pdfjs` 379 KB, pembaca kitab 100 KB, impor kitab 95 KB, Konfigurasi/Pengaturan AI 65 KB, Bank Soal Manual 50 KB, tab Export 30 KB, dan panel lain. Lihat *Arsitektur frontend*.
+- Fungsi Vercel: **1** (`api/gateway.js`) dengan 12 rute di `src/rute/`. Rute API baru: buat berkas di `src/rute/`, lalu daftarkan di tabel `RUTE` pada `api/gateway.js`. Jangan menambah berkas lain di `api/` (lihat *Function Storage Vercel*).
 
 **Yang belum teruji atau belum dikerjakan (jujur)**
-- Aturan Firestore hanya diuji sebagai teks (`firestore.rules` belum diuji di emulator). Pemuatan malas dan tampilan di HP belum dicoba di perangkat sungguhan; setelah memperbarui, uji tab Pegon, Export, dan Konfigurasi.
-- Mutu OCR AI (Arab, Latin, Pegon), deteksi dua kolom, dan pembersih PDF baru diuji dengan data buatan dan beberapa berkas nyata; periksa sampel halaman sebelum kitab dijadikan rujukan soal.
-- `npm run eval` (set soal emas, butuh kunci AI) belum dijalankan setelah prompt generate berubah (aturan haluan 9). `eval/golden.json` masih draf yang harus diverifikasi ustadz.
-- `npm audit`: 6 temuan moderat, semuanya transitif lewat `firebase-admin` (terkunci di `@google-cloud/firestore-api`), risiko praktis rendah karena berjalan di server; belum ada perbaikan hulu. Jangan memakai `npm audit fix --force` (menurunkan `firebase`).
-- `web/App.jsx` masih 4.014 baris; tab Paket Dauri dan Penyusunan belum dipisah. Migrasi Firebase compat ke modular ditunda dengan sengaja (hemat ±22 KB gzip tidak sebanding risikonya; alasan di bagian 20 riwayat).
-- Pencarian isi hanya dalam satu kitab; pencarian lintas kitab belum ada.
+- `firestore.rules` hanya diuji sebagai pola teks (tidak ada emulator Firestore di CI). Rules yang berlaku adalah yang terpasang di Firebase Console; `.firebaserc` masih berisi `GANTI-DENGAN-PROJECT-ID-FIREBASE` dan CI tidak mendeploy rules, jadi kesamaan keduanya harus dicocokkan manual setiap rules diubah.
+- Belum diverifikasi apakah Vercel menunggu hasil GitHub Actions sebelum mendeploy `main`. Bila tidak, push yang gagal lint atau tes tetap tayang; periksa di pengaturan Git proyek Vercel.
+- Menurut dokumen perubahan 18 dan 21 Nov, penguatan Tanya Kitab (metode baca, kamus istilah, analisis pertanyaan, penelusuran halaman) belum diuji dengan model AI dan kitab sungguhan. Isi `kamusIlmuData.js` ditulis dari pengetahuan umum dan perlu ditinjau ustadz (rincian di `docs/PENGUATAN-AI-ISTILAH-2026-11-21.md`). Penelusuran halaman hanya untuk satu kitab teratas dan tidak berjalan otomatis; UI belum menampilkan analisis pertanyaan.
+- Indeks pencarian lintas kitab harus dibangun admin lagi setelah kitab ditambah; kitab yang belum terindeks tetap dicari dengan cara lama. Perpustakaan direncanakan tumbuh dari 15 menjadi sekitar 50 kitab, sedangkan Spark membatasi 50.000 baca dan 20.000 tulis per hari; pantau Usage di Firebase Console dan pertimbangkan Blaze dengan budget alert.
+- Mutu OCR AI (Arab, Latin, Pegon), deteksi dua kolom, dan pembersih PDF diuji dengan data buatan dan beberapa berkas nyata; periksa sampel halaman sebelum kitab dijadikan rujukan soal. Tidak ada tes UI otomatis, jadi pemuatan malas dan tampilan di HP perlu dicoba di perangkat setelah tiap pembaruan (terutama Penyusunan Soal dan Paket Dauri).
+- `npm run eval` (set soal emas, butuh kunci AI) belum dijalankan setelah prompt berubah berulang kali. `eval/golden.json` masih draf yang harus diverifikasi ustadz.
+- `npm audit` (24 Nov): 6 temuan moderat di dependensi produksi, semuanya transitif lewat `firebase-admin` (terkunci di `@google-cloud/firestore-api`); `firebase-admin` 14.5.1 belum memperbaikinya. Audit penuh juga menampilkan 5 temuan high pada devDependency, semuanya dari SDK `firebase` klien 10.14.1 (`undici`, `@grpc/grpc-js`); penilaiannya kode itu berjalan di Node, bukan di bundel browser, tetapi belum diverifikasi. Jangan memakai `npm audit fix --force` (menurunkan `firebase` ke 9.14.0).
+- Berkas terbesar kini `web/AdminKonfigurasi.jsx` (975 baris), `web/Compose.jsx` (805), dan `web/App.jsx` (813); `App.jsx` sudah jauh lebih kecil dari 4.014 baris pada 7 Nov. Migrasi Firebase compat ke modular ditunda dengan sengaja (hemat ±22 KB gzip tidak sebanding risikonya; alasan di bagian 20 riwayat); SDK compat masih dipakai di `main.jsx`, `App.jsx`, dan beberapa tab.
+- Pencarian isi di pembaca kitab tetap per kitab.
 
 ## Pemasangan
 
@@ -447,7 +453,7 @@ Frontend ada di `web/` (Vite, React, Tailwind sebagai build; tidak ada skrip CDN
 ```
 index.html               pintu masuk Vite
 web/main.jsx             memulai aplikasi (Firebase compat, React), memuat Pegon di latar belakang; web/globals.js memasang modul murni ke window
-web/App.jsx              frontend React (±4.000 baris): tab penyusunan, paket, review, bank, fokus, pegon, backup, pengguna, ustadz
+web/App.jsx              kerangka aplikasi React (±800 baris): navigasi, peran, dan pemuatan tab; tiap tab kini berkas sendiri (Compose, PaketDauri, PegonTab, ReviewTab, BankTab, BankLuar, FokusUjian, BackupTab, AdminPengguna, Dasbor, AppUstadz, dan lainnya; lihat folder web/)
 web/ui.jsx               pembantu tampilan dan API bersama (Btn, Section, callApi, konteks, Filters, denganPegon)
 web/ExportTab.jsx        tab Export (dimuat malas)
 web/AdminKonfigurasi.jsx tab Konfigurasi, Alur Editor, Pengaturan AI, Pemeliharaan (dimuat malas)
@@ -466,13 +472,13 @@ web/lib/perpus.js, pembaca.js, rujukan.js, cariKitab.js, koreksi.js, otoritas.js
 web/lib/alurSoal.js, bentuk.js, ujian.js, kisi.js, paket.js, kutipan.js, sikap.js, duplikat.js, riwayat.js, analisisButir.js, excelConfig.js, navigasi.js, dasbor.js   logika murni lain (dipakai klien; sebagian punya salinan di src/ untuk server dan tes)
 web/lib/drive.js, cadanganDrive.js, ustadz.js, draft.js          cadangan Drive, cadangan Soal Saya, peran Ustadz, draf otomatis
 api/gateway.js           satu-satunya fungsi Vercel; meneruskan /api/<nama> ke src/rute/
-src/rute/                11 handler: config, session, generate, assist, kitab, ai-config, app-config, config-backup, backup, admin-stats, drive-client
+src/rute/                12 handler: config, session, generate, assist, kitab, soal-luar, ai-config, app-config, config-backup, backup, admin-stats, drive-client
 src/platform.js, access.js, secrets.js   Firebase Admin, autentikasi, peran, batas pemakaian; enkripsi AES-256-GCM
 src/soalService.js, assistService.js, paketService.js, babService.js, cekButa.js, pegonService.js, pegonCek.js, pegonRules.js, gemini.js, aswaja.js   layanan AI: soal, terjemah, telaah, paket, bab, uji buta, Pegon, adapter Gemini, haluan Aswaja
 src/kitabImpor.js, kitabBaca.js, kitabCari.js, kitabKoreksi.js, kitabOcr.js, kitabFetch.js, fotoKitab.js, syamilah.js, otoritas.js, telaahKitab.js, periksaRujukan.js   perpustakaan kitab di server (impor, baca, cari, koreksi, OCR, otoritas, tanya)
 src/review.js, alurSoal.js, alurEditor.js, appConfig.js, aiConfig.js, configBackup.js, backup.js, adminStats.js   review bertahap, konfigurasi, cadangan, dasbor
 firestore.rules          aturan keamanan data (soal, users, kamusPegon, kitab dan subkoleksi tertutup untuk klien, config tertutup)
-docs/                    RIWAYAT-AUDIT-DAN-PERUBAHAN.md (25 bagian kronologis), SKEMA-KITAB.md, kamus-serapan-arab-kitab-pesantren.json
+docs/                    RIWAYAT-AUDIT-DAN-PERUBAHAN.md (33 bagian, sampai 8 Nov), audit dan perubahan sesudahnya (AUDIT-*, PENELUSURAN-*, PENGUATAN-*), SKEMA-KITAB.md, KAMUS-TOPIK-PENCARIAN.md, kamus-serapan-arab-kitab-pesantren.json
 eval/                    evaluasi mutu AI terhadap set soal emas (butuh kunci API)
 scripts/periksa-syamilah.mjs   pemeriksa berkas ekspor Syamilah
 .github/workflows/       ci.yml (lint, tes, build) dan eval.yml (evaluasi manual)
