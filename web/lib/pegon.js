@@ -537,7 +537,7 @@ function transliterateWordCore(rawWord){
       for (const suf of Object.keys(COMPACT_SUFFIX)){
         if (root.endsWith(suf) && !SUFFIX_EXCEPTIONS.has(root) && root.length - suf.length >= 2){
           const r2 = transliterateBase(root.slice(0, -suf.length), true);
-          // -kan + -nya berbagi satu nun di naskah asli (melakukannya = ملاكوكنيا, bukan ملاكوكننيا): -kan menjadi ك lalu ny + a
+          // -kan + -nya: -kan menjadi ك lalu "nya" (ejaan klasik menulisnya يا tanpa nun, lihat ubahEjaan): melakukannya = ملاكوكيا
           const inti = suf === 'kan' ? 'ك' : COMPACT_SUFFIX[suf];
           return { pegon: r2.pegon + inti + NY + 'ا', flagged: r2.flagged, note: r2.flagged ? 'ada bunyi e — cek pepet/keras' : '' };
         }
@@ -937,16 +937,20 @@ export { convertText, escapeHtml };
  * 'alqolam' (bawaan): standar al-Qolam '24 dengan huruf bertitik ڤ ڬ ڠ چ پ.
  * 'klasik': huruf Arab biasa seperti pada contoh naskah madrasah (FIQH.docx):
  *   p/v = ف, c = ج, k = ك (sudah ك di kedua ejaan), g = ك (juga = جوكا), ng = غ (orang = اوراغ), ngg = غك (bertanggung = برتغكوغ),
- *   ny dan -nya = ني / نيا (tanya = تانيا).
+ *   ny + vokal selain a = ني + vokal (nyanyi = ياني), tetapi "nya" di posisi mana pun (awal, tengah, akhir kata; akhiran -nya maupun bukan) = يا tanpa nun
+ *   (adanya = ادايا, punya = فويا, tanya = تايا, nyata = ياتا, banyak = باياك).
  * Diterapkan sebagai pemetaan huruf pada hasil mesin; selain itu ejaan klasik menulis hamzah awal kata sebagai alif polos
- * (adalah = اداله، orang = اوراغ، apa = افا، untuk = اونتوك) dan akar -kan/-kah/-lah + -nya tetap ringkas (melakukannya = ملاكوكنيا),
- * persis seperti FIQH.docx. Serapan Arab dari kamus tetap berhamzah (إمام، أذان). */
+ * (adalah = اداله، orang = اوراغ، apa = افا، untuk = اونتوك) dan akar -kan/-kah/-lah + -nya tetap ringkas (melakukannya = ملاكوكيا),
+ * mengikuti FIQH.docx kecuali nun pada -nya yang dihilangkan. Serapan Arab dari kamus tetap berhamzah (إمام، أذان). */
 export const EJAAN = Object.freeze({ alqolam: 'Al-Qolam \'24 (ڤ ڬ ڠ چ پ)', klasik: 'Klasik (ف غ ك ج)' });
 const PETA_KLASIK = { 'ڤ': 'ف', 'ڬ': 'ك', 'ڠ': 'غ', 'چ': 'ج', 'پ': 'ني' };
+const NYA_KLASIK = 'يا';   // "nya" pada ejaan klasik: ya' + alif, tanpa nun
 export const ejaanSah = (v) => (Object.hasOwn(EJAAN, v) ? v : 'alqolam');
 export const ubahEjaan = (teks, ejaan) => {
   const t = String(teks == null ? '' : teks);
-  return ejaanSah(ejaan) === 'klasik' ? t.replace(/ڠڬ/g, 'غك').replace(/[ڤڬڠچپ]/g, (c) => PETA_KLASIK[c]) : t;
+  if (ejaanSah(ejaan) !== 'klasik') return t;
+  // "nya" di posisi mana pun (awal, tengah, akhir kata) = يا tanpa nun; ny + vokal lain (nyi, nyu, nye, nyo) tetap ني + vokal. Dikerjakan sebelum pemetaan huruf.
+  return t.replace(/پا/g, NYA_KLASIK).replace(/ڠڬ/g, 'غك').replace(/[ڤڬڠچپ]/g, (c) => PETA_KLASIK[c]);
 };
 /** Seperti convertText, dengan pilihan ejaan huruf. Hasil (pegon, html, details) berbentuk sama. */
 export function convertTextEjaan(text, ejaan = 'alqolam') {

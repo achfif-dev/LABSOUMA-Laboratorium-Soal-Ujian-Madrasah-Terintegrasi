@@ -288,7 +288,7 @@ test('catatan ringkas: opsi dan kalimat soal yang melebihi contoh template diber
   assert.ok(!catatanTemplate({ ...pg('Soal pendek', ['1', '2', '3'], 'A', '1'), stimulus: 'n'.repeat(400) }, 1).some((t) => t.includes('±'))); // narasi tak dicetak, jadi tak dihitung
 });
 
-test('ejaan klasik: p/v = ف, c = ج, g = ك, ng = غ, ngg = غك, ny/nya = ني/نيا; al-Qolam tetap bawaan; hasil lain sama persis', () => {
+test('ejaan klasik: p/v = ف, c = ج, g = ك, ng = غ, ngg = غك, nya = يا; al-Qolam tetap bawaan; hasil lain sama persis', () => {
   const lat = 'Yang paling penting dengan orang pergi, sungguh vokal cara nyata.';
   const q = convertTextEjaan(lat, 'alqolam'); const k = convertTextEjaan(lat, 'klasik');
   assert.equal(q.pegon, convertText(lat).pegon);
@@ -299,7 +299,7 @@ test('ejaan klasik: p/v = ف, c = ج, g = ك, ng = غ, ngg = غك, ny/nya = ني
   assert.equal(kl('yang'), 'ياغ'); assert.equal(kl('dengan'), 'دغان'); assert.equal(kl('paling'), 'فاليغ');
   assert.equal(kl('juga'), 'جوكا'); assert.equal(kl('cara'), 'جارا'); assert.equal(kl('orang'), 'اوراغ'); // alif polos tanpa hamzah, sama dengan contoh FIQH.docx
   assert.equal(kl('bertanggung'), 'برتاغكوغ'); assert.equal(kl('meninggalkan'), 'منيغكالكن'); // ngg = غك, persis contoh
-  assert.equal(kl('tanya'), 'تانيا'); assert.equal(kl('penjual'), 'فنجوال');
+  assert.equal(kl('tanya'), 'تايا'); assert.equal(kl('nyata'), 'ياتا'); // nya di mana pun = يا tanpa nun assert.equal(kl('penjual'), 'فنجوال');
   assert.equal(k.details.length, q.details.length); assert.ok(k.details.every((d) => !/[ڤڬڠچپ]/.test(d.pegon)));
   assert.equal(ejaanSah('x'), 'alqolam'); assert.deepEqual(Object.keys(EJAAN), ['alqolam', 'klasik']);
 });

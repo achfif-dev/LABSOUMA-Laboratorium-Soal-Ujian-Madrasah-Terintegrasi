@@ -175,12 +175,25 @@ test('mesin Pegon: koma antarkata tetap diarabkan dan teks sekitar terlindung te
 });
 
 /* ---------- ejaan klasik penuh (contoh naskah FIQH.docx) ---------- */
-import { convertTextEjaan as konvEjaan } from '../web/lib/pegon.js';
+import { convertTextEjaan as konvEjaan, ubahEjaan } from '../web/lib/pegon.js';
 test('ejaan klasik: hamzah awal alif polos, ف غ ج, dan -kan + -nya ringkas, sama dengan FIQH.docx', () => {
   const k = (s) => konvEjaan(s, 'klasik').pegon;
-  const cocok = { dapat: 'دافات', dengan: 'دغان', yang: 'ياغ', adalah: 'اداله', atau: 'اتاو', orang: 'اوراغ', untuk: 'اونتوك', apa: 'افا', melakukannya: 'ملاكوكنيا', sudah: 'سوداه', kembali: 'كمبالي', siapakah: 'سيافاكه', juga: 'جوكا' };
+  const cocok = { dapat: 'دافات', dengan: 'دغان', yang: 'ياغ', adalah: 'اداله', atau: 'اتاو', orang: 'اوراغ', untuk: 'اونتوك', apa: 'افا', melakukannya: 'ملاكوكيا', sudah: 'سوداه', kembali: 'كمبالي', siapakah: 'سيافاكه', juga: 'جوكا' };
   for (const [l, h] of Object.entries(cocok)) assert.equal(k(l), h, l);
   assert.equal(k('imam'), 'إمام'); assert.equal(k('akhir'), 'آخر'); // serapan Arab dari kamus tetap berhamzah
+});
+test('ejaan klasik: "nya" di mana pun (awal, tengah, akhir; akhiran atau bukan) ditulis يا tanpa nun; ny + vokal lain tetap ني', () => {
+  const k = (s) => konvEjaan(s, 'klasik').pegon;
+  const cocok = { adanya: 'ادايا', punya: 'فويا', tanya: 'تايا', hanya: 'هايا', katanya: 'كاتايا', bertanya: 'برتايا', bahwasanya: 'باهواسايا', nyata: 'ياتا', banyak: 'باياك', nyanyi: 'يانيي', sunyi: 'سونيي', nyonya: 'نيويا', sifatnya: 'صفة يا' };
+  for (const [l, h] of Object.entries(cocok)) assert.equal(k(l), h, l);
+  assert.equal(k('Adanya, punya.'), 'ادايا، فويا.');
+  // hasil AI/foto dipetakan lewat ubahEjaan: aturan yang sama
+  assert.equal(ubahEjaan('أداپا پاتا', 'klasik'), 'أدايا ياتا');
+});
+test('ejaan Al-Qolam tidak berubah oleh aturan nya klasik', () => {
+  assert.equal(convertText('adanya').pegon, 'أداپا');
+  assert.equal(convertText('punya').pegon, 'ڤوپا');
+  assert.equal(ubahEjaan('أداپا', 'alqolam'), 'أداپا');
 });
 test('ejaan klasik tidak bocor: Al-Qolam tetap berhamzah sesudah konversi klasik, bahkan bila konversi melempar', () => {
   konvEjaan('adalah', 'klasik');
