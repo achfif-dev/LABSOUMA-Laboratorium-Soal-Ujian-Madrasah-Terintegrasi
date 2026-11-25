@@ -158,7 +158,7 @@ export async function lihatAi(id) {
 
 /* ------------------------------------------------------------ Uji koneksi */
 
-const UJI_MS = 30_000;
+const UJI_MS = 40_000;
 const NAMA = { gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
 const TOOL_PING = { name: 'ping', description: 'Uji koneksi.', input_schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean' } } } };
 
@@ -204,7 +204,7 @@ export function diagnosaUji(e, r) {
   if (status === 429) return new ApiError(429, 'RATE_LIMIT', `${nama} membatasi permintaan: kuota atau laju kunci ini tercapai. Tunggu lalu coba lagi, atau cek kuota di konsol penyedia.${rinci}`, { retryAfter: retryAfter ?? 30 });
   if (status === 400) return new ApiError(502, 'AI_TEST_REJECTED', `${nama} menolak permintaan uji. Biasanya nama model salah untuk jenis kunci ini.${rinci}`);
   if (status === 529 || (status >= 500 && status < 600)) return new ApiError(503, 'AI_OVERLOADED', `${nama} sedang bermasalah atau sibuk. Coba lagi sebentar lagi.${rinci}`, { retryAfter: retryAfter ?? 15 });
-  if (e && (e.name === 'APIConnectionTimeoutError' || e.name === 'APIUserAbortError')) return new ApiError(504, 'AI_TIMEOUT', `Tidak ada balasan dari ${nama} dalam ${UJI_MS / 1000} detik. Coba lagi, atau pilih model yang lebih ringan.`);
+  if (e && (e.name === 'APIConnectionTimeoutError' || e.name === 'APIUserAbortError')) return new ApiError(504, 'AI_TIMEOUT', `Tidak ada balasan dari ${nama} (model ${r.model}) dalam ${UJI_MS / 1000} detik. Coba lagi, atau pilih model yang lebih ringan.`);
   if (e && e.name === 'APIConnectionError') return new ApiError(503, 'AI_UNREACHABLE', `Server tidak dapat menjangkau ${nama}. Coba lagi.${rinci}`);
   return toApiError(e);
 }
@@ -212,6 +212,7 @@ export function diagnosaUji(e, r) {
 /** Tahap 2: satu panggilan kecil ke penyedia untuk memastikan kunci, model, dan pemanggilan alat berfungsi. */
 export async function jalankanUji(r, { client } = {}) {
   const t0 = Date.now();
+  let hasil = null;
   try {
     const c = client || (await createClientFor(r.provider, r.apiKey, UJI_MS));
     const msg = await c.messages.create({
@@ -219,8 +220,12 @@ export async function jalankanUji(r, { client } = {}) {
       tools: [TOOL_PING], tool_choice: { type: 'any' }, messages: [{ role: 'user', content: 'ping' }],
     });
     if (msg && msg.stop_reason === 'refusal') throw new ApiError(502, 'AI_MENOLAK', 'AI menolak permintaan uji karena kebijakan konten penyedia. Coba model lain.');
+    hasil = msg;
     const ok = (msg.content || []).some((b) => b.type === 'tool_use');
     if (!ok) throw new ApiError(502, 'AI_BAD_OUTPUT', 'AI membalas tetapi tidak memanggil alat uji. Model ini mungkin tidak mendukung pemanggilan alat; coba model lain.');
   } catch (e) { throw diagnosaUji(e, r); }
-  return { ok: true, provider: r.provider, model: r.model, ms: Date.now() - t0, sumberKunci: r.sumberKunci, draf: r.draf, catatan: r.catatan };
+  const ms = Date.now() - t0;
+  const berpikir = ms && typeof hasil?.usage?.thoughtsTokenCount === 'number' ? ` Token berpikir: ${hasil.usage.thoughtsTokenCount}.` : '';
+  const catatan = [...(r.catatan || []), `Diagnosa: balasan ${r.model} diterima dalam ${(ms / 1000).toFixed(1)} detik.${berpikir}`];
+  return { ok: true, provider: r.provider, model: r.model, ms, sumberKunci: r.sumberKunci, draf: r.draf, catatan };
 }

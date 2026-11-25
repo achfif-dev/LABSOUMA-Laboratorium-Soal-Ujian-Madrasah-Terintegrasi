@@ -33,6 +33,15 @@ export function toParts(content) {
     : { text: String((b && b.text) ?? '') }));
 }
 
+// Tingkat berpikir Gemini 3.x. Bawaan Google untuk gemini-3.8-flash adalah 'medium' dan model itu memakai banyak token berpikir,
+// sehingga satu panggilan bisa melewati batas waktu. 'low' didukung semua model Gemini 3; 'minimal' DITOLAK oleh gemini-3.8-flash.
+// Ubah lewat environment variable GEMINI_THINKING_LEVEL (low | medium | high); isi lain diabaikan.
+export function thinkingConfigFor(model, env = process.env) {
+  if (!/^gemini-3/.test(String(model || ''))) return undefined;
+  const v = String(env.GEMINI_THINKING_LEVEL || 'low').trim().toLowerCase();
+  return { thinkingLevel: ['low', 'medium', 'high'].includes(v) ? v : 'low' };
+}
+
 const retrySeconds = (json, headers) => {
   const h = Number(headers?.get?.('retry-after'));
   if (Number.isFinite(h) && h > 0) return Math.ceil(h);
@@ -70,7 +79,10 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_0
           tools: cariWeb ? [{ google_search: {} }] : [{ functionDeclarations: tools.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.input_schema) })) }],
           ...(cariWeb ? {} : { toolConfig: { functionCallingConfig: { mode: 'ANY' } } }), // wajib memanggil salah satu alat
           // Model Gemini 3 "berpikir" dulu dan token berpikir ikut dihitung, jadi beri ruang lebih besar.
-          generationConfig: { maxOutputTokens: Math.min(16384, Math.max(Number(max_tokens) || 0, 8192)) },
+          generationConfig: {
+            maxOutputTokens: Math.min(16384, Math.max(Number(max_tokens) || 0, 8192)),
+            ...(thinkingConfigFor(model) ? { thinkingConfig: thinkingConfigFor(model) } : {}),
+          },
         };
         const started = Date.now();
         for (let attempt = 0; ; attempt++) {
@@ -116,7 +128,8 @@ export function createGeminiClient({ apiKey, fetchImpl = fetch, timeoutMs = 45_0
           const calls = parts.filter((p) => p.functionCall).map((p) => ({ type: 'tool_use', name: p.functionCall.name, input: p.functionCall.args || {} }));
           const stop_reason = cand?.finishReason === 'MAX_TOKENS' ? 'max_tokens' : calls.length ? 'tool_use' : 'end_turn';
           const content = calls.length ? calls : parts.filter((p) => p.text && !p.thought).map((p) => ({ type: 'text', text: p.text }));
-          if (!cariWeb) return { stop_reason, content };
+          const usage = json?.usageMetadata; // termasuk thoughtsTokenCount (token berpikir); hanya dilampirkan bila ada
+          if (!cariWeb) return usage ? { stop_reason, content, usage } : { stop_reason, content };
           const gm = cand?.groundingMetadata || {}; // sumber dari penyedia (bukan klaim model): { url, title }
           return { stop_reason, content, sumber: (gm.groundingChunks || []).map((c) => c && c.web).filter(Boolean).map((w) => ({ url: w.uri, title: w.title })), kueri: Array.isArray(gm.webSearchQueries) ? gm.webSearchQueries : [] };
         }
