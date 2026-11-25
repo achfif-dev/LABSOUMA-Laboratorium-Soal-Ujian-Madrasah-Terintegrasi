@@ -9,17 +9,20 @@ import * as DR from './lib/drive.js';
 import { Bt, FALLBACK_CFG, mapelUntuk } from './lib/dasar.js';
 import { kamusBersamaMasuk } from './lib/muatPegon.js';
 import * as DUP from './lib/duplikat.js';
-import { CheckCircle2, CloudUpload, Download, Languages, Library, ListChecks, Loader2, PenLine, Pencil, Trash2, Upload } from 'lucide-react';
+import { BookOpen, CheckCircle2, CloudUpload, Download, Languages, Library, ListChecks, Loader2, PenLine, Pencil, Trash2, Upload } from 'lucide-react';
 import { KreditKaki } from './Merek.jsx';
 import { Empty, KamusCtx, Meta, QuestionView, ROLE_LABEL, RefArab, SaranCtx, Toast, emptyForm, formBeda, formBerisi, normalForm, refText } from './bersama.jsx';
 import { muatGis, tautanDriveAman, ukuranBerkas, waktuLokal } from './driveUi.js';
 import { AppHeader, AppLogo } from './Kepala.jsx';
 import { Compose } from './Compose.jsx';
-import { Export } from './panelMalas.jsx';
+import { Export, lazyPanel } from './panelMalas.jsx';
 import { FokusUjian } from './FokusUjian.jsx';
 import { PegonTab } from './PegonTab.jsx';
 import { BilahPilih, KotakPilih, usePilihan } from './BankTab.jsx';
 import { TeksKitabLipat } from './TeksKitabSorot.jsx';
+import { campurKitab, terapkanKiriman } from './lib/pilihanBaca.js';
+const PembacaKitab = lazyPanel(() => import('./PembacaKitab.jsx')); // pembaca perpustakaan; koreksi dan fitur admin tidak diberikan (bisaKoreksi/bisaAdmin tetap false)
+const TanyaKitab = lazyPanel(() => import('./TanyaKitab.jsx'));
 
 /* ---------- Peran Ustadz ---------- */
 // Alat bantu untuk soal latihan sendiri: susun (dengan AI), Pegonkan, dan ekspor. TIDAK memasang pendengar ke koleksi `soal` (aturan Firestore menolaknya)
@@ -40,12 +43,14 @@ export function AppUstadz({ user, profile }) {
   const db = firebase.firestore();
   const displayName = user.displayName || user.email;
   const drafUid = useRef(null); if (drafUid.current !== user.uid) { Draft.setUser(user.uid); drafUid.current = user.uid; }
-  const ID_TAB = ['compose', 'saya', 'export', 'fokus', 'pegon'];
-  const [tab, setTabRaw] = useState(() => { const h = (window.location.hash || '').slice(1); return ID_TAB.includes(h) ? h : 'compose'; });
+  const ID_TAB = ['compose', 'saya', 'export', 'fokus', 'pegon', 'baca'];
+  const [tab, setTabRaw] = useState(() => { const h = (window.location.hash || '').slice(1).split('/')[0]; return ID_TAB.includes(h) ? h : 'compose'; });
+  const bacaPernah = useRef(false); if (tab === 'baca') bacaPernah.current = true; // pembaca tetap terpasang (posisi baca tidak hilang) setelah pernah dibuka
   const setTab = (id) => { setTabRaw(id); try { window.history.replaceState(null, '', '#' + id); } catch (e) { /* URL tidak bisa diubah */ } };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [saran, setSaran] = useState(null);
+  const [kirimanBaca, setKirimanBaca] = useState(null); // kiriman dari pembaca kitab (alat AI) yang belum dipakai Compose: hasil fakta/analisis dan fokus soal
   const pendingBadge = 0;
 
   // ---- Soal Saya (perangkat ini) ----
@@ -202,6 +207,21 @@ export function AppUstadz({ user, profile }) {
   };
   const saranCtx = { saran, setSaran, pakaiBab };
 
+  // Dari pembaca kitab ke form soal (sama dengan App): teks kitab terpilih masuk Rujukan Kitab; hasil fakta/analisis dan fokus soal dibawa lewat `kirimanBaca`.
+  // Soal TIDAK dibuat otomatis: bentuk dan level dipilih di Penyusunan Soal.
+  const kirimDariBaca = (o) => {
+    const k = o && o.kiriman; if (!k) return;
+    const tambah = !!o.tambah; const sama = form.teks.trim() === k.teks;
+    if (!tambah && !sama && form.teks.trim() && !window.confirm(`Teks Kitab di Penyusunan Soal akan diganti dengan teks dari pembaca${editingId ? ' (soal yang sedang diedit memakai teks rujukan baru)' : ''}. Naskah soal tidak berubah. Lanjutkan?`)) return;
+    if (tambah && campurKitab(form, k) && !window.confirm(`Teks saat ini dari "${form.nama}". Menambahkan teks dari "${k.nama}" mencampur dua kitab dalam satu soal. Lanjutkan?`)) return;
+    const r = terapkanKiriman(form, k, { tambah });
+    if (r.galat) { toast(r.galat); return; }
+    setForm(r.form);
+    setKirimanBaca({ tambah, fk: tambah ? null : o.fk || null, ai: tambah ? null : o.ai || null, ide: o.ide || null, fakta: o.fakta || null });
+    setTab('compose'); window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast(tambah ? 'Teks ditambahkan ke Rujukan Kitab.' : `Teks dimuat ke Rujukan Kitab (hal. ${k.hal}). Pilih bentuk dan level, lalu Generate.`);
+  };
+
   const keluar = () => {
     if (formBerisi(form) && !window.confirm('Isian soal yang belum disimpan akan tetap tersimpan sebagai draf di perangkat ini dan muncul lagi saat Anda masuk. Soal Saya juga tetap ada di perangkat ini. Di komputer bersama, hapus keduanya dulu (tombol Kosongkan dan tab Soal Saya). Tetap keluar?')) return;
     Draft.flush();
@@ -226,6 +246,7 @@ export function AppUstadz({ user, profile }) {
     { id: 'export', label: 'Export/Download', icon: Download },
     { id: 'fokus', label: 'Fokus Ujian & Kisi-kisi', icon: ListChecks },
     { id: 'pegon', label: 'Pegonizer', icon: Languages },
+    { id: 'baca', label: 'Baca Kitab', icon: BookOpen },
   ];
   const aktif = TABS.find((t) => t.id === tab);
 
@@ -280,7 +301,7 @@ export function AppUstadz({ user, profile }) {
         <p role="note" className="mb-4 rounded-xl bg-soft px-4 py-3 text-xs leading-relaxed text-soft-ink">
           <b>Akun Ustadz.</b> Alat bantu untuk soal latihan Anda sendiri. Soal tersimpan <b>hanya di perangkat ini</b> (bukan di server) dan tidak ditelaah editor, jadi periksa sendiri kunci, kutipan, dan haluan bahasanya. Setiap berkas ekspor otomatis diberi catatan “belum ditelaah tim editor”.
         </p>
-        {tab === 'compose' && <Compose key={composeKey} ustadz form={form} setForm={setForm} editingId={editingId} onSave={() => {}} onSend={simpanSoal}
+        {tab === 'compose' && <Compose key={composeKey} ustadz form={form} setForm={setForm} editingId={editingId} onSave={() => {}} onSend={simpanSoal} kiriman={kirimanBaca} onKirimanDipakai={() => setKirimanBaca(null)}
           onReset={() => { if (formBerisi(form) && !window.confirm('Kosongkan seluruh isian soal? Draf otomatis di perangkat ini ikut terhapus.')) return; kosongkanForm(); }} toast={toast} />}
         {tab === 'saya' && (
           <div className="space-y-4">
@@ -292,6 +313,12 @@ export function AppUstadz({ user, profile }) {
         {tab === 'export' && <Export all={semuaQ} toast={toast} />}
         {tab === 'fokus' && <FokusUjian all={semuaQ} toast={toast} />}
         {tab === 'pegon' && <PegonTab toast={toast} />}
+        {bacaPernah.current && (
+          <div hidden={tab !== 'baca'}>
+            <PembacaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} tabAktif={tab === 'baca'} onKirimSoal={kirimDariBaca} katalog={appCfg.kitab} formTerisi={!!form.teks.trim()}
+              konteksSoal={{ tingkat: form.tingkat, mapel: form.mapel, bentuk: form.bentuk, level: form.level }} />
+            <div className="mt-4"><TanyaKitab Btn={Btn} ErrorBox={ErrorBox} callApi={callApi} apiErr={apiErr} /></div>
+          </div>)}
         </CatatanCtx.Provider>
         </SaranCtx.Provider>
         </KamusCtx.Provider>

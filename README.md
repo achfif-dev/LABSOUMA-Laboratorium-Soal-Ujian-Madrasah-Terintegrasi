@@ -33,12 +33,12 @@ Ringkasan keadaan kode di `main` (commit `b901c85`); riwayat tiap audit dan peru
 | Grup | Sub-tab | Siapa |
 |---|---|---|
 | Susun | Penyusunan, Paket Dauri, Pegonizer | staf (Ustadz: Penyusunan dan Pegonizer) |
-| Baca Kitab | pembaca, pencarian isi, Tanya Kitab | staf |
+| Baca Kitab | pembaca, pencarian isi, Tanya Kitab | staf dan Ustadz |
 | Bank Soal | Review (editor, admin), Approved, Manual (Word) | staf |
 | Ujian | Fokus & Kisi-kisi, Export, Analisis Butir | staf (Ustadz: Fokus dan Export untuk soalnya sendiri) |
 | Kelola | Backup Drive (editor, admin); Dasbor, Pengguna, Konfigurasi, Perpustakaan, Pengaturan AI (admin) | sesuai peran |
 
-Ustadz hanya mendapat lima sub-tab: Penyusunan, Soal Saya, Export, Fokus & Kisi-kisi, dan Pegonizer.
+Ustadz hanya mendapat enam sub-tab: Penyusunan, Soal Saya, Export, Fokus & Kisi-kisi, Pegonizer, dan Baca Kitab (pembaca dengan panel AI, kirim ke soal, dan Tanya Kitab; tanpa koreksi teks atau fitur admin).
 
 **Angka terukur** (clone `main`, 24 Nov 2026, Node 22)
 - `npm test`: 1.264 tes, 1.263 lulus, 0 gagal, 1 dilewati (uji berkas nyata Dasuqi; jalankan dengan `KITAB_DASUQI_DOCX=...`). `npm run lint`: 0 error, 160 peringatan (82 `no-unused-vars`, 77 `react-hooks/exhaustive-deps`, 1 lain). Lima peringatan hook (`ui.jsx` 180 dan 182, `bersama.jsx` 90, 129, 143) ditinjau lewat pembacaan kode pada 24 Nov (bukan uji UI) dan tidak tampak menyebabkan perilaku salah; sisanya belum ditriase. `npm run build` lolos.
@@ -146,6 +146,7 @@ Untuk guru yang ingin membuat soal latihan bagi muridnya sendiri tanpa melewati 
 | Menyusun soal, generate AI, telaah, uji jawab buta, saran bab, ambil halaman kitab | Membaca bank soal, soal orang lain, atau kunci jawaban tim |
 | Pegonizer (kamus bersama hanya dibaca), cadangan otomatis Soal Saya ke Drive pribadi | Mengirim ke editor, Review, Backup Drive tim, Pengguna, Dasbor, Konfigurasi, Pengaturan AI |
 | Ekspor dan kisi-kisi dari soalnya sendiri | Mengubah kamus Pegon bersama |
+| Baca Kitab: membaca dan mencari isi perpustakaan, panel AI di pembaca (kuota AI Ustadz), kirim teks ke Penyusunan Soal, Tanya Kitab | Koreksi teks kitab, sunting daftar isi, dan fitur admin perpustakaan |
 
 - **Penyimpanan.** Soal Ustadz **tidak pernah** dikirim ke server atau Firestore. Soal disimpan di browser perangkat itu (tab **Soal Saya**), per akun, tanpa kedaluwarsa, maksimal 500 soal. Tidak ikut pindah perangkat: pakai **Unduh cadangan** (berkas `.json`) dan **Pulihkan dari cadangan**. Di komputer bersama, hapus Soal Saya sebelum keluar.
 - **Catatan wajib.** Setiap ekspor (DOCX di bawah judul dan di kaki halaman, GIFT dan Moodle XML sebagai komentar, CSV sebagai kolom `Catatan`, kisi-kisi) memuat: "Soal latihan buatan ustadz dengan bantuan AI, belum ditelaah tim editor madrasah." Catatan ini menjaga asal-usul soal; ia tidak bisa dipaksakan, karena berkas DOCX dapat disunting.

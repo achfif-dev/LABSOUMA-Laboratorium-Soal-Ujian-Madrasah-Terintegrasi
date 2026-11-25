@@ -209,11 +209,16 @@ const mulai = html.indexOf('function AppUstadz(');
 const akhir = html.indexOf('/* ---------- Backup ke Google Drive');
 const blokUstadz = html.slice(mulai, akhir);
 
-test('AppUstadz: hanya lima tab, tanpa akses ke koleksi soal/users, dan kamus hanya dibaca', () => {
+test('AppUstadz: hanya enam tab, tanpa akses ke koleksi soal/users, dan kamus hanya dibaca', () => {
   assert.ok(mulai > 0 && akhir > mulai);
   const ids = [...blokUstadz.matchAll(/\{ id: '([a-z]+)', label:/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['compose', 'saya', 'export', 'fokus', 'pegon']);
-  assert.match(blokUstadz, /const ID_TAB = \['compose', 'saya', 'export', 'fokus', 'pegon'\];/);
+  assert.deepEqual(ids, ['compose', 'saya', 'export', 'fokus', 'pegon', 'baca']);
+  assert.match(blokUstadz, /const ID_TAB = \['compose', 'saya', 'export', 'fokus', 'pegon', 'baca'\];/);
+  // Baca Kitab: pembaca + panel AI + kirim ke soal + Tanya Kitab (kuota AI kolam Ustadz). Koreksi teks dan fitur admin tidak diberikan.
+  assert.match(blokUstadz, /<PembacaKitab [^>]*tabAktif=\{tab === 'baca'\}[^>]*onKirimSoal=\{kirimDariBaca\}/);
+  assert.match(blokUstadz, /<TanyaKitab /);
+  assert.doesNotMatch(blokUstadz, /<PembacaKitab [^>]*(bisaKoreksi|bisaAdmin)/);
+  assert.match(blokUstadz, /kiriman=\{kirimanBaca\} onKirimanDipakai=/);
   assert.doesNotMatch(blokUstadz, /collection\('soal'\)|collection\('users'\)|doc\('users|\bcol\./, 'tidak boleh membaca atau menulis bank/pengguna');
   assert.doesNotMatch(blokUstadz, /\/api\/(backup|config-backup|ai-config)/);
   assert.doesNotMatch(blokUstadz, /aksi: '(simpan|reset|pulihkan)'/);
