@@ -7,6 +7,13 @@
 #
 # Aman-gagal: bila git tidak bisa membandingkan (mis. commit pertama, clone dangkal), build tetap jalan.
 
+# Build paksa: isi FORCE_BUILD=1 di Vercel (Environment Variables) lalu Redeploy; hapus lagi sesudahnya.
+# Perubahan environment variable TIDAK membuat commit baru, jadi tanpa ini Redeploy dibatalkan skrip ini dan nilai baru tidak pernah dipakai.
+if [ "$FORCE_BUILD" = "1" ]; then
+  echo "FORCE_BUILD=1: build dilanjutkan."
+  exit 1
+fi
+
 # Pembanding: commit terakhir yang BERHASIL di-deploy (VERCEL_GIT_PREVIOUS_SHA, diisi Vercel bila ada Ignored Build Step). Satu push berisi beberapa commit
 # (mis. commit kode lalu commit yang hanya mengubah docs/test) tidak boleh dilewati hanya karena commit TERAKHIR-nya tidak menyentuh kode.
 # Bila tidak ada atau tidak ada di clone (clone dangkal): HEAD^, seperti sebelumnya.
